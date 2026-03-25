@@ -81,6 +81,29 @@ class CodeFact:
         ret = f" -> {self.return_type}" if self.return_type else ""
         return f"{self.name}({params}){ret}"
 
+    def to_dict(self) -> dict:
+        """Serialize to dict with Path objects converted to strings."""
+        return {
+            "name": self.name,
+            "kind": self.kind.value,
+            "source_file": str(self.source_file),
+            "line_number": self.line_number,
+            "parameters": [
+                {
+                    "name": p.name,
+                    "type_annotation": p.type_annotation,
+                    "default": p.default,
+                    "kind": p.kind,
+                }
+                for p in self.parameters
+            ],
+            "return_type": self.return_type,
+            "decorators": self.decorators,
+            "module": self.module,
+            "docstring": self.docstring,
+            "metadata": self.metadata,
+        }
+
 
 @dataclass
 class DocClaim:
@@ -93,6 +116,27 @@ class DocClaim:
     parameters: list[Parameter] = field(default_factory=list)
     return_type: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        """Serialize to dict with Path objects converted to strings."""
+        return {
+            "raw_text": self.raw_text,
+            "kind": self.kind.value,
+            "doc_file": str(self.doc_file),
+            "line_number": self.line_number,
+            "name": self.name,
+            "parameters": [
+                {
+                    "name": p.name,
+                    "type_annotation": p.type_annotation,
+                    "default": p.default,
+                    "kind": p.kind,
+                }
+                for p in self.parameters
+            ],
+            "return_type": self.return_type,
+            "metadata": self.metadata,
+        }
 
 
 @dataclass
