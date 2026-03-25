@@ -25,7 +25,8 @@ def test_help(cli_runner):
 
 
 def test_scan_with_temp_dir(cli_runner, tmp_path):
-    """`drift scan` with a temp directory returns 0."""
+    """`drift scan` with a temp directory returns 0 and shows no drift."""
     result = cli_runner.invoke(main, ["scan", str(tmp_path)])
     assert result.exit_code == 0
-    assert "Scanning" in result.output
+    assert "No drift detected" in result.output
+    assert "0 facts" in result.output

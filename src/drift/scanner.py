@@ -15,6 +15,29 @@ class DriftScanner:
         self.py_extractor = PythonExtractor()
         self.md_extractor = MarkdownExtractor()
         self.matcher = SignatureMatcher()
+        self._ignore_patterns: list[str] = []
+        self._load_driftignore()
+
+    def _load_driftignore(self) -> None:
+        """Load .driftignore patterns from the scanned path."""
+        driftignore_path = self.path / ".driftignore" if self.path.is_dir() else self.path.parent / ".driftignore"
+        if driftignore_path.exists():
+            try:
+                self._ignore_patterns = [
+                    line.strip()
+                    for line in driftignore_path.read_text().splitlines()
+                    if line.strip() and not line.startswith("#")
+                ]
+            except Exception:
+                self._ignore_patterns = []
+
+    def _is_ignored(self, file_path: Path) -> bool:
+        """Return True if the file matches any .driftignore pattern."""
+        import fnmatch
+        for pattern in self._ignore_patterns:
+            if fnmatch.fnmatch(str(file_path), pattern) or fnmatch.fnmatch(file_path.name, pattern):
+                return True
+        return False
 
     def scan(self) -> DriftReport:
         """Scan the path recursively, extract facts and claims, match, return report."""
@@ -34,6 +57,10 @@ class DriftScanner:
         exclude_dirs = {".git", "__pycache__", ".venv", "node_modules", ".tox", ".pytest_cache", ".mypy_cache"}
         py_files = [f for f in py_files if not any(part in exclude_dirs for part in f.parts)]
         md_files = [f for f in md_files if not any(part in exclude_dirs for part in f.parts)]
+
+        # Filter out ignored files
+        py_files = [f for f in py_files if not self._is_ignored(f)]
+        md_files = [f for f in md_files if not self._is_ignored(f)]
 
         # Extract from Python files
         for py_file in py_files:
