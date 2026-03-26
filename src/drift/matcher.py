@@ -151,8 +151,14 @@ class SignatureMatcher:
                     continue
 
                 # Step 2: Fallback — renamed when names are completely different
-                # but signatures match (only for single candidate to avoid ambiguity)
+                # but signatures match (only for single candidate to avoid ambiguity).
+                # If fuzzy name matching was attempted but found nothing (names too
+                # different even for renamed), fall through to documented_but_missing.
                 if claim.kind not in (ClaimKind.CLI_FLAG_REF, ClaimKind.CONFIG_REF, ClaimKind.CLI_USAGE):
+                    # Check whether any fact name shares meaningful character overlap
+                    # with the claim name — if not, skip renamed and go to documented_but_missing.
+                    MIN_NAME_OVERLAP_RATIO = 0.35
+                    renamed_candidate: Optional[CodeFact] = None
                     sig_matches = [
                         f for f in facts
                         if f.name not in matched_fact_names
@@ -160,16 +166,23 @@ class SignatureMatcher:
                         and self._same_signature_structure(f, claim)
                     ]
                     if len(sig_matches) == 1:
-                        renamed_fact = sig_matches[0]
-                        matched_fact_names.add(renamed_fact.name)
+                        candidate = sig_matches[0]
+                        name_ratio = difflib.SequenceMatcher(
+                            None, candidate.name, claim.name
+                        ).ratio()
+                        if name_ratio >= MIN_NAME_OVERLAP_RATIO:
+                            renamed_candidate = candidate
+
+                    if renamed_candidate:
+                        matched_fact_names.add(renamed_candidate.name)
                         drift_items.append(
                             DriftItem(
-                                fact=renamed_fact,
+                                fact=renamed_candidate,
                                 claim=claim,
                                 severity=Severity.ERROR,
                                 category="renamed",
-                                message=f"'{claim.name}' (docs) may have been renamed to '{renamed_fact.name}'",
-                                suggestion=f"Update docs to reference '{renamed_fact.name}'",
+                                message=f"'{claim.name}' (docs) may have been renamed to '{renamed_candidate.name}'",
+                                suggestion=f"Update docs to reference '{renamed_candidate.name}'",
                             )
                         )
                         continue

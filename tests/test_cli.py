@@ -439,3 +439,56 @@ class TestFailOnOption:
         # Plain text, no Rich formatting codes like [/bold cyan]
         assert "[/bold" not in content
 
+
+class TestCheckCommand:
+    """Tests for drift check subcommand."""
+
+    def test_check_no_drift_exits_0(self, cli_runner, tmp_path):
+        """When no drift, check exits with code 0."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def func(): pass\n")
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("func()\n")
+        result = cli_runner.invoke(main, ["check", str(tmp_path)])
+        assert result.exit_code == 0
+
+    def test_check_drift_exits_1(self, cli_runner, tmp_path):
+        """When drift exists, check exits with code 1."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def func(): pass\n")
+        md_file = tmp_path / "docs.md"
+        # Use backticks so the extractor recognizes it as a CODE_EXAMPLE claim
+        md_file.write_text("`other_func()`\n")
+        result = cli_runner.invoke(main, ["check", str(tmp_path)])
+        assert result.exit_code == 1
+
+    def test_check_quiet_flag(self, cli_runner, tmp_path):
+        """--quiet suppresses output but still sets exit code."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def func(): pass\n")
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("func()\n")  # no drift
+        result = cli_runner.invoke(main, ["check", "--quiet", str(tmp_path)])
+        assert result.exit_code == 0
+        assert result.output.strip() == ""  # no output
+
+    def test_check_fail_on_warning_exits_1_on_warning(self, cli_runner, tmp_path):
+        """With --fail-on warning, warnings cause exit code 1."""
+        # This creates a scenario with warnings (fuzzy_renamed, renamed, etc.)
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def old_func(x: int): pass\n")
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("new_func(x: int)\n")  # documented but not in code, warning
+        result = cli_runner.invoke(main, ["check", "--fail-on", "warning", str(tmp_path)])
+        assert result.exit_code == 1
+
+    def test_check_fail_on_error_ignores_warning(self, cli_runner, tmp_path):
+        """With --fail-on error, warnings don't cause exit code 1."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def old_func(): pass\n")
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("old_func()\n")  # exact match, no drift
+        result = cli_runner.invoke(main, ["check", "--fail-on", "error", str(tmp_path)])
+        assert result.exit_code == 0
+
+

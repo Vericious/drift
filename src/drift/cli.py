@@ -299,6 +299,53 @@ def summary(path: str, output_json: bool, config_path: str | None) -> None:
     console.print()
 
 
+@main.command()
+@click.argument("path", type=click.Path(exists=True), default=".")
+@click.option("--fail-on", type=click.Choice(["error", "warning", "none"]),
+              default="error", help="Exit code 1 when drift items at this severity are found.")
+@click.option("--quiet", "-q", is_flag=True, help="Suppress output, only set exit code.")
+def check(path: str, fail_on: str, quiet: bool) -> None:
+    """Check a file or path for documentation drift.
+
+    Targeted, fast check useful for pre-commit hooks.
+    Returns exit code 0 if no drift, 1 if drift found.
+
+    Examples:
+
+        drift check README.md
+        drift check src/
+        git diff --name-only | xargs drift check
+    """
+    import time
+    start = time.monotonic()
+
+    scan_path = Path(path)
+
+    # Run scanner
+    scanner = DriftScanner(scan_path, strict=False)
+    report = scanner.scan()
+    elapsed = time.monotonic() - start
+
+    # Determine if we should fail
+    should_fail = _should_fail_on_severity(report.drift_items, fail_on)
+
+    if not quiet:
+        if not should_fail:
+            click.secho("✓  No drift", fg="green")
+        else:
+            # Show brief inline summary
+            errors = [d for d in report.drift_items if d.severity.value == "error"]
+            warnings = [d for d in report.drift_items if d.severity.value == "warning"]
+            if errors:
+                click.secho(f"✗  {len(errors)} error(s)", fg="red", err=True)
+            if warnings:
+                click.secho(f"⚠  {len(warnings)} warning(s)", fg="yellow", err=True)
+            click.echo(f"Drift detected in {scan_path} ({elapsed:.2f}s)")
+
+    if should_fail:
+        raise SystemExit(1)
+
+
 def _filter_by_severity(items: list[DriftItem], min_severity: str) -> list[DriftItem]:
     """Filter drift items to only those >= min_severity.
 
