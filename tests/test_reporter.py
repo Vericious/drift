@@ -587,3 +587,61 @@ class TestReportSarif:
         reporter = DriftReporter(report, verbose=True)
         parsed = json.loads(reporter.report_sarif(verbose=True, elapsed=2.5))
         assert parsed["runs"][0]["properties"]["scanTimeSeconds"] == 2.5
+
+
+class TestReportHtml:
+    """Tests for report_html()."""
+
+    def test_html_returns_string(self, populated_report):
+        """report_html() returns a string containing HTML."""
+        reporter = DriftReporter(populated_report)
+        output = reporter.report_html()
+        assert isinstance(output, str)
+        assert "<html" in output
+        assert "</html>" in output
+
+    def test_html_has_doctype(self, populated_report):
+        """HTML output starts with <!DOCTYPE html>."""
+        reporter = DriftReporter(populated_report)
+        output = reporter.report_html()
+        assert output.startswith("<!DOCTYPE html>")
+
+    def test_html_has_title(self, populated_report):
+        """HTML output has a Drift Report title."""
+        reporter = DriftReporter(populated_report)
+        output = reporter.report_html()
+        assert "<title>Drift Report" in output
+
+    def test_html_contains_css_inline(self, populated_report):
+        """HTML output has inline CSS, no external dependencies."""
+        reporter = DriftReporter(populated_report)
+        output = reporter.report_html()
+        assert "<style>" in output
+        assert "font-family:" in output
+        # No external CSS links
+        assert 'rel="stylesheet"' not in output
+        assert 'href="http' not in output
+
+    def test_html_shows_errors_when_present(self, populated_report):
+        """HTML shows errors section when drift items have ERROR severity."""
+        reporter = DriftReporter(populated_report)
+        output = reporter.report_html()
+        assert "Errors" in output or "error" in output.lower()
+
+    def test_html_shows_no_drift_on_empty_report(self, empty_report):
+        """Empty report shows 'No drift detected' message."""
+        reporter = DriftReporter(empty_report)
+        output = reporter.report_html()
+        assert "No drift detected" in output
+
+    def test_html_empty_report_no_tables(self, empty_report):
+        """Empty report has no table elements."""
+        reporter = DriftReporter(empty_report)
+        output = reporter.report_html()
+        assert "<table" not in output
+
+    def test_html_has_drift_version(self, populated_report):
+        """HTML footer mentions Drift version."""
+        reporter = DriftReporter(populated_report)
+        output = reporter.report_html()
+        assert "Drift v0.4.0" in output

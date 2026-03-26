@@ -19,8 +19,9 @@ def main() -> None:
 
 @main.command()
 @click.argument("path", type=click.Path(exists=True), default=".")
-@click.option("--json", "output_json", is_flag=True, help="Output as JSON (mutually exclusive with --sarif)")
-@click.option("--sarif", "output_sarif", is_flag=True, help="Output as SARIF v2.1.0 JSON (mutually exclusive with --json)")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON (mutually exclusive with --sarif and --html)")
+@click.option("--sarif", "output_sarif", is_flag=True, help="Output as SARIF v2.1.0 JSON (mutually exclusive with --json and --html)")
+@click.option("--html", "output_html", is_flag=True, help="Output as self-contained HTML (mutually exclusive with --json and --sarif)")
 @click.option("--output", "-o", "output_file", type=click.Path(dir_okay=False), default=None,
               help="Write report to file (in addition to console)")
 @click.option("--config", "config_path", type=click.Path(exists=False), default=None,
@@ -32,7 +33,7 @@ def main() -> None:
 @click.option("--verbose", "-V", is_flag=True, help="Show detailed output including scan timing.")
 @click.option("--fail-on", type=click.Choice(["error", "warning", "info", "none"]),
               default=None, help="Exit code 1 on any drift item at or above this severity (overrides config).")
-def scan(path: str, output_json: bool, output_sarif: bool, output_file: str | None, config_path: str | None, strict: bool, severity: str, verbose: bool, fail_on: str | None) -> None:
+def scan(path: str, output_json: bool, output_sarif: bool, output_html: bool, output_file: str | None, config_path: str | None, strict: bool, severity: str, verbose: bool, fail_on: str | None) -> None:
     """Scan a project for documentation drift."""
     import time
     start = time.monotonic()
@@ -46,14 +47,17 @@ def scan(path: str, output_json: bool, output_sarif: bool, output_file: str | No
     except ValueError as e:
         raise click.ClickException(str(e)) from e
 
-    # CLI --json or --sarif flag overrides config
-    # --json and --sarif are mutually exclusive
-    if output_json and output_sarif:
-        raise click.ClickException("--json and --sarif cannot be used together.")
+    # CLI --json, --sarif, or --html flag overrides config
+    # --json, --sarif, and --html are mutually exclusive
+    flag_count = sum(1 for f in [output_json, output_sarif, output_html] if f)
+    if flag_count > 1:
+        raise click.ClickException("--json, --sarif, and --html cannot be used together.")
     if output_json:
         output_format = "json"
     elif output_sarif:
         output_format = "sarif"
+    elif output_html:
+        output_format = "html"
     else:
         output_format = config.output_format
 
@@ -78,6 +82,9 @@ def scan(path: str, output_json: bool, output_sarif: bool, output_file: str | No
         click.echo(output_content)
     elif output_format == "sarif":
         output_content = reporter.report_sarif(verbose=verbose, elapsed=elapsed)
+        click.echo(output_content)
+    elif output_format == "html":
+        output_content = reporter.report_html(verbose=verbose, elapsed=elapsed)
         click.echo(output_content)
     else:
         # For text output, capture to file without Rich formatting
