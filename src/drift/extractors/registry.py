@@ -43,3 +43,4 @@ def _discover_extractors() -> None:
     from drift.extractors import env_vars  # noqa: F401
     from drift.extractors import dataclass_fields  # noqa: F401
     from drift.extractors import rst_docs  # noqa: F401
+    from drift.extractors import openapi  # noqa: F401
