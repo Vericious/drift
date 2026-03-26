@@ -108,3 +108,144 @@ def test_scanner_empty_dir() -> None:
         report = scanner.scan()
         assert isinstance(report, DriftReport)
         assert report.has_drift is False
+
+
+class TestCLIFlagScannerIntegration:
+    """Integration tests for CLI flag drift via the scanner pipeline."""
+
+    def test_argparse_flag_documented_in_markdown_table_no_drift(self, tmp_path: Path) -> None:
+        """CLI flag in argparse + documented in markdown table → no drift."""
+        py_file = tmp_path / "cli.py"
+        py_file.write_text(
+            "import argparse\n"
+            "parser = argparse.ArgumentParser()\n"
+            "parser.add_argument('--verbose', '-v', action='store_true')\n"
+            "parser.add_argument('--output', '-o', type=str, default='out.txt')\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# CLI Reference\n\n"
+            "| Flag | Type | Default | Description |\n"
+            "|------|------|---------|-------------|\n"
+            "| -v, --verbose | bool | false | Verbose output |\n"
+            "| -o, --output | string | out.txt | Output file |\n"
+        )
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        cli_facts = [f for f in report.facts if f.kind.value == "cli_flag"]
+        cli_claims = [c for c in report.claims if c.kind.value == "cli_flag_ref"]
+
+        # Both --verbose and --output should be extracted from code
+        assert len(cli_facts) == 2
+        # Both should be documented in the table (--verbose and --v, --output and -o each count)
+        assert len(cli_claims) >= 2
+        # No drift
+        assert report.has_drift is False
+
+    def test_argparse_flag_undocumented_in_table_detected(self, tmp_path: Path) -> None:
+        """CLI flag in argparse but not documented → undocumented drift."""
+        py_file = tmp_path / "cli.py"
+        py_file.write_text(
+            "import argparse\n"
+            "parser = argparse.ArgumentParser()\n"
+            "parser.add_argument('--verbose', '-v', action='store_true')\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# CLI Reference\n\n"
+            "| Flag | Type |\n"
+            "|------|------|\n"
+            "| --other | bool |\n"  # --other is documented but not in code
+        )
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # --verbose is undocumented (error), --other is documented-but-missing (error)
+        assert report.has_drift is True
+        cli_drift = [d for d in report.drift_items if d.category in ("undocumented", "documented_but_missing")]
+        assert len(cli_drift) == 2
+
+    def test_click_flag_documented_in_markdown_table_no_drift(self, tmp_path: Path) -> None:
+        """Click CLI option documented in markdown table → no drift."""
+        py_file = tmp_path / "cli.py"
+        py_file.write_text(
+            "import click\n"
+            "@click.command()\n"
+            "@click.option('--format', '-f', type=click.Choice(['json', 'text']), default='text')\n"
+            "def cli(format):\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# CLI Reference\n\n"
+            "| Short | Flag | Type | Default |\n"
+            "|-------|------|------|--------|\n"
+            "| -f | --format | choice | text |\n"
+        )
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        cli_facts = [f for f in report.facts if f.kind.value == "cli_flag"]
+        assert len(cli_facts) == 1
+        assert report.has_drift is False
+
+    def test_mixed_argparse_and_click_table_documentation(self, tmp_path: Path) -> None:
+        """Both argparse and click flags documented in tables work together."""
+        py_file = tmp_path / "cli.py"
+        py_file.write_text(
+            "import argparse\n"
+            "import click\n"
+            "parser = argparse.ArgumentParser()\n"
+            "parser.add_argument('--count', type=int, default=0)\n"
+            "@click.command()\n"
+            "@click.option('--verbose', '-v', is_flag=True)\n"
+            "def cli(verbose):\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# CLI Reference\n\n"
+            "| Flag | Type | Default |\n"
+            "|------|------|--------|\n"
+            "| --count | int | 0 |\n"
+            "| -v, --verbose | bool | false |\n"
+        )
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        cli_facts = [f for f in report.facts if f.kind.value == "cli_flag"]
+        cli_claims = [c for c in report.claims if c.kind.value == "cli_flag_ref"]
+
+        # Both argparse (--count) and click (--verbose) should be extracted
+        assert len(cli_facts) == 2
+        # Both documented in the table (comma-separated -v, --verbose counts as 2 claims)
+        assert len(cli_claims) >= 2
+        assert report.has_drift is False
+
+    def test_table_flag_extracted_with_default_value(self, tmp_path: Path) -> None:
+        """Markdown table flag with default value is extracted correctly."""
+        py_file = tmp_path / "cli.py"
+        py_file.write_text(
+            "import argparse\n"
+            "parser = argparse.ArgumentParser()\n"
+            "parser.add_argument('--port', type=int, default=8080)\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "| Flag | Default |\n"
+            "|------|---------|\n"
+            "| --port | 8080 |\n"
+        )
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        cli_claims = [c for c in report.claims if c.kind.value == "cli_flag_ref"]
+        assert len(cli_claims) == 1
+        assert cli_claims[0].name == "--port"
+        assert cli_claims[0].metadata.get("default") == "8080"

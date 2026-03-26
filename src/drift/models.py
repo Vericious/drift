@@ -27,6 +27,7 @@ class ClaimKind(Enum):
     PARAMETER_DESCRIPTION = "parameter_description"
     RETURN_DESCRIPTION = "return_description"
     CLI_USAGE = "cli_usage"
+    CLI_FLAG_REF = "cli_flag_ref"
 
 
 class Severity(Enum):

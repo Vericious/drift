@@ -15,7 +15,7 @@ def test_version(cli_runner):
     """`drift --version` returns 0 and contains version string."""
     result = cli_runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.2.0" in result.output
+    assert "0.3.0" in result.output
 
 
 def test_help(cli_runner):

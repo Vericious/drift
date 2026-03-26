@@ -89,8 +89,13 @@ class DriftReporter:
             loc = "unknown"
 
         name = (item.fact.name if item.fact else item.claim.name if item.claim else "?")
-        from rich.markup import escape as _escape
-        self.console.print(f"  [bold {color}][{_escape(loc)}][/bold {color}] {name}: {item.category}")
+        from rich.text import Text
+        t = Text.assemble(
+            ("  [", f"bold {color}"),
+            (loc, ""),
+            (f"][/bold {color}] {name}: {item.category}", f"bold {color}"),
+        )
+        self.console.print(t)
 
         # Show fact signature if available
         if item.fact:

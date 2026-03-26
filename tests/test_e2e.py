@@ -211,3 +211,136 @@ class TestDriftIgnore:
         # Since README_old.md is ignored (matches README*.md) and good_docs.md is correct,
         # no drift should be found
         assert result.returncode == 0, f"Expected 0 (ignored), got {result.returncode}\nstdout: {result.stdout}"
+
+
+class TestCLIFlagDrift:
+    """Integration tests for CLI flag drift detection (argparse + click)."""
+
+    def test_argparse_flags_matching_docs_no_drift(self, tmp_path: Path) -> None:
+        """Argparse CLI flags that are documented in bash block produce no drift."""
+        py_file = tmp_path / "cli.py"
+        py_file.write_text(
+            "import argparse\n"
+            "parser = argparse.ArgumentParser()\n"
+            "parser.add_argument('--verbose', '-v', action='store_true')\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "```bash\n"
+            "$ mycli --verbose\n"
+            "$ mycli --help\n"
+            "```\n"
+        )
+
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"Expected 0, got {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+
+    def test_argparse_undocumented_flag_detected(self, tmp_path: Path) -> None:
+        """Argparse CLI flag that exists in code but not in docs is detected."""
+        py_file = tmp_path / "cli.py"
+        py_file.write_text(
+            "import argparse\n"
+            "parser = argparse.ArgumentParser()\n"
+            "parser.add_argument('--verbose', '-v', action='store_true')\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "```bash\n"
+            "$ mycli --help\n"
+            "```\n"
+        )
+
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+        # Undocumented flag should cause drift (warning or error)
+        assert result.returncode != 0, f"Expected drift, got 0\nstdout: {result.stdout}"
+
+    def test_click_flags_matching_docs_no_drift(self, tmp_path: Path) -> None:
+        """Click CLI flags documented in bash block produce no drift."""
+        py_file = tmp_path / "cli.py"
+        py_file.write_text(
+            "import click\n"
+            "@click.command()\n"
+            "@click.option('--format', '-f', type=click.Choice(['json', 'text']))\n"
+            "def cli(format):\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "```bash\n"
+            "$ mycli --format json\n"
+            "$ mycli -f text\n"
+            "```\n"
+        )
+
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"Expected 0, got {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+
+    def test_document_but_missing_flag_detected(self, tmp_path: Path) -> None:
+        """Flag documented but not in code is detected as error."""
+        py_file = tmp_path / "cli.py"
+        py_file.write_text(
+            "import argparse\n"
+            "parser = argparse.ArgumentParser()\n"
+            "parser.add_argument('--output', '-o')\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "```bash\n"
+            "$ mycli --verbose\n"
+            "$ mycli --output out.txt\n"
+            "```\n"
+        )
+
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+        # --verbose is documented but missing in code
+        assert result.returncode != 0, f"Expected drift, got 0\nstdout: {result.stdout}"
+
+    def test_argparse_and_click_both_extracted(self, tmp_path: Path) -> None:
+        """Both argparse and click CLI flags are extracted from the same file."""
+        py_file = tmp_path / "cli.py"
+        py_file.write_text(
+            "import argparse\n"
+            "import click\n"
+            "parser = argparse.ArgumentParser()\n"
+            "parser.add_argument('--count', type=int)\n"
+            "@click.command()\n"
+            "@click.option('--verbose', '-v', is_flag=True)\n"
+            "def cli(verbose):\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "README.md"
+        # Don't document --count and --verbose so they appear as undocumented CLI flags
+        md_file.write_text(
+            "```bash\n"
+            "$ mycli --help\n"
+            "```\n"
+        )
+
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path), "--json"],
+            capture_output=True,
+            text=True,
+        )
+        import json
+        data = json.loads(result.stdout)
+        # Both --count (argparse) and --verbose (click) should be extracted.
+        # Since they're undocumented, they appear as CLI_FLAG drift items (ERROR severity).
+        cli_drift_items = [d for d in data["drift_items"] if d.get("fact", {}).get("kind") == "cli_flag"]
+        assert len(cli_drift_items) >= 2, f"Expected >=2 CLI drift items, got {len(cli_drift_items)}: {data['drift_items']}"
+

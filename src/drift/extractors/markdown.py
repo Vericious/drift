@@ -30,8 +30,18 @@ _INLINE_CODE_RE = re.compile(r'`([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^`]*`')
 # Pattern for CLI usage: $ command or just command at start of line
 _CLI_RE = re.compile(r'^\$\s+(\S+)(?:\s+(.+))?$|^(?:^|\n)([a-zA-Z_][a-zA-Z0-9_-]*)\s+(?:scan|run|exec|check)')
 
+# Pattern for CLI flags in documentation:
+# --flag or -f (with optional =value)
+_CLI_FLAG_PATTERN = re.compile(r'(--[a-zA-Z0-9_-]+|-[a-zA-Z])(?:[=:\s][^`\s]*)?')
+
 # Simple backtick inline: `code`
 _SIMPLE_BACKTICK_RE = re.compile(r'`([^`]+)`')
+
+# Pattern for a markdown table row separator: |---|---|
+_TABLE_SEP_RE = re.compile(r'^\|[\s|-]+\|[\s|-]+\|$')
+
+# Pattern to find a CLI flag in a table cell: --flag or -f (with optional value)
+_TABLE_FLAG_RE = re.compile(r'^(-{1,2}[a-zA-Z0-9_-]+)(?:\s*=\s*(\S+))?$')
 
 
 class MarkdownExtractor:
@@ -57,6 +67,12 @@ class MarkdownExtractor:
 
         # Extract CLI usage patterns
         claims.extend(self._extract_cli_usage(content, lines, path))
+
+        # Extract CLI flag references from bash/shell code blocks
+        claims.extend(self._extract_cli_flag_refs(content, lines, path))
+
+        # Extract CLI flag references from markdown tables
+        claims.extend(self._extract_cli_flags_from_tables(content, lines, path))
 
         return claims
 
@@ -291,5 +307,158 @@ class MarkdownExtractor:
                         metadata={'args': args_str, 'action': action},
                     )
                     claims.append(claim)
+
+        return claims
+
+    def _extract_cli_flag_refs(self, content: str, lines: list[str], path: Path) -> list[DocClaim]:
+        """Extract CLI flag references from bash/shell code blocks and inline text."""
+        claims = []
+        in_shell_block = False
+        seen: set[tuple[int, str]] = set()
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+
+            # Track shell/bash code blocks
+            if stripped.startswith('```'):
+                lang = stripped.lstrip('`').strip().lower()
+                if lang in ('bash', 'shell', 'sh', 'zsh', ''):
+                    in_shell_block = not in_shell_block
+                continue
+
+            if in_shell_block:
+                # Extract flags from shell code block lines
+                self._extract_flags_from_line(line, i + 1, path, claims, seen)
+                continue
+
+            # Also extract from plain lines that look like usage/documentation
+            # Only flag lines that look like command invocations
+            if stripped.startswith('$') or stripped.startswith('>'):
+                self._extract_flags_from_line(line, i + 1, path, claims, seen)
+
+        return claims
+
+    def _extract_flags_from_line(
+        self, line: str, line_number: int, path: Path,
+        claims: list, seen: set
+    ) -> None:
+        """Extract CLI flag references from a single line."""
+        for match in _CLI_FLAG_PATTERN.finditer(line):
+            flag = match.group(1)
+            key = (line_number, flag)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            # Extract associated value if present (e.g. --flag=value)
+            rest = match.group(0)[len(flag):].strip()
+            default = None
+            if rest.startswith('=') or rest.startswith(':'):
+                default = rest.lstrip('=:').strip().strip('"\'')
+
+            claim = DocClaim(
+                raw_text=flag,
+                kind=ClaimKind.CLI_FLAG_REF,
+                doc_file=path,
+                line_number=line_number,
+                name=flag,
+                metadata={} if default is None else {'default': default},
+            )
+            claims.append(claim)
+
+    def _extract_cli_flags_from_tables(
+        self, content: str, lines: list[str], path: Path
+    ) -> list[DocClaim]:
+        """Extract CLI flag references from markdown tables.
+
+        Looks for tables whose rows contain --flag or -f style entries in any column.
+        Handles:
+        - Single flags: --verbose
+        - Comma-separated flags: -v, --verbose
+        - Flags with inline defaults: --port=8080
+        - Defaults in separate columns (looked up by header proximity)
+        """
+        claims = []
+        seen: set[tuple[int, str]] = set()
+
+        # First pass: build a map of header column indices that look like "default" or "Default"
+        header_line = -1
+        default_col_indices: set[int] = set()
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+
+            if not stripped.startswith('|'):
+                i += 1
+                continue
+
+            cells = [c.strip() for c in stripped.split('|')[1:-1]]
+            if not cells:
+                i += 1
+                continue
+
+            # Detect separator row — skip it
+            if _TABLE_SEP_RE.match(stripped):
+                i += 1
+                continue
+
+            # First row with non-separator content: treat as header
+            if header_line == -1:
+                header_line = i
+                for idx, cell in enumerate(cells):
+                    cell_lower = cell.lower()
+                    if 'default' in cell_lower or 'dflt' in cell_lower:
+                        default_col_indices.add(idx)
+                i += 1
+                continue
+
+            # Data row — scan for flags in all cells
+            for idx, cell in enumerate(cells):
+                # Skip cells that are plain default values (not flag cells)
+                # unless they are in the default column AND adjacent to a flag cell
+                if not cell.startswith('-') and not cell.startswith('`'):
+                    continue
+
+                # Handle comma-separated flags: "-v, --verbose" or "-v, --verbose=8080"
+                parts = [p.strip() for p in cell.split(',')]
+                for part in parts:
+                    flag_match = _TABLE_FLAG_RE.match(part)
+                    if flag_match:
+                        flag_name = flag_match.group(1)
+                        default = flag_match.group(2)
+
+                        # If no inline default, try to find it in a default-value column
+                        # on the same row (adjacent or nearby cell)
+                        if default is None and default_col_indices:
+                            for dc_idx in default_col_indices:
+                                if dc_idx < len(cells) and dc_idx != idx:
+                                    potential_default = cells[dc_idx]
+                                    # Skip if it looks like another flag
+                                    if potential_default and not potential_default.startswith('-'):
+                                        default = potential_default
+                                        break
+
+                        key = (i + 1, flag_name)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+
+                        metadata = {}
+                        if default:
+                            metadata['default'] = default
+
+                        claim = DocClaim(
+                            raw_text=flag_name,
+                            kind=ClaimKind.CLI_FLAG_REF,
+                            doc_file=path,
+                            line_number=i + 1,
+                            name=flag_name,
+                            metadata=metadata,
+                        )
+                        claims.append(claim)
+
+            i += 1
 
         return claims

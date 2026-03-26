@@ -5,9 +5,11 @@ from pathlib import Path
 
 from drift.models import (
     CodeFact,
+    ClaimKind,
     DocClaim,
     DriftItem,
     DriftReport,
+    FactKind,
     Parameter,
     Severity,
 )
@@ -21,6 +23,24 @@ class SignatureMatcher:
         fact_param_names = {p.name for p in fact.parameters}
         claim_param_names = {p.name for p in claim.parameters}
         return fact_param_names == claim_param_names
+
+    def _cli_flag_matches(self, fact: CodeFact, claim: DocClaim) -> bool:
+        """Return True if a CLI_FLAG fact matches a CLI_FLAG_REF claim.
+        
+        CLI flags match by exact name (e.g., '--verbose' matches '--verbose')
+        or by short flag (e.g., claim '-f' matches fact '--format' with short_flag='-f').
+        No parameter comparison needed — the flag's type/default are in the fact's
+        metadata, not in its parameter list.
+        """
+        if fact.kind != FactKind.CLI_FLAG or claim.kind != ClaimKind.CLI_FLAG_REF:
+            return False
+        # Exact name match
+        if fact.name == claim.name:
+            return True
+        # Short flag match: claim name is the fact's short flag
+        if claim.name.startswith("-") and fact.metadata.get("short_flag") == claim.name:
+            return True
+        return False
 
     def match(self, facts: list[CodeFact], claims: list[DocClaim]) -> list[DriftItem]:
         """Match facts against claims and return drift items."""
@@ -40,6 +60,22 @@ class SignatureMatcher:
             if claim.name is None:
                 continue
 
+            # Special case: CLI_FLAG facts match CLI_FLAG_REF claims by exact name
+            # (no parameter comparison needed for CLI flags).
+            # Also handle short flag lookup: if claim is `-f` and fact is `--format`
+            # with short_flag='-f', treat as a match.
+            if claim.kind == ClaimKind.CLI_FLAG_REF:
+                cli_fact = facts_by_qualified.get(claim.name)
+                if cli_fact is None and claim.name.startswith("-"):
+                    # Try short flag lookup: find a CLI_FLAG fact whose short_flag matches
+                    for f in facts:
+                        if f.kind == FactKind.CLI_FLAG and f.metadata.get("short_flag") == claim.name:
+                            cli_fact = f
+                            break
+                if cli_fact is not None and self._cli_flag_matches(cli_fact, claim):
+                    matched_fact_names.add(cli_fact.name)
+                    continue
+
             # Try exact qualified name match first
             fact = facts_by_qualified.get(claim.name)
 
@@ -52,9 +88,10 @@ class SignatureMatcher:
 
             if fact is None:
                 # Try to find by signature similarity (might be renamed)
+                # But CLI_FLAG facts are not valid rename candidates for non-CLI claims
                 renamed_fact = None
                 for f in facts:
-                    if f.name not in matched_fact_names:
+                    if f.name not in matched_fact_names and f.kind != FactKind.CLI_FLAG:
                         if self._same_signature_structure(f, claim):
                             renamed_fact = f
                             break
@@ -74,20 +111,33 @@ class SignatureMatcher:
                     # Skip further comparison for renamed — names differ, params matched
                     continue
 
-                # Documented but missing
-                drift_items.append(
-                    DriftItem(
-                        fact=None,
-                        claim=claim,
-                        severity=Severity.ERROR,
-                        category="documented_but_missing",
-                        message=f"'{claim.name}' is documented but not found in code",
-                        suggestion=f"Add implementation for '{claim.name}' or update docs",
+                # Documented but missing — but CLI_USAGE claims don't need a direct
+                # function match; they document CLI invocations (e.g., `$ mycli --flag`)
+                # which may be implemented via argparse without a named function.
+                # Also skip --help and --version for CLI_FLAG_REF claims since these
+                # are implicit in argparse and not explicitly defined in add_argument().
+                if claim.kind == ClaimKind.CLI_FLAG_REF and claim.name in ("--help", "--version"):
+                    # Skip — implicit argparse flags that aren't explicitly defined
+                    continue
+                if claim.kind != ClaimKind.CLI_USAGE:
+                    drift_items.append(
+                        DriftItem(
+                            fact=None,
+                            claim=claim,
+                            severity=Severity.ERROR,
+                            category="documented_but_missing",
+                            message=f"'{claim.name}' is documented but not found in code",
+                            suggestion=f"Add implementation for '{claim.name}' or update docs",
+                        )
                     )
-                )
                 continue
 
             matched_fact_names.add(fact.name)
+
+            # Special case: CLI_FLAG facts vs CLI_FLAG_REF claims — no parameter comparison needed.
+            # The flag is documented, that's what matters. Skip the function-signature comparison.
+            if fact.kind == FactKind.CLI_FLAG and claim.kind == ClaimKind.CLI_FLAG_REF:
+                continue
 
             # Compare parameters
             fact_params = {p.name: p for p in fact.parameters}
@@ -166,11 +216,13 @@ class SignatureMatcher:
         # Undocumented — fact exists but no matching claim
         for fact in facts:
             if fact.name not in matched_fact_names:
+                # CLI flags are more serious: undocumented flags are errors, not warnings
+                severity = Severity.ERROR if fact.kind == FactKind.CLI_FLAG else Severity.WARNING
                 drift_items.append(
                     DriftItem(
                         fact=fact,
                         claim=None,
-                        severity=Severity.WARNING,
+                        severity=severity,
                         category="undocumented",
                         message=f"'{fact.name}' exists in code but is not documented",
                         suggestion=f"Add documentation for {fact.name}",

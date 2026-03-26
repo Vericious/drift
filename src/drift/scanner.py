@@ -5,6 +5,8 @@ from drift.models import CodeFact, DocClaim, DriftReport
 from drift.python_extractor import PythonExtractor
 from drift.extractors.markdown import MarkdownExtractor
 from drift.extractors.docstring import DocstringExtractor
+from drift.extractors.cli_argparse import ArgparseExtractor
+from drift.extractors.cli_click import ClickExtractor
 from drift.matcher import SignatureMatcher
 
 
@@ -16,6 +18,8 @@ class DriftScanner:
         self.py_extractor = PythonExtractor()
         self.md_extractor = MarkdownExtractor()
         self.docstring_extractor = DocstringExtractor()
+        self.argparse_extractor = ArgparseExtractor()
+        self.click_extractor = ClickExtractor()
         self.matcher = SignatureMatcher()
         self._ignore_patterns: list[str] = []
         self._load_driftignore()
@@ -71,6 +75,20 @@ class DriftScanner:
                 all_facts.extend(facts)
             except Exception as e:
                 errors.append(f"Error reading {py_file}: {e}")
+
+        # Extract CLI facts from Python files using argparse and click extractors
+        for py_file in py_files:
+            try:
+                cli_facts = self.argparse_extractor.extract(py_file)
+                all_facts.extend(cli_facts)
+            except Exception as e:
+                errors.append(f"Error reading CLI args in {py_file}: {e}")
+
+            try:
+                click_facts = self.click_extractor.extract(py_file)
+                all_facts.extend(click_facts)
+            except Exception as e:
+                errors.append(f"Error reading click CLI in {py_file}: {e}")
 
         # Extract docstring claims from Python files
         for py_file in py_files:
