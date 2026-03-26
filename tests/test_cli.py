@@ -152,3 +152,207 @@ class TestVerboseFlag:
         result = cli_runner.invoke(main, ["scan", "-V", str(tmp_path)])
         assert result.exit_code == 0
         assert "s" in result.output  # timing in seconds
+
+
+class TestInitCommand:
+    """Tests for `drift init` command."""
+
+    def test_init_creates_file(self, cli_runner):
+        """`drift init` creates .drift.toml in CWD."""
+        with cli_runner.isolated_filesystem() as tmp_dir:
+            result = cli_runner.invoke(main, ["init"])
+            config_path = Path(tmp_dir) / ".drift.toml"
+            assert result.exit_code == 0
+            assert config_path.exists()
+
+    def test_init_refuses_overwrite(self, cli_runner):
+        """`drift init` refuses to overwrite existing .drift.toml."""
+        with cli_runner.isolated_filesystem() as tmp_dir:
+            (Path(tmp_dir) / ".drift.toml").write_text("threshold = 1.0\n")
+            result = cli_runner.invoke(main, ["init"])
+            assert result.exit_code != 0
+            assert "already exists" in result.output
+
+    def test_init_force_overwrites(self, cli_runner):
+        """`drift init --force` overwrites existing .drift.toml."""
+        with cli_runner.isolated_filesystem() as tmp_dir:
+            config_path = Path(tmp_dir) / ".drift.toml"
+            config_path.write_text("threshold = 1.0\n")
+            result = cli_runner.invoke(main, ["init", "--force"])
+            assert result.exit_code == 0
+            assert "Created" in result.output
+            content = config_path.read_text()
+            assert "threshold = 0.0" in content
+
+    def test_init_creates_valid_toml(self, cli_runner):
+        """`drift init` creates valid TOML with required keys."""
+        with cli_runner.isolated_filesystem() as tmp_dir:
+            result = cli_runner.invoke(main, ["init"])
+            assert result.exit_code == 0
+            config_path = Path(tmp_dir) / ".drift.toml"
+            content = config_path.read_text()
+            import tomllib
+            data = tomllib.loads(content)
+            assert "ignore_patterns" in data
+            assert "threshold" in data
+            assert "output_format" in data
+            assert data["threshold"] == 0.0
+            assert data["output_format"] == "text"
+            assert isinstance(data["ignore_patterns"], list)
+
+
+class TestSummaryCommand:
+    """Tests for `drift summary` command."""
+
+    def test_summary_runs_without_error(self, cli_runner, tmp_path):
+        """`drift summary` runs without error and produces output."""
+        result = cli_runner.invoke(main, ["summary", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Files scanned" in result.output
+        assert "Health score" in result.output
+
+    def test_summary_json_output_valid(self, cli_runner, tmp_path):
+        """`drift summary --json` produces valid JSON with required keys."""
+        result = cli_runner.invoke(main, ["summary", "--json", str(tmp_path)])
+        assert result.exit_code == 0
+        import json
+        data = json.loads(result.output)
+        assert "files_scanned" in data
+        assert "code_facts" in data
+        assert "doc_claims" in data
+        assert "drift_items" in data
+        assert "errors" in data
+        assert "warnings" in data
+        assert "health_score" in data
+        assert isinstance(data["health_score"], (int, float))
+
+    def test_summary_health_score_correct_no_drift(self, cli_runner, tmp_path):
+        """Health score is 100% when nothing is documented (no claims)."""
+        result = cli_runner.invoke(main, ["summary", "--json", str(tmp_path)])
+        assert result.exit_code == 0
+        import json
+        data = json.loads(result.output)
+        # No files means no claims → health = 100%
+        assert data["health_score"] == 100.0
+
+    def test_summary_health_score_correct_with_undocumented(self, cli_runner, tmp_path):
+        """Health score reflects undocumented items."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented(x: int) -> str:\n"
+            "    '''Doc.'''\n"
+            "    return str(x)\n"
+            "\n"
+            "def undocumented(x: int) -> str:\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API\n\n## documented\n\n```python\ndef documented(x: int) -> str\n```\n"
+        )
+        result = cli_runner.invoke(main, ["summary", "--json", str(tmp_path)])
+        assert result.exit_code == 0
+        import json
+        data = json.loads(result.output)
+        # 1 documented claim (documented_func) → health = 100%
+        # 1 undocumented fact → not in claims, so health = 100% of claims = 100%
+        assert data["doc_claims"] == 1
+        assert data["health_score"] == 100.0
+
+
+class TestFailOnOption:
+    """Tests for --fail-on CLI option."""
+
+    def _make_project_with_errors_and_warnings(self, tmp_path: Path) -> None:
+        """Create a project with drift items at multiple severity levels."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int, y: str = 'hello') -> bool:\n"
+            "    '''Documented function.'''\n"
+            "    pass\n"
+            "\n"
+            "def undocumented_func(a: int, b: int) -> None:\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## documented_func\n"
+            "\n"
+            "```python\n"
+            "def documented_func(x: int, y: str = 'hello') -> bool\n"
+            "```\n"
+            "\n"
+            "## fake_function\n"
+            "\n"
+            "```python\n"
+            "def fake_function(a: int, b: int) -> None\n"
+            "```\n"
+        )
+
+    def test_fail_on_error_exits_1_with_errors(self, cli_runner, tmp_path):
+        """--fail-on error exits 1 when errors are present."""
+        self._make_project_with_errors_and_warnings(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "--fail-on", "error", str(tmp_path)])
+        assert result.exit_code == 1
+
+    def test_fail_on_error_exits_0_without_errors(self, cli_runner, tmp_path):
+        """--fail-on error exits 0 when only warnings/info present."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int) -> str:\n"
+            "    '''Documented.'''\n"
+            "    return str(x)\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n\n## documented_func\n\n```python\n"
+            "def documented_func(x: int) -> str\n```\n"
+        )
+        result = cli_runner.invoke(main, ["scan", "--fail-on", "error", str(tmp_path)])
+        assert result.exit_code == 0
+
+    def test_fail_on_warning_exits_1_with_warnings(self, cli_runner, tmp_path):
+        """--fail-on warning exits 1 when warnings or errors are present."""
+        self._make_project_with_errors_and_warnings(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "--fail-on", "warning", str(tmp_path)])
+        assert result.exit_code == 1
+
+    def test_fail_on_info_exits_1_with_any_drift(self, cli_runner, tmp_path):
+        """--fail-on info exits 1 when any drift items are present."""
+        self._make_project_with_errors_and_warnings(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "--fail-on", "info", str(tmp_path)])
+        assert result.exit_code == 1
+
+    def test_fail_on_none_always_exits_0(self, cli_runner, tmp_path):
+        """--fail-on none always exits 0 regardless of drift."""
+        self._make_project_with_errors_and_warnings(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "--fail-on", "none", str(tmp_path)])
+        assert result.exit_code == 0
+
+    def test_fail_on_none_shows_drift_in_output(self, cli_runner, tmp_path):
+        """--fail-on none still shows drift in output (info-only mode)."""
+        self._make_project_with_errors_and_warnings(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "--fail-on", "none", str(tmp_path)])
+        assert result.exit_code == 0
+        # Check that drift is still reported even with exit 0
+        assert "renamed" in result.output or "drift" in result.output.lower()
+
+    def test_fail_on_overrides_config(self, cli_runner, tmp_path):
+        """CLI --fail-on overrides config file setting."""
+        self._make_project_with_errors_and_warnings(tmp_path)
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text("fail_on = \"error\"\n")
+        # Override with --fail-on none
+        result = cli_runner.invoke(
+            main,
+            ["scan", "--config", str(config_file), "--fail-on", "none", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+
+    def test_fail_on_default_is_error(self, cli_runner, tmp_path):
+        """Default fail_on behavior is 'error' (backward compatible)."""
+        self._make_project_with_errors_and_warnings(tmp_path)
+        result = cli_runner.invoke(main, ["scan", str(tmp_path)])
+        assert result.exit_code == 1  # default is error level

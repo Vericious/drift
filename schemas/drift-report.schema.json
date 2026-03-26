@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/drift/schemas/drift-report.schema.json",
+  "title": "Drift Report",
+  "description": "JSON Schema for drift scan report output (drift --json).",
+  "type": "object",
+  "required": ["scanned_path", "summary", "has_drift", "drift_items"],
+  "additionalProperties": true,
+  "properties": {
+    "scanned_path": {
+      "type": "string",
+      "description": "Filesystem path that was scanned."
+    },
+    "summary": {
+      "$ref": "#/$defs/Summary"
+    },
+    "has_drift": {
+      "type": "boolean",
+      "description": "True if any ERROR-severity drift items exist."
+    },
+    "drift_items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DriftItem"
+      }
+    },
+    "scan_time_seconds": {
+      "type": "number",
+      "description": "Elapsed scan time in seconds (present when verbose)."
+    }
+  },
+  "$defs": {
+    "Summary": {
+      "type": "object",
+      "required": ["facts", "claims", "drift_items", "errors", "warnings"],
+      "additionalProperties": false,
+      "properties": {
+        "facts": { "type": "integer", "minimum": 0 },
+        "claims": { "type": "integer", "minimum": 0 },
+        "drift_items": { "type": "integer", "minimum": 0 },
+        "errors": { "type": "integer", "minimum": 0 },
+        "warnings": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Parameter": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "type_annotation": { "type": ["string", "null"], "default": null },
+        "default": { "type": ["string", "null"], "default": null },
+        "kind": { "type": "string", "default": "positional" }
+      }
+    },
+    "CodeFact": {
+      "type": ["object", "null"],
+      "required": ["name", "kind", "source_file", "line_number"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "kind": {
+          "type": "string",
+          "enum": ["function", "class", "method", "cli_flag", "api_endpoint", "config_key"]
+        },
+        "source_file": { "type": "string" },
+        "line_number": { "type": "integer" },
+        "parameters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Parameter" }
+        },
+        "return_type": { "type": ["string", "null"] },
+        "decorators": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "module": { "type": "string" },
+        "docstring": { "type": ["string", "null"] },
+        "metadata": { "type": "object" }
+      }
+    },
+    "DocClaim": {
+      "type": ["object", "null"],
+      "required": ["raw_text", "kind", "doc_file", "line_number"],
+      "additionalProperties": false,
+      "properties": {
+        "raw_text": { "type": "string" },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "function_signature", "code_example", "parameter_description",
+            "return_description", "cli_usage", "cli_flag_ref", "config_ref"
+          ]
+        },
+        "doc_file": { "type": "string" },
+        "line_number": { "type": "integer" },
+        "name": { "type": ["string", "null"] },
+        "parameters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Parameter" }
+        },
+        "return_type": { "type": ["string", "null"] },
+        "metadata": { "type": "object" }
+      }
+    },
+    "DriftItem": {
+      "type": "object",
+      "required": ["severity", "category", "message", "suggestion", "fact", "claim"],
+      "additionalProperties": false,
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": ["error", "warning", "info"]
+        },
+        "category": { "type": "string" },
+        "message": { "type": "string" },
+        "suggestion": { "type": ["string", "null"] },
+        "fact": { "$ref": "#/$defs/CodeFact" },
+        "claim": { "$ref": "#/$defs/DocClaim" }
+      }
+    }
+  }
+}

@@ -344,3 +344,209 @@ class TestCLIFlagDrift:
         cli_drift_items = [d for d in data["drift_items"] if d.get("fact", {}).get("kind") == "cli_flag"]
         assert len(cli_drift_items) >= 2, f"Expected >=2 CLI drift items, got {len(cli_drift_items)}: {data['drift_items']}"
 
+    def test_typer_flags_matching_docs_no_drift(self, tmp_path: Path) -> None:
+        """Typer CLI flags documented in bash block produce no drift."""
+        py_file = tmp_path / "cli.py"
+        py_file.write_text(
+            "import typer\n"
+            "app = typer.Typer()\n"
+            "\n"
+            "@app.command()\n"
+            "def serve(name: str = typer.Option('--name', help='Service name'),\n"
+            "           port: int = typer.Option('--port', default=8000, help='Port number')):\n"
+            "    print(f'Serving {name} on port {port}')\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "```bash\n"
+            "$ mycli serve --name webapp --port 9000\n"
+            "$ mycli serve --help\n"
+            "```\n"
+        )
+
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"Expected 0, got {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+
+    def test_typer_undocumented_flag_detected(self, tmp_path: Path) -> None:
+        """Typer CLI flag that exists in code but not in docs is detected."""
+        py_file = tmp_path / "cli.py"
+        py_file.write_text(
+            "import typer\n"
+            "app = typer.Typer()\n"
+            "\n"
+            "@app.command()\n"
+            "def serve(name: str = typer.Option('--name', help='Service name'),\n"
+            "           port: int = typer.Option('--port', default=8000, help='Port number')):\n"
+            "    print(f'Serving {name} on port {port}')\n"
+        )
+        md_file = tmp_path / "README.md"
+        # Only document --name via bash usage, port is undocumented
+        md_file.write_text(
+            "```bash\n"
+            "$ mycli serve --name webapp\n"
+            "```\n"
+        )
+
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+        # Undocumented flag should cause drift
+        assert result.returncode != 0, f"Expected drift, got 0\nstdout: {result.stdout}"
+
+
+
+class TestConfigDrift:
+    """Tests for Pydantic/config key drift detection."""
+
+    def test_pydantic_config_matching_docs_no_drift(self, tmp_path: Path) -> None:
+        """Pydantic BaseSettings vars documented in env var table → no drift."""
+        py_file = tmp_path / "settings.py"
+        py_file.write_text(
+            "from pydantic import BaseSettings\n"
+            "\n"
+            "class AppConfig(BaseSettings):\n"
+            "    DATABASE_URL: str\n"
+            "    DEBUG: bool = False\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# Environment Variables\n\n"
+            "| Variable | Type | Default |\n"
+            "|----------|------|--------|\n"
+            "| DATABASE_URL | string | — |\n"
+            "| DEBUG | bool | false |\n"
+        )
+
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"Expected 0, got {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+
+    def test_pydantic_undocumented_config_detected(self, tmp_path: Path) -> None:
+        """Pydantic config var that exists in code but not in docs is detected."""
+        py_file = tmp_path / "settings.py"
+        py_file.write_text(
+            "from pydantic import BaseSettings\n"
+            "\n"
+            "class AppConfig(BaseSettings):\n"
+            "    DATABASE_URL: str\n"
+            "    API_KEY: str = \"\"\n"
+        )
+        md_file = tmp_path / "README.md"
+        # Only document DATABASE_URL, API_KEY is undocumented
+        md_file.write_text(
+            "# Environment Variables\n\n"
+            "| Variable | Type |\n"
+            "|----------|------|\n"
+            "| DATABASE_URL | string |\n"
+        )
+
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path), "--json"],
+            capture_output=True,
+            text=True,
+        )
+        import json
+        data = json.loads(result.stdout)
+        # API_KEY is undocumented (warning), DATABASE_URL is documented
+        api_key_drift = [
+            d for d in data["drift_items"]
+            if d.get("fact", {}).get("name") == "AppConfig.API_KEY"
+        ]
+        assert len(api_key_drift) == 1, f"Expected AppConfig.API_KEY undocumented drift, got: {data['drift_items']}"
+
+    def test_config_var_documented_but_missing_no_code(self, tmp_path: Path) -> None:
+        """Config var documented but not in code → documented_but_missing drift."""
+        py_file = tmp_path / "settings.py"
+        py_file.write_text(
+            "from pydantic import BaseSettings\n"
+            "\n"
+            "class AppConfig(BaseSettings):\n"
+            "    DATABASE_URL: str\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# Environment Variables\n\n"
+            "| Variable | Type |\n"
+            "|----------|------|\n"
+            "| DATABASE_URL | string |\n"
+            "| LEGACY_VAR | string |\n"
+        )
+
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path), "--json"],
+            capture_output=True,
+            text=True,
+        )
+        import json
+        data = json.loads(result.stdout)
+        config_drift = [
+            d for d in data["drift_items"]
+            if d.get("category") == "documented_but_missing"
+            and d.get("claim", {}).get("name") == "LEGACY_VAR"
+        ]
+        assert len(config_drift) >= 1, f"Expected LEGACY_VAR documented_but_missing, got: {data['drift_items']}"
+
+
+class TestConfigFileDrift:
+    """Tests for YAML/TOML config file drift detection."""
+
+    def test_yaml_config_matching_docs_no_drift(self, tmp_path: Path) -> None:
+        """YAML config keys documented in env var table → no drift."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            "database:\n"
+            "  host: localhost\n"
+            "  port: 5432\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# Configuration\n\n"
+            "| Variable | Default |\n"
+            "|----------|--------|\n"
+            "| database.host | localhost |\n"
+            "| database.port | 5432 |\n"
+        )
+
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"Expected 0, got {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+
+    def test_yaml_config_drift_mismatch(self, tmp_path: Path) -> None:
+        """YAML config key present in code and docs — just verify both are collected."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            "database:\n"
+            "  port: 5432\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "| Variable | Default |\n"
+            "|----------|--------|\n"
+            "| database.port | 3306 |\n"
+        )
+
+        # Use DriftScanner directly to avoid subprocess Python-path issues
+        from drift.scanner import DriftScanner
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # Verify YAML config fact is extracted
+        config_facts = [f for f in report.facts if f.kind.value == "config_key"]
+        assert any(f.name == "database.port" for f in config_facts), \
+            f"Expected database.port fact, got: {[f.name for f in config_facts]}"
+        # Verify markdown claim is extracted
+        config_claims = [c for c in report.claims if c.kind.value == "config_ref"]
+        assert any(c.name == "database.port" for c in config_claims), \
+            f"Expected database.port claim, got: {[c.name for c in config_claims]}"

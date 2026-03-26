@@ -19,6 +19,16 @@ from drift.models import (
 )
 
 
+def _severity_to_sarif_level(severity: Severity) -> str:
+    """Map Drift Severity to SARIF result level."""
+    mapping = {
+        Severity.ERROR: "error",
+        Severity.WARNING: "warning",
+        Severity.INFO: "note",
+    }
+    return mapping.get(severity, "warning")
+
+
 class DriftReporter:
     """Render a DriftReport as console text or JSON."""
 
@@ -134,6 +144,96 @@ class DriftReporter:
         )
         ret = f" -> {claim.return_type}" if claim.return_type else ""
         return f"{name}({params}){ret}"
+
+    # -------------------------------------------------------------------------
+    # SARIF output
+    # -------------------------------------------------------------------------
+
+    def report_sarif(self, verbose: bool = False, elapsed: float = 0.0) -> str:
+        """Return the drift report as a SARIF v2.1.0 JSON string."""
+        report = self.report
+        scanned = str(report.scanned_path) if report.scanned_path else "."
+
+        # Build rule index from drift items
+        rules: dict[str, dict] = {}
+        results: list[dict] = []
+
+        for item in report.drift_items:
+            rule_id = f"drift/{item.category}"
+            if rule_id not in rules:
+                rules[rule_id] = {
+                    "id": rule_id,
+                    "name": item.category,
+                    "shortDescription": {"text": item.message or item.category},
+                    "properties": {"category": item.category},
+                }
+
+            # Map severity: ERROR->error, WARNING->warning, INFO->note
+            level = _severity_to_sarif_level(item.severity)
+
+            # Build locations
+            locations = []
+
+            # Code location from fact
+            if item.fact:
+                code_loc = {
+                    "physicalLocation": {
+                        "artifactLocation": {"uri": str(item.fact.source_file)},
+                        "region": {"startLine": item.fact.line_number},
+                    }
+                }
+                if item.fact.name:
+                    code_loc["physicalLocation"]["displayName"] = item.fact.name
+                locations.append(code_loc)
+
+            # Doc location from claim
+            if item.claim:
+                doc_loc = {
+                    "physicalLocation": {
+                        "artifactLocation": {"uri": str(item.claim.doc_file)},
+                        "region": {"startLine": item.claim.line_number},
+                    }
+                }
+                if item.claim.name:
+                    doc_loc["physicalLocation"]["displayName"] = item.claim.name
+                locations.append(doc_loc)
+
+            result = {
+                "ruleId": rule_id,
+                "level": level,
+                "message": {"text": item.message or f"[{item.category}]"},
+            }
+            if locations:
+                result["locations"] = locations
+            if item.suggestion:
+                result["suggestion"] = {"text": item.suggestion}
+
+            results.append(result)
+
+        # Build rules list
+        rules_list = [{"id": rid, **r} for rid, r in rules.items()]
+
+        run = {
+            "tool": {
+                "driver": {
+                    "name": "drift",
+                    "informationUri": "https://github.com/your-org/drift",
+                    "rules": rules_list,
+                }
+            },
+            "results": results,
+        }
+
+        if verbose and elapsed:
+            run["properties"] = {"scanTimeSeconds": round(elapsed, 3)}
+
+        sarif_output = {
+            "version": "2.1.0",
+            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+            "runs": [run],
+        }
+
+        return json.dumps(sarif_output, indent=2)
 
     # -------------------------------------------------------------------------
     # JSON output

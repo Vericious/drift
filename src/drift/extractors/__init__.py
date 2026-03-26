@@ -12,6 +12,7 @@ from drift.extractors.config_file import ConfigFileExtractor
 from drift.extractors.flask_routes import FlaskRoutesExtractor
 from drift.extractors.fastapi_routes import FastAPIRoutesExtractor
 from drift.extractors.env_vars import EnvVarExtractor
+from drift.extractors.dataclass_fields import DataclassFieldsExtractor
 
 __all__ = [
     "MarkdownExtractor",
@@ -24,5 +25,6 @@ __all__ = [
     "FlaskRoutesExtractor",
     "FastAPIRoutesExtractor",
     "EnvVarExtractor",
+    "DataclassFieldsExtractor",
     "get_extractors",
 ]

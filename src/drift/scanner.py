@@ -5,6 +5,9 @@ from drift.models import CodeFact, DocClaim, DriftReport
 from drift.python_extractor import PythonExtractor
 from drift.extractors.markdown import MarkdownExtractor
 from drift.extractors.registry import get_extractors
+from drift.extractors.cli_typer import TyperExtractor
+from drift.extractors.pydantic import PydanticExtractor
+from drift.extractors.config_file import ConfigFileExtractor
 from drift.matcher import SignatureMatcher
 
 
@@ -16,6 +19,7 @@ class DriftScanner:
         self.strict = strict
         self.py_extractor = PythonExtractor()
         self.md_extractor = MarkdownExtractor()
+        self.config_extractor = ConfigFileExtractor()
         self.matcher = SignatureMatcher()
         self._ignore_patterns: list[str] = []
         self._load_driftignore()
@@ -86,18 +90,26 @@ class DriftScanner:
         if self.path.is_file():
             py_files = [self.path] if self.py_extractor.can_handle(self.path) else []
             md_files = [self.path] if self.md_extractor.can_handle(self.path) else []
+            config_files = [self.path] if self.config_extractor.can_handle(self.path) else []
         else:
             py_files = list(self.path.rglob("*.py"))
             md_files = list(self.path.rglob("*.md"))
+            config_files = (
+                list(self.path.rglob("*.yaml")) +
+                list(self.path.rglob("*.yml")) +
+                list(self.path.rglob("*.toml"))
+            )
 
         # Filter out excluded directories
         exclude_dirs = {".git", "__pycache__", ".venv", "node_modules", ".tox", ".pytest_cache", ".mypy_cache"}
         py_files = [f for f in py_files if not any(part in exclude_dirs for part in f.parts)]
         md_files = [f for f in md_files if not any(part in exclude_dirs for part in f.parts)]
+        config_files = [f for f in config_files if not any(part in exclude_dirs for part in f.parts)]
 
         # Filter out ignored files
         py_files = [f for f in py_files if not self._is_ignored(f)]
         md_files = [f for f in md_files if not self._is_ignored(f)]
+        config_files = [f for f in config_files if not self._is_ignored(f)]
 
         # Extract from Python files
         for py_file in py_files:
@@ -113,6 +125,17 @@ class DriftScanner:
                 all_claims.extend(claims)
             except Exception as e:
                 err = f"[MarkdownExtractor] {md_file}: {e}"
+                if self.strict:
+                    raise
+                errors.append(err)
+
+        # Extract from YAML/TOML config files
+        for config_file in config_files:
+            try:
+                facts = self.config_extractor.extract(config_file)
+                all_facts.extend(facts)
+            except Exception as e:
+                err = f"[ConfigFileExtractor] {config_file}: {e}"
                 if self.strict:
                     raise
                 errors.append(err)

@@ -74,6 +74,9 @@ class MarkdownExtractor:
         # Extract CLI flag references from markdown tables
         claims.extend(self._extract_cli_flags_from_tables(content, lines, path))
 
+        # Extract config/env var references from inline text and tables
+        claims.extend(self._extract_config_refs(content, lines, path))
+
         return claims
 
     def can_handle(self, path: Path) -> bool:
@@ -511,5 +514,122 @@ class MarkdownExtractor:
                         claims.append(claim)
 
             i += 1
+
+        return claims
+
+    def _extract_config_refs(self, content: str, lines: list[str], path: Path) -> list[DocClaim]:
+        """Extract config/env var references from inline text and markdown tables.
+
+        Handles:
+          - Inline: $VAR_NAME, ${VAR_NAME}, `VAR_NAME` (backtick)
+          - Tables: rows with UPPER_SNAKE_CASE names in Variable/Env/Name columns
+        """
+        claims = []
+        seen: set[tuple] = set()
+
+        # ── Inline patterns ────────────────────────────────────────────────────
+        # $DATABASE_URL or ${DATABASE_URL} or $API_KEY
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+
+            # Skip inside code blocks (lines already in a block are skipped by content scanning)
+            # $VAR patterns
+            for m in re.finditer(r'\$({[A-Z_][A-Z0-9_]*}|[A-Z_][A-Z0-9_]*)', line):
+                var_name = m.group(1).strip('{}')
+                key = (i + 1, var_name)
+                if key in seen:
+                    continue
+                seen.add(key)
+                claims.append(DocClaim(
+                    raw_text=m.group(0),
+                    kind=ClaimKind.CONFIG_REF,
+                    doc_file=path,
+                    line_number=i + 1,
+                    name=var_name,
+                    metadata={},
+                ))
+
+            # Backtick refs: `DATABASE_URL`
+            for m in re.finditer(r'`([A-Z_][A-Z0-9_]*)`', line):
+                var_name = m.group(1)
+                key = (i + 1, var_name)
+                if key in seen:
+                    continue
+                seen.add(key)
+                claims.append(DocClaim(
+                    raw_text=m.group(0),
+                    kind=ClaimKind.CONFIG_REF,
+                    doc_file=path,
+                    line_number=i + 1,
+                    name=var_name,
+                    metadata={},
+                ))
+
+        # ── Table patterns ────────────────────────────────────────────────────
+        in_table = False
+        header_cols: list[str] = []
+        table_line_start = -1
+
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line.startswith('|'):
+                in_table = False
+                header_cols = []
+                continue
+
+            cells = [c.strip() for c in line.split('|')[1:-1]]
+            if not cells:
+                continue
+
+            # Header row
+            if not in_table:
+                header_lower = [c.lower() for c in cells]
+                # Check if this looks like a config/env table
+                name_col = None
+                default_col = None
+                for idx, col in enumerate(header_lower):
+                    if name_col is None and any(k in col for k in ('variable', 'env', 'name', 'key')):
+                        name_col = idx
+                    if default_col is None and any(k in col for k in ('default', 'dflt', 'value')):
+                        default_col = idx
+                if name_col is not None:
+                    in_table = True
+                    header_cols = cells
+                    table_line_start = i
+                continue
+
+            # Separator row (|---|---|)
+            if re.match(r'^\|[-:|\s]+\|$', line):
+                continue
+
+            # Data row
+            if name_col is not None and name_col < len(cells):
+                cell = cells[name_col].strip()
+                # Skip flag-like cells (--flag or -f)
+                if cell.startswith('-'):
+                    continue
+                # Match UPPER_SNAKE_CASE identifiers (env var names) or
+                # dot-notation keys (e.g., database.port, server.host)
+                is_upper_snake = re.match(r'^[A-Z_][A-Z0-9_]*$', cell) and len(cell) > 1
+                is_dot_notation = re.match(r'^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)+$', cell, re.IGNORECASE)
+                if is_upper_snake or is_dot_notation:
+                    default_val = None
+                    if default_col is not None and default_col < len(cells):
+                        default_val = cells[default_col].strip()
+                    key = (i + 1, cell)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    metadata = {}
+                    if default_val:
+                        metadata['default'] = default_val
+                    claims.append(DocClaim(
+                        raw_text=cell,
+                        kind=ClaimKind.CONFIG_REF,
+                        doc_file=path,
+                        line_number=i + 1,
+                        name=cell,
+                        metadata=metadata,
+                    ))
 
         return claims

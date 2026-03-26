@@ -2,6 +2,44 @@
 
 ## 2026-03-26
 
+### DRIFT-035 — SARIF Output Format for Reporter
+
+**Task:** Add SARIF (Static Analysis Results Interchange Format) v2.1.0 output to reporter for CI/CD integration.
+
+**What was done:**
+- Added `report_sarif()` method to `DriftReporter` in `src/drift/reporter.py`
+- SARIF v2.1.0 JSON format with proper schema URL
+- Severity mapping: ERROR→error, WARNING→warning, INFO→note
+- RuleId format: `drift/{category}`
+- Includes code location (physicalLocation with artifactLocation and region) from fact.source_file
+- Includes doc location from claim.doc_file
+- Added `--sarif` CLI flag to `scan` command, mutually exclusive with `--json`
+- Added 10 SARIF tests covering: valid SARIF structure, version/fields, rule ID format, severity mappings, code location, doc location, empty report, verbose mode
+
+**Tests:** `tests/test_reporter.py::TestReportSarif` — 10 tests (all passing)
+
+---
+
+### DRIFT-033 — RST/Sphinx Documentation Extractor
+
+**Task:** Create `src/drift/extractors/rst_docs.py` — extract claims from `.rst` Sphinx documentation files.
+
+**What was done:**
+- Created `src/drift/extractors/rst_docs.py` implementing `RSTDocsExtractor` with `@register` decorator
+- Parses `.. py:function::`, `.. py:method::`, `.. py:class::` Sphinx directives using line-based indentation tracking
+- Extracts `:param name:`, `:type name:`, `:returns:`, `:rtype:` field lists from directive bodies
+- Extracts `.. code-block::` and `::` (literal block) code examples
+- `DocClaim` output: `FUNCTION_SIGNATURE` for directives, `PARAMETER_DESCRIPTION` for param fields, `CODE_EXAMPLE` for code blocks, `RETURN_DESCRIPTION` for return fields
+- Registered extractor in `src/drift/extractors/registry.py`
+
+**Fixture:** `tests/fixtures/sample_docs.rst` — Sphinx docs with functions, classes, methods, parameter fields, return types, and code blocks
+
+**Tests:** `tests/test_extractors/test_rst_docs.py` — 21 tests covering: `can_handle`, function signatures (with/without defaults, no params, varargs), methods, classes, parameter descriptions, return descriptions, code blocks, literal blocks, edge cases, helper functions
+
+**Result:** All 155 extractor tests pass; full suite: 323 passed, 4 pre-existing failures in `test_matcher.py` (fuzzy rename, unrelated)
+
+---
+
 ### DRIFT-026 — Flask Route Extractor
 
 **Task:** Create `src/drift/extractors/flask_routes.py` — extract API endpoint facts from Flask apps using AST parsing.
@@ -63,6 +101,105 @@
 
 **Tests:** `tests/test_extractors/test_env_vars.py` — 14 tests covering all requirements
 - All 264 tests in the project pass
+
+---
+
+### DRIFT-031 — CLI `drift summary` Command
+
+**Task:** Add `drift summary` subcommand showing quick project health overview.
+
+**What was done:**
+- Added `summary` command to `src/drift/cli.py` with `--json` flag
+- Shows: files scanned, code facts, doc claims, drift items (errors/warnings), health score
+- Health score = matched claims / total claims × 100 (no claims = 100%)
+- Rich-formatted output with color-coded health score and status symbols
+- Reuses existing `DriftScanner.scan()` pipeline
+- Added 3 tests: runs without error, JSON output valid, health score correct
+- All 300 tests pass
+
+---
+
+### DRIFT-030 — CLI `drift init` Command
+
+**Task:** Add `drift init` subcommand to CLI to generate `.drift.toml` config.
+
+**What was done:**
+- Added `@main.command()` `init` to `src/drift/cli.py`
+- Creates `.drift.toml` in CWD with sensible defaults: ignore_patterns (pyc, pycache, .git, node_modules, .venv, .tox, .pytest_cache, .mypy_cache), threshold=0.0, output_format="text"
+- Refuses to overwrite existing `.drift.toml` without `--force` flag
+- `--force / -f` flag allows forced overwrite
+- Added 4 tests in `tests/test_cli.py`: creates file, refuses overwrite, --force works, valid TOML content
+- All 296 tests pass
+
+---
+
+### DRIFT-029 — Dataclass Field Extractor
+
+**Task:** Create dataclass field extractor for Drift.
+
+**What was done:**
+- Created `src/drift/extractors/dataclass_fields.py` implementing the `Extractor` base class
+- Extracts CONFIG_KEY facts with name="ClassName.field_name" from @dataclass classes
+- Handles: plain defaults, `field(default=X)`, `field(default_factory=...)` calls
+- Handles: `AnnAssign` nodes with type annotations
+- Skips: `ClassVar[...]` and `InitVar[...]` annotated fields
+- Handles subscripted ClassVar/InitVar (e.g., `ClassVar[int]`)
+- Registered extractor in `src/drift/extractors/__init__.py` and `src/drift/extractors/registry.py`
+
+**Fixture:** `tests/fixtures/sample_dataclasses.py` — 7 dataclasses with various field types
+
+**Tests:** `tests/test_extractors/test_dataclass_fields.py` — 14 tests covering all requirements
+- All 292 tests pass
+
+---
+
+### DRIFT-016 — Config File Extractor Wired into Scanner
+
+**Task:** Wire YAML/TOML config file extractor into scanner pipeline.
+
+**What was done:**
+- Added `ConfigFileExtractor` import and instance to `src/drift/scanner.py`
+- Added YAML/TOML file discovery to `scan()`: `rglob("*.yaml")`, `rglob("*.yml")`, `rglob("*.toml")`
+- Config files are filtered through `_is_ignored()` like other file types
+- Config facts are extracted via `config_extractor.extract(config_file)` and added to `all_facts`
+- Updated `_extract_config_refs` in markdown extractor to handle dot-notation keys (e.g., `database.port`) in addition to UPPER_SNAKE_CASE env var names
+- Added `TestConfigScannerIntegration` to `tests/test_scanner.py`: YAML extraction, TOML extraction, YAML vs doc matching
+- Added `TestConfigFileDrift` to `tests/test_e2e.py`: 2 tests for YAML config drift
+- All 277 tests pass
+
+---
+
+### DRIFT-014 — Pydantic Config Key Drift Detection
+
+**Task:** Wire Pydantic extractor into scanner + matcher for config key drift detection.
+
+**What was done:**
+- Added `CONFIG_REF` to `ClaimKind` in `src/drift/models.py`
+- Updated `src/drift/scanner.py` to explicitly import `PydanticExtractor` alongside `TyperExtractor`
+- Updated `src/drift/extractors/markdown.py` to extract config/env var references:
+  - Inline patterns: `$VAR_NAME`, `${VAR_NAME}`, `` `VAR_NAME` `` (backtick)
+  - Markdown table rows with UPPER_SNAKE_CASE names in Variable/Env/Name columns
+- Updated `src/drift/matcher.py` to:
+  - Handle `CONFIG_KEY` fact vs `CONFIG_REF` claim matching (exact name match, skip param comparison)
+  - Exclude `CONFIG_REF` from rename detection to avoid false positives
+- Added `TestConfigDrift` E2E tests in `tests/test_e2e.py`: 3 tests
+  - Pydantic config vars matching docs → no drift
+  - Undocumented config vars detected (warning)
+  - Documented-but-missing config vars detected (error)
+- All 272 tests pass
+
+---
+
+### DRIFT-012 — Typer Extractor Wired into Scanner
+
+**Task:** Wire Typer extractor into scanner for CLI flag drift detection.
+
+**What was done:**
+- Added `TyperExtractor` import to `src/drift/scanner.py` alongside other extractors
+- TyperExtractor is already registered via `@register` and picked up by `get_extractors()`
+- Added E2E tests in `tests/test_e2e.py`: `test_typer_flags_matching_docs_no_drift` (bash block matching) and `test_typer_undocumented_flag_detected` (drift detection)
+- Added scanner integration tests in `tests/test_scanner.py`: Typer flags in markdown table (no drift), undocumented Typer flag detected, Typer + argparse co-extraction
+- All 269 tests pass
 
 ---
 

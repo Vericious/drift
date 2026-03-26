@@ -272,3 +272,81 @@ class TestNoClaimName:
         # Should only produce undocumented for the fact
         assert len(items) == 1
         assert items[0].category == "undocumented"
+
+
+class TestFuzzyRenamed:
+    """Tests for fuzzy name matching in SignatureMatcher."""
+
+    def test_fuzzy_rename_above_threshold_same_signature(self):
+        """Fuzzy name match + same signature → fuzzy_renamed, WARNING."""
+        # get_user vs fetch_user are similar (fuzzy match)
+        # same params → fuzzy_renamed
+        f = fact("fetch_user", params=[param("user_id", "int")])
+        c = claim("get_user", params=[param("user_id", "int")])
+
+        items = SignatureMatcher().match([f], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 1
+        assert fuzzy_items[0].severity == Severity.WARNING
+        assert fuzzy_items[0].metadata.get("match_method") == "fuzzy"
+        assert "confidence" in fuzzy_items[0].metadata
+
+    def test_fuzzy_rename_below_threshold_stays_documented_but_missing(self):
+        """Fuzzy name match below threshold → documented_but_missing, not fuzzy_renamed."""
+        # "process" vs "calculate" are too different to fuzzy match
+        f = fact("calculate", params=[param("x", "int")])
+        c = claim("process", params=[param("x", "int")])
+
+        items = SignatureMatcher().match([f], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 0
+        missing_items = [i for i in items if i.category == "documented_but_missing"]
+        assert len(missing_items) == 1
+
+    def test_fuzzy_rename_different_signature_no_match(self):
+        """Fuzzy name match but different signatures → no fuzzy_renamed."""
+        # Names similar but params differ
+        f = fact("get_user", params=[param("x", "int")])
+        c = claim("fetch_user", params=[param("x", "int"), param("name", "str")])
+
+        items = SignatureMatcher().match([f], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 0
+
+    def test_fuzzy_rename_chooses_highest_confidence(self):
+        """When multiple candidates match, highest confidence is chosen."""
+        # fetch_user (high similarity) vs get_user (lower similarity)
+        f1 = fact("fetch_user", params=[param("id", "int")])
+        f2 = fact("get_user_details", params=[param("id", "int")])
+        c = claim("fetch_user", params=[param("id", "int")])
+
+        # fetch_user should match itself (exact-ish)
+        items = SignatureMatcher().match([f1, f2], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 1
+        # Should match fetch_user (exact-ish) not get_user_details
+        assert fuzzy_items[0].fact.name == "fetch_user"
+
+    def test_exact_rename_takes_precedence_over_fuzzy(self):
+        """Exact name match → renamed, not fuzzy_renamed (even if names differ)."""
+        # exact rename detection takes precedence over fuzzy
+        f = fact("new_get_user", params=[param("x", "int")])
+        c = claim("new_get_user", params=[param("x", "int")])
+
+        items = SignatureMatcher().match([f], [c])
+        renamed_items = [i for i in items if i.category == "renamed"]
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(renamed_items) == 0  # exact match, no drift
+        assert len(fuzzy_items) == 0
+
+    def test_fuzzy_rename_metadata_has_confidence(self):
+        """fuzzy_renamed items have confidence score in metadata."""
+        f = fact("process_item", params=[param("x", "int")])
+        c = claim("process_items", params=[param("x", "int")])
+
+        items = SignatureMatcher().match([f], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 1
+        confidence = fuzzy_items[0].metadata.get("confidence")
+        assert isinstance(confidence, float)
+        assert 0 <= confidence <= 100

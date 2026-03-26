@@ -150,3 +150,70 @@ class TestDriftConfig:
         assert config.ignore_patterns == ["*.py", "*.md"]
         assert config.threshold == 0.7
         assert config.output_format == "json"
+
+
+class TestFailOnConfig:
+    """Tests for fail_on field in DriftConfig."""
+
+    def test_default_fail_on_is_error(self):
+        """Test DriftConfig default fail_on is 'error'."""
+        config = DriftConfig()
+        assert config.fail_on == "error"
+
+    def test_fail_on_custom_value(self):
+        """Test DriftConfig with custom fail_on value."""
+        config = DriftConfig(fail_on="warning")
+        assert config.fail_on == "warning"
+
+    def test_load_fail_on_from_config(self, tmp_path: Path):
+        """Test loading fail_on from TOML config file."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text("""
+fail_on = "warning"
+""")
+        config = load_config(config_file)
+        assert config.fail_on == "warning"
+
+    def test_load_fail_on_none_from_config(self, tmp_path: Path):
+        """Test loading fail_on = 'none' (CI info-only mode) from config."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text("""
+fail_on = "none"
+""")
+        config = load_config(config_file)
+        assert config.fail_on == "none"
+
+    def test_load_fail_on_info_from_config(self, tmp_path: Path):
+        """Test loading fail_on = 'info' from config."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text("""
+fail_on = "info"
+""")
+        config = load_config(config_file)
+        assert config.fail_on == "info"
+
+    def test_fail_on_defaults_to_error_when_missing(self, tmp_path: Path):
+        """Test fail_on defaults to 'error' when not in config."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text("""
+ignore_patterns = []
+""")
+        config = load_config(config_file)
+        assert config.fail_on == "error"
+
+    def test_invalid_fail_on_raises_error(self, tmp_path: Path):
+        """Test that invalid fail_on value raises ValueError."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text("""
+fail_on = "invalid_level"
+""")
+        with pytest.raises(ValueError, match="fail_on must be"):
+            load_config(config_file)
+
+    def test_fail_on_all_valid_values(self, tmp_path: Path):
+        """Test all valid fail_on values are accepted."""
+        for level in ["error", "warning", "info", "none"]:
+            config_file = tmp_path / f".drift-{level}.toml"
+            config_file.write_text(f'fail_on = "{level}"\n')
+            config = load_config(config_file)
+            assert config.fail_on == level

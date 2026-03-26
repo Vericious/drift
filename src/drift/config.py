@@ -19,6 +19,7 @@ class DriftConfig:
     ignore_patterns: list[str] = field(default_factory=list)
     threshold: float = 0.0
     output_format: Literal["text", "json"] = "text"
+    fail_on: Literal["error", "warning", "info", "none"] = "error"
 
 
 def load_config(path: Path | None = None) -> DriftConfig:
@@ -70,8 +71,13 @@ def load_config(path: Path | None = None) -> DriftConfig:
     if output_format not in ("text", "json"):
         raise ValueError(f"output_format must be 'text' or 'json' in {path}")
 
+    fail_on = data.get("fail_on", "error")
+    if fail_on not in ("error", "warning", "info", "none"):
+        raise ValueError(f"fail_on must be 'error', 'warning', 'info', or 'none' in {path}")
+
     return DriftConfig(
         ignore_patterns=ignore_patterns,
         threshold=threshold,
         output_format=output_format,
+        fail_on=fail_on,
     )

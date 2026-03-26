@@ -346,3 +346,244 @@ class TestDocClaimToDict:
             line_number=1,
         )
         assert isinstance(claim.to_dict()["doc_file"], str)
+
+
+# ---------------------------------------------------------------------------
+# JSON Schema validation
+# ---------------------------------------------------------------------------
+
+SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "drift-report.schema.json"
+
+
+class TestJsonSchema:
+    """Validate that report_json() output conforms to drift-report.schema.json."""
+
+    @pytest.fixture
+    def schema(self):
+        import jsonschema  # noqa: F811
+        raw = json.loads(SCHEMA_PATH.read_text())
+        jsonschema.Draft202012Validator.check_schema(raw)  # schema itself is valid
+        return raw
+
+    @pytest.fixture
+    def validator(self, schema):
+        import jsonschema
+        return jsonschema.Draft202012Validator(schema)
+
+    def test_schema_file_exists(self):
+        assert SCHEMA_PATH.exists(), f"Schema not found at {SCHEMA_PATH}"
+
+    def test_schema_validates_empty_report(self, validator):
+        """A scan with no drift should still validate."""
+        report = DriftReport(scanned_path=Path("."))
+        reporter = DriftReporter(report)
+        data = json.loads(reporter.report_json())
+        validator.validate(data)
+
+    def test_schema_validates_report_with_drift(self, validator):
+        """A report containing drift items should validate."""
+        fact = CodeFact(
+            name="serve",
+            kind=FactKind.FUNCTION,
+            source_file=Path("app.py"),
+            line_number=10,
+            parameters=[Parameter(name="host", type_annotation="str", default='"0.0.0.0"')],
+            return_type="None",
+        )
+        claim = DocClaim(
+            raw_text="serve(port)",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("README.md"),
+            line_number=5,
+            name="serve",
+            parameters=[Parameter(name="port", type_annotation="int")],
+        )
+        item = DriftItem(
+            fact=fact,
+            claim=claim,
+            severity=Severity.ERROR,
+            category="missing_param",
+            message="Parameter 'host' not documented",
+            suggestion="Add 'host' parameter to docs",
+        )
+        report = DriftReport(
+            scanned_path=Path("/tmp/project"),
+            facts=[fact],
+            claims=[claim],
+            drift_items=[item],
+        )
+        reporter = DriftReporter(report)
+        data = json.loads(reporter.report_json())
+        validator.validate(data)
+
+    def test_schema_validates_verbose_report(self, validator):
+        """Verbose output includes scan_time_seconds — should still validate."""
+        report = DriftReport(scanned_path=Path("."))
+        reporter = DriftReporter(report, verbose=True)
+        data = json.loads(reporter.report_json(verbose=True, elapsed=1.234))
+        validator.validate(data)
+        assert data["scan_time_seconds"] == 1.234
+
+    def test_schema_validates_null_fact_and_claim(self, validator):
+        """Drift items with null fact or claim should validate."""
+        item = DriftItem(
+            fact=None,
+            claim=None,
+            severity=Severity.WARNING,
+            category="undocumented",
+            message="Something undocumented",
+            suggestion=None,
+        )
+        report = DriftReport(
+            scanned_path=Path("."),
+            drift_items=[item],
+        )
+        reporter = DriftReporter(report)
+        data = json.loads(reporter.report_json())
+        validator.validate(data)
+
+
+# ---------------------------------------------------------------------------
+# SARIF output tests
+# ---------------------------------------------------------------------------
+
+class TestReportSarif:
+    """Tests for report_sarif()."""
+
+    def test_sarif_returns_valid_json(self, populated_report):
+        """report_sarif() returns a string that parses as JSON."""
+        reporter = DriftReporter(populated_report)
+        output = reporter.report_sarif()
+        parsed = json.loads(output)
+        assert isinstance(parsed, dict)
+
+    def test_sarif_has_required_fields(self, populated_report):
+        """SARIF output has version, $schema, and runs."""
+        reporter = DriftReporter(populated_report)
+        parsed = json.loads(reporter.report_sarif())
+        assert parsed["version"] == "2.1.0"
+        assert "$schema" in parsed
+        assert "runs" in parsed
+        assert len(parsed["runs"]) == 1
+
+    def test_sarif_rule_id_format(self, populated_report):
+        """Rule IDs follow drift/{category} format."""
+        reporter = DriftReporter(populated_report)
+        parsed = json.loads(reporter.report_sarif())
+        rules = parsed["runs"][0]["tool"]["driver"]["rules"]
+        for rule in rules:
+            assert rule["id"].startswith("drift/")
+
+    def test_sarif_severity_mapping_error(self):
+        """ERROR severity maps to SARIF level 'error'."""
+        item = DriftItem(
+            fact=CodeFact(
+                name="func",
+                kind=FactKind.FUNCTION,
+                source_file=Path("a.py"),
+                line_number=1,
+            ),
+            severity=Severity.ERROR,
+            category="missing_param",
+            message="Missing param",
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item])
+        reporter = DriftReporter(report)
+        parsed = json.loads(reporter.report_sarif())
+        assert parsed["runs"][0]["results"][0]["level"] == "error"
+
+    def test_sarif_severity_mapping_warning(self):
+        """WARNING severity maps to SARIF level 'warning'."""
+        item = DriftItem(
+            fact=CodeFact(
+                name="func",
+                kind=FactKind.FUNCTION,
+                source_file=Path("a.py"),
+                line_number=1,
+            ),
+            severity=Severity.WARNING,
+            category="wrong_default",
+            message="Wrong default",
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item])
+        reporter = DriftReporter(report)
+        parsed = json.loads(reporter.report_sarif())
+        assert parsed["runs"][0]["results"][0]["level"] == "warning"
+
+    def test_sarif_severity_mapping_info(self):
+        """INFO severity maps to SARIF level 'note'."""
+        item = DriftItem(
+            fact=CodeFact(
+                name="func",
+                kind=FactKind.FUNCTION,
+                source_file=Path("a.py"),
+                line_number=1,
+            ),
+            severity=Severity.INFO,
+            category="undocumented",
+            message="Undocumented",
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item])
+        reporter = DriftReporter(report)
+        parsed = json.loads(reporter.report_sarif())
+        assert parsed["runs"][0]["results"][0]["level"] == "note"
+
+    def test_sarif_includes_code_location(self):
+        """SARIF result includes physicalLocation with artifactLocation for fact."""
+        fact = CodeFact(
+            name="my_func",
+            kind=FactKind.FUNCTION,
+            source_file=Path("src/utils.py"),
+            line_number=42,
+        )
+        item = DriftItem(
+            fact=fact,
+            severity=Severity.ERROR,
+            category="missing_param",
+            message="Missing param",
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item])
+        reporter = DriftReporter(report)
+        parsed = json.loads(reporter.report_sarif())
+        locs = parsed["runs"][0]["results"][0]["locations"]
+        assert any(
+            loc["physicalLocation"]["artifactLocation"]["uri"] == "src/utils.py"
+            for loc in locs
+        )
+
+    def test_sarif_includes_doc_location(self):
+        """SARIF result includes physicalLocation for claim doc file."""
+        claim = DocClaim(
+            raw_text="my_func()",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("docs/README.md"),
+            line_number=10,
+            name="my_func",
+        )
+        item = DriftItem(
+            claim=claim,
+            severity=Severity.WARNING,
+            category="documented_but_missing",
+            message="Documented but missing",
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item])
+        reporter = DriftReporter(report)
+        parsed = json.loads(reporter.report_sarif())
+        locs = parsed["runs"][0]["results"][0]["locations"]
+        assert any(
+            loc["physicalLocation"]["artifactLocation"]["uri"] == "docs/README.md"
+            for loc in locs
+        )
+
+    def test_sarif_empty_report_has_no_results(self, empty_report):
+        """Empty report produces SARIF with empty results array."""
+        reporter = DriftReporter(empty_report)
+        parsed = json.loads(reporter.report_sarif())
+        assert parsed["runs"][0]["results"] == []
+
+    def test_sarif_verbose_includes_scan_time(self):
+        """Verbose SARIF output includes scan time in properties."""
+        report = DriftReport(scanned_path=Path("."))
+        reporter = DriftReporter(report, verbose=True)
+        parsed = json.loads(reporter.report_sarif(verbose=True, elapsed=2.5))
+        assert parsed["runs"][0]["properties"]["scanTimeSeconds"] == 2.5
