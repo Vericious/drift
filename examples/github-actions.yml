@@ -1,0 +1,21 @@
+name: Documentation Drift Check
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for documentation drift
+        uses: ./.github/actions/drift-check
+        with:
+          paths: .
+          fail-on: error
+          severity: all

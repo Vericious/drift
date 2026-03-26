@@ -181,6 +181,49 @@ repos:
 |---------|-------------|-----------|
 | `drift-check` | Check for documentation drift | 0 = clean, 1 = drift found |
 
+## CI Integration
+
+Drift can be integrated into GitHub Actions using the official composite action.
+
+### Setup
+
+Copy `.github/actions/drift-check/action.yml` to your repository and add a workflow:
+
+```yaml
+# .github/workflows/drift.yml
+name: Documentation Drift Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/drift-check
+        with:
+          paths: .
+          fail-on: error
+```
+
+### Inputs
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `paths` | Paths to scan | `.` |
+| `severity` | Minimum severity to report (error, warning, info, all) | `all` |
+| `fail-on` | Exit code 1 when drift at this severity (error, warning, info, none) | `error` |
+
+### SARIF Support
+
+Drift's GitHub Action uploads results as SARIF, enabling GitHub's code scanning alerts integration. Results appear in the Security tab of your repository.
+
+See `.github/actions/drift-check/action.yml` for the full action definition.
+
 ## Development
 
 ```bash

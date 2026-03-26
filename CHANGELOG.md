@@ -16,6 +16,9 @@
 ### Pre-commit Integration
 - **DRIFT-082 — pre-commit hook integration**: Added `.pre-commit-hooks.yaml` for using drift as a pre-commit hook. Provides `drift-check` (blocks commit if drift found) and `drift-fix` (experimental auto-fix hook). Updated README with pre-commit usage documentation. Added `drift fix` command stub with `--dry-run` support for future auto-fix implementation.
 
+### CI Integration
+- **DRIFT-083 — GitHub Actions composite action**: Added `.github/actions/drift-check/action.yml` composite action for CI integration. Supports SARIF output, configurable severity and fail-on levels. Added example workflow in `examples/github-actions.yml`. Updated README with CI integration guide.
+
 ## v0.4.0 (2026-03-26)
 
 ### New Features
