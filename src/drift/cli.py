@@ -5,6 +5,7 @@ import click
 
 from drift import __version__
 from drift.config import load_config
+from drift.models import DriftItem
 from drift.scanner import DriftScanner
 from drift.reporter import DriftReporter
 
@@ -189,7 +190,7 @@ def summary(path: str, output_json: bool, config_path: str | None) -> None:
     config_extractor = ConfigFileExtractor()
     for ext in get_extractors():
         if ext.__class__.__name__ == "PythonExtractor":
-            py_extractor = ext
+            py_extractor = ext()
             break
 
     if scan_path.is_file():
@@ -222,7 +223,7 @@ def summary(path: str, output_json: bool, config_path: str | None) -> None:
     # A claim is "matched" if it does NOT appear in a "documented_but_missing" drift item
     if total_claims > 0:
         # Collect names of claims that are documented-but-missing
-        missing_claim_names: set[tuple] = set()
+        missing_claim_names: set[tuple[str | None, str]] = set()
         for item in report.drift_items:
             if item.category == "documented_but_missing" and item.claim:
                 missing_claim_names.add((item.claim.name, item.claim.kind.value))
@@ -291,7 +292,7 @@ def summary(path: str, output_json: bool, config_path: str | None) -> None:
     console.print()
 
 
-def _filter_by_severity(items: list, min_severity: str) -> list:
+def _filter_by_severity(items: list[DriftItem], min_severity: str) -> list[DriftItem]:
     """Filter drift items to only those >= min_severity.
 
     Ordering: error > warning > info
@@ -301,7 +302,7 @@ def _filter_by_severity(items: list, min_severity: str) -> list:
     return [item for item in items if order.get(item.severity.value, 3) <= min_level]
 
 
-def _should_fail_on_severity(items: list, fail_on: str) -> bool:
+def _should_fail_on_severity(items: list[DriftItem], fail_on: str) -> bool:
     """Check if any drift item reaches the fail_on severity level.
 
     Ordering: error > warning > info

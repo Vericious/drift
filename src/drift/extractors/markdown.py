@@ -49,7 +49,7 @@ class MarkdownExtractor:
 
     def extract(self, path: Path) -> list[DocClaim]:
         """Extract all DocClaim objects from a markdown file."""
-        claims = []
+        claims: list[DocClaim] = []
 
         try:
             content = path.read_text(encoding='utf-8')
@@ -85,11 +85,11 @@ class MarkdownExtractor:
 
     def _extract_code_blocks(self, content: str, lines: list[str], path: Path) -> list[DocClaim]:
         """Extract function signatures from code blocks."""
-        claims = []
+        claims: list[DocClaim] = []
         in_code_block = False
-        code_block_content = []
+        code_block_content: list[str] = []
         code_block_start_line = 0
-        pending_suppression: dict | None = None
+        pending_suppression: dict[str, object] | None = None
 
         for i, line in enumerate(lines):
             if line.strip().startswith('```'):
@@ -114,7 +114,7 @@ class MarkdownExtractor:
 
         return claims
 
-    def _check_suppression_before(self, lines: list[str], code_block_start: int) -> dict | None:
+    def _check_suppression_before(self, lines: list[str], code_block_start: int) -> dict[str, object] | None:
         """Check lines before a code block for drift:ignore suppression comments.
 
         Returns a dict with suppression info or None if no suppression.
@@ -122,7 +122,7 @@ class MarkdownExtractor:
           <!-- drift:ignore -->      → suppress all in next block
           <!-- drift:ignore name -->  → suppress only 'name' in next block
         """
-        suppression: dict | None = None
+        suppression: dict[str, object] | None = None
         # Look at the 5 lines before the code block
         for j in range(code_block_start - 1, max(0, code_block_start - 6), -1):
             line = lines[j].strip()
@@ -146,10 +146,10 @@ class MarkdownExtractor:
         block_text: str,
         start_line: int,
         path: Path,
-        suppression: dict | None = None,
+        suppression: dict[str, object] | None = None,
     ) -> list[DocClaim]:
         """Parse a code block for function signatures."""
-        claims = []
+        claims: list[DocClaim] = []
 
         for match in _FUNC_SIGNATURE_RE.finditer(block_text):
             func_name = match.group(1)
@@ -159,7 +159,7 @@ class MarkdownExtractor:
 
             parameters = self._parse_parameters(params_str)
 
-            metadata: dict = {}
+            metadata: dict[str, object] = {}
             is_suppressed = False
             if suppression:
                 if suppression.get("suppress_all"):
@@ -186,7 +186,7 @@ class MarkdownExtractor:
 
     def _parse_parameters(self, params_str: str) -> list[Parameter]:
         """Parse a parameter list string into Parameter objects."""
-        parameters = []
+        parameters: list[Parameter] = []
 
         if not params_str.strip():
             return parameters
@@ -366,7 +366,7 @@ class MarkdownExtractor:
 
     def _extract_cli_flag_refs(self, content: str, lines: list[str], path: Path) -> list[DocClaim]:
         """Extract CLI flag references from bash/shell code blocks and inline text."""
-        claims = []
+        claims: list[DocClaim] = []
         in_shell_block = False
         seen: set[tuple[int, str]] = set()
 
@@ -394,7 +394,7 @@ class MarkdownExtractor:
 
     def _extract_flags_from_line(
         self, line: str, line_number: int, path: Path,
-        claims: list, seen: set
+        claims: list[DocClaim], seen: set[tuple[int, str]]
     ) -> None:
         """Extract CLI flag references from a single line."""
         for match in _CLI_FLAG_PATTERN.finditer(line):
@@ -524,8 +524,8 @@ class MarkdownExtractor:
           - Inline: $VAR_NAME, ${VAR_NAME}, `VAR_NAME` (backtick)
           - Tables: rows with UPPER_SNAKE_CASE names in Variable/Env/Name columns
         """
-        claims = []
-        seen: set[tuple] = set()
+        claims: list[DocClaim] = []
+        seen: set[tuple[int, str]] = set()
 
         # ── Inline patterns ────────────────────────────────────────────────────
         # $DATABASE_URL or ${DATABASE_URL} or $API_KEY

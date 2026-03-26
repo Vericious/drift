@@ -12,7 +12,7 @@ from drift.models import CodeFact, FactKind, Parameter
 
 
 def _flatten_dict(
-    d: dict,
+    d: dict[str, Any],
     prefix: str = "",
     sep: str = ".",
 ) -> list[tuple[str, Any]]:
@@ -64,7 +64,7 @@ class ConfigFileExtractor(Extractor):
         """Return True for .yaml, .yml, and .toml files."""
         return path.suffix.lower() in self.YAML_EXTS | self.TOML_EXTS
 
-    def extract(self, path: Path) -> list:
+    def extract(self, path: Path) -> list[CodeFact]:
         """Extract CONFIG_KEY CodeFacts from a YAML or TOML file."""
         facts: list[CodeFact] = []
 
@@ -73,7 +73,7 @@ class ConfigFileExtractor(Extractor):
         except (OSError, UnicodeDecodeError):
             return facts
 
-        data: Optional[dict] = None
+        data: Optional[dict[str, Any]] = None
 
         if path.suffix.lower() in self.YAML_EXTS:
             data = self._parse_yaml(content)
@@ -90,7 +90,7 @@ class ConfigFileExtractor(Extractor):
 
         return facts
 
-    def _parse_yaml(self, content: str) -> Optional[dict]:
+    def _parse_yaml(self, content: str) -> Optional[dict[str, Any]]:
         """Parse YAML content using PyYAML."""
         try:
             import yaml
@@ -102,7 +102,7 @@ class ConfigFileExtractor(Extractor):
         except Exception:
             return None
 
-    def _parse_toml(self, content: str) -> Optional[dict]:
+    def _parse_toml(self, content: str) -> Optional[dict[str, Any]]:
         """Parse TOML content using the stdlib tomllib."""
         try:
             import tomllib

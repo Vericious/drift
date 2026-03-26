@@ -175,7 +175,7 @@ class PythonExtractor:
             default = None
             if i < len(args.kw_defaults) and args.kw_defaults[i] is not None:
                 try:
-                    default = ast.unparse(args.kw_defaults[i])
+                    default = ast.unparse(args.kw_defaults[i])  # type: ignore[arg-type]
                 except Exception:
                     pass
 

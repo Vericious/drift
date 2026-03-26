@@ -21,7 +21,7 @@ class DriftScanner:
         self.md_extractor = MarkdownExtractor()
         self.config_extractor = ConfigFileExtractor()
         self.matcher = SignatureMatcher()
-        self._ignore_patterns: list[str] = []
+        self._ignore_patterns: list[tuple[str, bool]] = []
         self._load_driftignore()
 
     def _load_driftignore(self) -> None:
@@ -40,7 +40,7 @@ class DriftScanner:
         if driftignore_path.exists():
             try:
                 lines = driftignore_path.read_text().splitlines()
-                patterns: list[tuple[str, bool]] = []  # (pattern, is_negation)
+                parsed_patterns: list[tuple[str, bool]] = []  # (pattern, is_negation)
                 for line in lines:
                     stripped = line.strip()
                     if not stripped or stripped.startswith("#"):
@@ -48,9 +48,9 @@ class DriftScanner:
                     is_negation = stripped.startswith("!")
                     if is_negation:
                         stripped = stripped[1:]
-                    patterns.append((stripped, is_negation))
+                    parsed_patterns.append((stripped, is_negation))
                 # Store as list of tuples: (pattern, is_negation)
-                self._ignore_patterns = patterns
+                self._ignore_patterns = parsed_patterns
             except Exception:
                 self._ignore_patterns = []
 
@@ -122,7 +122,7 @@ class DriftScanner:
         except ValueError:
             return False
 
-    def _extract_py(self, py_file: Path) -> tuple[list[CodeFact], list[DocClaim]]:
+    def _extract_py(self, py_file: Path) -> tuple[list[CodeFact], list[DocClaim], list[str]]:
         """Extract facts and claims from a Python file using all registered extractors."""
         facts: list[CodeFact] = []
         claims: list[DocClaim] = []

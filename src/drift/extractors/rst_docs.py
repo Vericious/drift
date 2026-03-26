@@ -50,7 +50,7 @@ _LITERAL_BLOCK_RE = re.compile(r'::\n((?:\s+.+\n)+)')
 
 def _parse_parameters(params_str: str) -> list[Parameter]:
     """Parse a parameter list string into Parameter objects."""
-    parameters = []
+    parameters: list[Parameter] = []
     if not params_str.strip():
         return parameters
 
@@ -116,7 +116,7 @@ def _split_params(params_str: str) -> list[str]:
     return result
 
 
-def _extract_signature_info(sig_str: str):
+def _extract_signature_info(sig_str: str) -> tuple[str | None, list[Parameter], str | None]:
     """Extract name, parameters, and return type from a signature string."""
     match = _SIGNATURE_RE.match(sig_str.strip())
     if match:
@@ -128,7 +128,7 @@ def _extract_signature_info(sig_str: str):
     return None, [], None
 
 
-def _extract_field_list(body: str) -> tuple[dict, dict, str | None, str | None]:
+def _extract_field_list(body: str) -> tuple[dict[str, str], dict[str, str], str | None, str | None]:
     """Extract :param:, :type:, :returns:, :rtype: fields from directive body."""
     params_described: dict[str, str] = {}
     types_described: dict[str, str] = {}

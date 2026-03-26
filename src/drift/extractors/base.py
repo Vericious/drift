@@ -1,13 +1,14 @@
 """Base extractor interface for Drift."""
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 
 class Extractor(ABC):
     """Abstract base class for all extractors."""
 
     @abstractmethod
-    def extract(self, file_path: Path) -> list:
+    def extract(self, file_path: Path) -> list[Any]:
         """Extract facts/claims from a file."""
         ...
 

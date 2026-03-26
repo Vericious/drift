@@ -33,6 +33,7 @@ drift = "drift.cli:main"
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "mypy>=1.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -58,3 +59,13 @@ exclude_lines = [
     "raise NotImplementedError",
     "@abstractmethod",
 ]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+show_error_codes = true
+pretty = true
+show_column_numbers = true
+show_error_context = true
+

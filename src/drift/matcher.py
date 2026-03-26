@@ -122,7 +122,7 @@ class SignatureMatcher:
                     fact = candidates[0]
 
             if fact is None:
-                # Try fuzzy name matching as a fallback before reporting "documented_but_missing"
+                # Try fuzzy name matching first — highest confidence wins
                 fuzzy_match: Optional[tuple[CodeFact, float]] = None
                 if claim.kind not in (ClaimKind.CLI_FLAG_REF, ClaimKind.CLI_USAGE):
                     for f in facts:
@@ -145,6 +145,57 @@ class SignatureMatcher:
                             message=f"'{claim.name}' (docs) may match '{fuzzy_fact.name}' (code) — {confidence}% confidence",
                             suggestion=f"Consider renaming '{fuzzy_fact.name}' to '{claim.name}' or update docs",
                             metadata={"match_method": "fuzzy", "confidence": confidence},
+                        )
+                    )
+                    continue
+
+                # Fallback: try to find by signature similarity (might be renamed).
+                # Only treat as renamed if names share a meaningful substring relationship
+                # (the shorter name appears in the longer, or they share prefix/suffix >= 3).
+                # This avoids false "renamed" alerts for unrelated functions.
+                renamed_fact = None
+                if claim.kind not in (ClaimKind.CLI_FLAG_REF, ClaimKind.CONFIG_REF):
+                    for f in facts:
+                        if f.name in matched_fact_names or f.kind == FactKind.CLI_FLAG:
+                            continue
+                        if self._same_signature_structure(f, claim):
+                            # Check if names are related via substring
+                            shorter, longer = (f.name, claim.name) if len(f.name) <= len(claim.name) else (claim.name, f.name)
+                            if shorter in longer:
+                                # One name contains the other — likely a rename
+                                renamed_fact = f
+                                break
+                            # Also check prefix/suffix match (>= 3 chars)
+                            prefix_len = 0
+                            for a, b in zip(f.name, claim.name):
+                                if a == b:
+                                    prefix_len += 1
+                                else:
+                                    break
+                            if prefix_len >= 3:
+                                renamed_fact = f
+                                break
+                            # Check suffix match
+                            suffix_len = 0
+                            for a, b in zip(reversed(f.name), reversed(claim.name)):
+                                if a == b:
+                                    suffix_len += 1
+                                else:
+                                    break
+                            if suffix_len >= 3:
+                                renamed_fact = f
+                                break
+
+                if renamed_fact:
+                    matched_fact_names.add(renamed_fact.name)
+                    drift_items.append(
+                        DriftItem(
+                            fact=renamed_fact,
+                            claim=claim,
+                            severity=Severity.ERROR,
+                            category="renamed",
+                            message=f"'{claim.name}' (docs) may have been renamed to '{renamed_fact.name}'",
+                            suggestion=f"Update docs to reference '{renamed_fact.name}'",
                         )
                     )
                     continue

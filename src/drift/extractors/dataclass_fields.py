@@ -19,7 +19,7 @@ def _get_annotation_name(node: ast.expr) -> Optional[str]:
         return node.id
     elif isinstance(node, ast.Attribute):
         parts = []
-        cur = node
+        cur: ast.expr = node
         while isinstance(cur, ast.Attribute):
             parts.append(cur.attr)
             cur = cur.value
@@ -31,8 +31,8 @@ def _get_annotation_name(node: ast.expr) -> Optional[str]:
         if base:
             if isinstance(node.slice, ast.Tuple):
                 args = [_get_annotation_name(e) for e in node.slice.elts]
-                args = [a for a in args if a]
-                return f"{base}[{', '.join(args)}]" if args else base
+                str_args = [a for a in args if a is not None]
+                return f"{base}[{', '.join(str_args)}]" if str_args else base
             else:
                 inner = _get_annotation_name(node.slice)
                 return f"{base}[{inner}]" if inner else base
@@ -84,7 +84,7 @@ class DataclassFieldsExtractor(Extractor):
         """Return True if this is a Python file."""
         return path.suffix.lower() == ".py"
 
-    def extract(self, path: Path) -> list:
+    def extract(self, path: Path) -> list[CodeFact]:
         """Extract CONFIG_KEY CodeFacts from @dataclass field definitions."""
         facts: list[CodeFact] = []
 

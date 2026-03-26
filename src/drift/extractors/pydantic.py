@@ -39,7 +39,7 @@ def _is_pydantic_base(node: ast.expr, pydantic_names: tuple[str, ...]) -> bool:
     return False
 
 
-def _extract_field_info(annotation: ast.expr, value: ast.expr | None) -> dict:
+def _extract_field_info(annotation: ast.expr, value: ast.expr | None) -> dict[str, Any] | None:
     """Extract field metadata from an annotation and optional default value.
 
     Handles:
@@ -47,7 +47,7 @@ def _extract_field_info(annotation: ast.expr, value: ast.expr | None) -> dict:
       name: Type = default_value
       name: Type
     """
-    result = {
+    result: dict[str, Any] = {
         "field_type": None,
         "default": None,
         "env_var": None,
@@ -144,7 +144,7 @@ class PydanticExtractor(Extractor):
         """Return True if this is a Python file."""
         return path.suffix.lower() == ".py"
 
-    def extract(self, path: Path) -> list:
+    def extract(self, path: Path) -> list[CodeFact]:
         """Extract CONFIG_KEY CodeFacts from Pydantic models."""
         facts: list[CodeFact] = []
 
@@ -202,7 +202,7 @@ class PydanticExtractor(Extractor):
         self,
         class_name: str,
         field_name: str,
-        field_info: dict,
+        field_info: dict[str, Any],
         source_file: Path,
         line_number: int,
     ) -> CodeFact:

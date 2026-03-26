@@ -108,7 +108,7 @@ class FlaskRoutesExtractor(Extractor):
         """Return True if this is a Python file."""
         return path.suffix.lower() == ".py"
 
-    def extract(self, path: Path) -> list:
+    def extract(self, path: Path) -> list[CodeFact]:
         """Extract API_ENDPOINT CodeFacts from Flask route decorators."""
         facts: list[CodeFact] = []
 
@@ -177,7 +177,7 @@ class FlaskRoutesExtractor(Extractor):
         self,
         decorator: ast.expr,
         blueprint_info: BlueprintInfo,
-    ) -> Optional[tuple]:
+    ) -> Optional[tuple[Optional[list[str]], Optional[str], Optional[str]]]:
         """Analyze a decorator and return (methods, path, blueprint_internal_name).
 
         Returns None if this is not a Flask route decorator.

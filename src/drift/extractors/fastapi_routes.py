@@ -70,8 +70,8 @@ def _get_annotation_name(node: ast.expr) -> Optional[str]:
         if base:
             if isinstance(node.slice, ast.Tuple):
                 args = [_get_annotation_name(elt) for elt in node.slice.elts]
-                args = [a for a in args if a]
-                return f"{base}[{', '.join(args)}]" if args else base
+                str_args = [a for a in args if a is not None]
+                return f"{base}[{', '.join(str_args)}]" if str_args else base
             else:
                 inner = _get_annotation_name(node.slice)
                 return f"{base}[{inner}]" if inner else base
@@ -147,7 +147,7 @@ def _combine_path(prefix: Optional[str], route_path: Optional[str]) -> Optional[
 def _extract_decorator_info(
     decorator: ast.expr,
     router_prefixes: RouterPrefixes,
-) -> Optional[tuple]:
+) -> Optional[tuple[Optional[list[str]], Optional[str], Optional[str], Optional[str], Optional[str], Optional[list[str]]]]:
     """Analyze a decorator and return (methods, path, router_name, status_code, response_model, tags).
 
     Returns None if this is not a FastAPI route decorator.
@@ -184,7 +184,7 @@ def _extract_decorator_info(
                         response_model = _get_annotation_name(kw.value)
                     elif kw.arg == "tags":
                         if isinstance(kw.value, ast.List):
-                            tags = [_get_constant_string(e) for e in kw.value.elts if _get_constant_string(e)]
+                            tags = [t for t in [_get_constant_string(e) for e in kw.value.elts] if t is not None]
                 return (methods, path, router_name, status_code, response_model, tags)
 
         # @app.api_route("/path", methods=["GET", "POST"])
@@ -207,7 +207,7 @@ def _extract_decorator_info(
                     response_model = _get_annotation_name(kw.value)
                 elif kw.arg == "tags":
                     if isinstance(kw.value, ast.List):
-                        tags = [_get_constant_string(e) for e in kw.value.elts if _get_constant_string(e)]
+                        tags = [t for t in [_get_constant_string(e) for e in kw.value.elts] if t is not None]
             return (methods, path, router_name, status_code, response_model, tags)
 
     elif isinstance(decorator, ast.Attribute):
@@ -265,7 +265,7 @@ class FastAPIRoutesExtractor(Extractor):
         """Return True if this is a Python file."""
         return path.suffix.lower() == ".py"
 
-    def extract(self, path: Path) -> list:
+    def extract(self, path: Path) -> list[CodeFact]:
         """Extract API_ENDPOINT CodeFacts from FastAPI route decorators."""
         facts: list[CodeFact] = []
 

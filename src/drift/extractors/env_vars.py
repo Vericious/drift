@@ -62,10 +62,10 @@ class EnvVarExtractor(Extractor):
         """Return True if this is a Python file."""
         return path.suffix.lower() == ".py"
 
-    def extract(self, path: Path) -> list:
+    def extract(self, path: Path) -> list[CodeFact]:
         """Extract CONFIG_KEY CodeFacts for environment variables."""
         facts: list[CodeFact] = []
-        seen: set[tuple] = set()  # (var_name, source_form) dedup
+        seen: set[tuple[str, str]] = set()  # (var_name, source_form) dedup
 
         try:
             source = path.read_text()

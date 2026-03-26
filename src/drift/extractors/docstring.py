@@ -13,7 +13,7 @@ from drift.extractors.registry import register
 from drift.models import ClaimKind, CodeFact, DocClaim, DriftItem, Parameter, Severity
 
 
-def extract_docstring_params(func) -> list[str]:
+def extract_docstring_params(func: object) -> list[str]:
     """Extract parameter names from a function's docstring.
 
     Supports Google, NumPy, and Sphinx style docstrings.
@@ -186,7 +186,7 @@ class DocstringExtractor(Extractor):
         """Return True if this is a Python file."""
         return path.suffix.lower() == ".py"
 
-    def extract(self, path: Path) -> list:
+    def extract(self, path: Path) -> list[DocClaim]:
         """Extract DocClaims from docstrings in a Python file.
 
         Returns DocClaim objects for functions with docstrings that
@@ -220,7 +220,7 @@ class DocstringExtractor(Extractor):
 
                 # Get the qualified name
                 qualified_name = node.name
-                parent = parent_map.get(node)
+                parent = parent_map.get(node)  # type: ignore[assignment]
                 if isinstance(parent, ast.ClassDef):
                     qualified_name = f"{parent.name}.{node.name}"
 

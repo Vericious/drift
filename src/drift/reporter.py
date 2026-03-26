@@ -11,6 +11,7 @@ from rich.text import Text
 
 from drift.models import (
     ClaimKind,
+    DocClaim,
     DriftItem,
     DriftReport,
     FactKind,
@@ -132,7 +133,7 @@ class DriftReporter:
         if item.suggestion:
             self.console.print(f"    [dim]Suggestion:[/dim] {item.suggestion}")
 
-    def _claim_signature_str(self, claim) -> str:
+    def _claim_signature_str(self, claim: DocClaim) -> str:
         """Render a DocClaim's signature as a string."""
         name = claim.name or "?"
         params = ", ".join(
@@ -153,8 +154,8 @@ class DriftReporter:
         scanned = str(report.scanned_path) if report.scanned_path else "."
 
         # Build rule index from drift items
-        rules: dict[str, dict] = {}
-        results: list[dict] = []
+        rules: dict[str, dict[str, object]] = {}
+        results: list[dict[str, object]] = []
 
         for item in report.drift_items:
             rule_id = f"drift/{item.category}"
@@ -196,7 +197,7 @@ class DriftReporter:
                     doc_loc["physicalLocation"]["displayName"] = item.claim.name
                 locations.append(doc_loc)
 
-            result = {
+            result: dict[str, object] = {
                 "ruleId": rule_id,
                 "level": level,
                 "message": {"text": item.message or f"[{item.category}]"},
@@ -242,9 +243,9 @@ class DriftReporter:
         report = self.report
         verbose = verbose or self.verbose
 
-        drift_items_list = []
+        drift_items_list: list[dict[str, object]] = []
         for item in report.drift_items:
-            entry: dict = {
+            entry: dict[str, object] = {
                 "severity": item.severity.value,
                 "category": item.category,
                 "message": item.message,
@@ -254,7 +255,7 @@ class DriftReporter:
             }
             drift_items_list.append(entry)
 
-        output: dict = {
+        output: dict[str, object] = {
             "scanned_path": str(report.scanned_path) if report.scanned_path else ".",
             "summary": {
                 "facts": len(report.facts),
