@@ -21,7 +21,9 @@ def main() -> None:
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.option("--config", "config_path", type=click.Path(exists=False), default=None,
               help="Path to config file (default: .drift.toml in CWD)")
-def scan(path: str, output_json: bool, config_path: str | None) -> None:
+@click.option("--strict", is_flag=True,
+              help="Treat extractor errors as fatal (fail fast on malformed files).")
+def scan(path: str, output_json: bool, config_path: str | None, strict: bool) -> None:
     """Scan a project for documentation drift."""
     # Load config
     config_file = Path(config_path) if config_path else None
@@ -35,7 +37,7 @@ def scan(path: str, output_json: bool, config_path: str | None) -> None:
     # CLI --json flag overrides config
     output_format = "json" if output_json else config.output_format
 
-    scanner = DriftScanner(Path(path))
+    scanner = DriftScanner(Path(path), strict=strict)
     report = scanner.scan()
     reporter = DriftReporter(report)
     if output_format == "json":

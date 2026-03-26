@@ -7,19 +7,24 @@ from drift.extractors.markdown import MarkdownExtractor
 from drift.extractors.docstring import DocstringExtractor
 from drift.extractors.cli_argparse import ArgparseExtractor
 from drift.extractors.cli_click import ClickExtractor
+from drift.extractors.cli_typer import TyperExtractor
+from drift.extractors.pydantic import PydanticExtractor
 from drift.matcher import SignatureMatcher
 
 
 class DriftScanner:
     """Walk files, dispatch to extractors, run matcher, produce report."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, strict: bool = False) -> None:
         self.path = path
+        self.strict = strict
         self.py_extractor = PythonExtractor()
         self.md_extractor = MarkdownExtractor()
         self.docstring_extractor = DocstringExtractor()
         self.argparse_extractor = ArgparseExtractor()
         self.click_extractor = ClickExtractor()
+        self.typer_extractor = TyperExtractor()
+        self.pydantic_extractor = PydanticExtractor()
         self.matcher = SignatureMatcher()
         self._ignore_patterns: list[str] = []
         self._load_driftignore()
@@ -44,6 +49,68 @@ class DriftScanner:
             if fnmatch.fnmatch(str(file_path), pattern) or fnmatch.fnmatch(file_path.name, pattern):
                 return True
         return False
+
+    def _extract_py(self, py_file: Path) -> tuple[list[CodeFact], list[DocClaim]]:
+        """Extract facts and claims from a Python file using all extractors."""
+        facts: list[CodeFact] = []
+        claims: list[DocClaim] = []
+        errors: list[str] = []
+
+        # Python function/method extractor
+        try:
+            facts.extend(self.py_extractor.extract(py_file))
+        except Exception as e:
+            err = f"[PythonExtractor] {py_file}: {e}"
+            if self.strict:
+                raise
+            errors.append(err)
+
+        # Argparse CLI extractor
+        try:
+            facts.extend(self.argparse_extractor.extract(py_file))
+        except Exception as e:
+            err = f"[ArgparseExtractor] {py_file}: {e}"
+            if self.strict:
+                raise
+            errors.append(err)
+
+        # Click CLI extractor
+        try:
+            facts.extend(self.click_extractor.extract(py_file))
+        except Exception as e:
+            err = f"[ClickExtractor] {py_file}: {e}"
+            if self.strict:
+                raise
+            errors.append(err)
+
+        # Typer CLI extractor
+        try:
+            facts.extend(self.typer_extractor.extract(py_file))
+        except Exception as e:
+            err = f"[TyperExtractor] {py_file}: {e}"
+            if self.strict:
+                raise
+            errors.append(err)
+
+        # Pydantic extractor
+        try:
+            facts.extend(self.pydantic_extractor.extract(py_file))
+        except Exception as e:
+            err = f"[PydanticExtractor] {py_file}: {e}"
+            if self.strict:
+                raise
+            errors.append(err)
+
+        # Docstring extractor
+        try:
+            claims.extend(self.docstring_extractor.extract(py_file))
+        except Exception as e:
+            err = f"[DocstringExtractor] {py_file}: {e}"
+            if self.strict:
+                raise
+            errors.append(err)
+
+        return facts, claims, errors
 
     def scan(self) -> DriftReport:
         """Scan the path recursively, extract facts and claims, match, return report."""
@@ -70,33 +137,10 @@ class DriftScanner:
 
         # Extract from Python files
         for py_file in py_files:
-            try:
-                facts = self.py_extractor.extract(py_file)
-                all_facts.extend(facts)
-            except Exception as e:
-                errors.append(f"Error reading {py_file}: {e}")
-
-        # Extract CLI facts from Python files using argparse and click extractors
-        for py_file in py_files:
-            try:
-                cli_facts = self.argparse_extractor.extract(py_file)
-                all_facts.extend(cli_facts)
-            except Exception as e:
-                errors.append(f"Error reading CLI args in {py_file}: {e}")
-
-            try:
-                click_facts = self.click_extractor.extract(py_file)
-                all_facts.extend(click_facts)
-            except Exception as e:
-                errors.append(f"Error reading click CLI in {py_file}: {e}")
-
-        # Extract docstring claims from Python files
-        for py_file in py_files:
-            try:
-                claims = self.docstring_extractor.extract(py_file)
-                all_claims.extend(claims)
-            except Exception as e:
-                errors.append(f"Error reading docstrings in {py_file}: {e}")
+            facts, claims, errs = self._extract_py(py_file)
+            all_facts.extend(facts)
+            all_claims.extend(claims)
+            errors.extend(errs)
 
         # Extract from Markdown files
         for md_file in md_files:
@@ -104,7 +148,10 @@ class DriftScanner:
                 claims = self.md_extractor.extract(md_file)
                 all_claims.extend(claims)
             except Exception as e:
-                errors.append(f"Error reading {md_file}: {e}")
+                err = f"[MarkdownExtractor] {md_file}: {e}"
+                if self.strict:
+                    raise
+                errors.append(err)
 
         # Match facts against claims
         drift_items = self.matcher.match(all_facts, all_claims)

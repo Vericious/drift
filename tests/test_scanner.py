@@ -249,3 +249,54 @@ class TestCLIFlagScannerIntegration:
         assert len(cli_claims) == 1
         assert cli_claims[0].name == "--port"
         assert cli_claims[0].metadata.get("default") == "8080"
+
+
+class TestScannerGracefulErrorRecovery:
+    """Tests for graceful handling of malformed files."""
+
+    def test_malformed_file_error_collected_no_crash(self, tmp_path: Path) -> None:
+        """Malformed .py file: errors collected, scanner doesn't crash, valid files processed."""
+        # Valid Python file
+        valid_py = tmp_path / "valid.py"
+        valid_py.write_text(
+            "def documented_func(x: int) -> str:\n"
+            "    '''A documented function.'''\n"
+            "    return str(x)\n"
+        )
+
+        # Malformed Python file (syntax error)
+        bad_py = tmp_path / "bad.py"
+        bad_py.write_text("def bad_func({{[[[[[[ \n")
+
+        scanner = DriftScanner(tmp_path)
+        # Should not raise
+        report = scanner.scan()
+
+        # Facts from valid file are extracted
+        fact_names = {f.name for f in report.facts}
+        assert "documented_func" in fact_names
+
+        # Error entry for bad file
+        assert len(report.errors) >= 1
+        error_messages = " ".join(report.errors)
+        assert "bad.py" in error_messages
+
+    def test_error_message_includes_file_path(self, tmp_path: Path) -> None:
+        """Error message includes the problematic file path."""
+        bad_py = tmp_path / "bad_syntax.py"
+        bad_py.write_text("x = {{ broken\n")
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        assert len(report.errors) >= 1
+        assert "bad_syntax.py" in report.errors[0]
+
+    def test_strict_mode_raises_on_error(self, tmp_path: Path) -> None:
+        """--strict mode raises exception on malformed file."""
+        bad_py = tmp_path / "bad.py"
+        bad_py.write_text("def broken({{[[\n")
+
+        scanner = DriftScanner(tmp_path, strict=True)
+        with pytest.raises(Exception):
+            scanner.scan()
