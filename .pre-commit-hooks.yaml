@@ -1,0 +1,21 @@
+# Pre-commit hooks for drift
+# See https://pre-commit.com/#adding-pre-commit-plugins
+---
+- repo: local
+  hooks:
+    - id: drift-check
+      name: drift (check)
+      description: Check for documentation drift (blocks commit if drift found)
+      entry: drift --check
+      language: system
+      pass_filenames: true
+      types: [python]
+
+    - id: drift-fix
+      name: drift (auto-fix)
+      description: Automatically fix documentation drift where possible
+      entry: drift --fix
+      language: system
+      pass_filenames: false
+      stages: [commit]
+      types: [python]

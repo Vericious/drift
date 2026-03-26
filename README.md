@@ -131,6 +131,56 @@ error: cli_flag 'verbose' documented but not registered in code
 
 Drift extracts CLI facts from Python files using `argparse.ArgumentParser.add_argument()` and `click.option()` decorators.
 
+## Pre-commit Hook
+
+You can use drift as a pre-commit hook to catch documentation drift before it enters your repo.
+
+### Setup
+
+Add to your `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: drift-check
+        name: drift (check)
+        description: Check for documentation drift (blocks commit if drift found)
+        entry: drift check
+        language: system
+        pass_filenames: true
+        types: [python]
+```
+
+### With auto-fix (experimental)
+
+For extractors that support auto-fixing:
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: drift-check
+        name: drift (check)
+        entry: drift check
+        language: system
+        pass_filenames: true
+        types: [python]
+      - id: drift-fix
+        name: drift (auto-fix)
+        entry: drift fix
+        language: system
+        pass_filenames: false
+        stages: [commit]
+        types: [python]
+```
+
+### Hook options
+
+| Hook ID | Description | Exit code |
+|---------|-------------|-----------|
+| `drift-check` | Check for documentation drift | 0 = clean, 1 = drift found |
+
 ## Development
 
 ```bash

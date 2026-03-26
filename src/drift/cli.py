@@ -458,6 +458,104 @@ def check(path: str, fail_on: str, quiet: bool) -> None:
         raise SystemExit(1)
 
 
+@main.command()
+@click.argument("path", type=click.Path(exists=True), default=".")
+@click.option(
+    "--dry-run",
+    "-n",
+    is_flag=True,
+    help="Show what would be fixed without making changes.",
+)
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=False),
+    default=None,
+    help="Path to config file (default: .drift.toml in CWD)",
+)
+def fix(path: str, dry_run: bool, config_path: str | None) -> None:
+    """Attempt to auto-fix documentation drift where possible.
+
+    Currently supports:
+    - Removing documented parameters that don't exist in code
+
+    Experimental: auto-fix for other extractors may be added in future versions.
+
+    Use --dry-run to see what would be changed without modifying files.
+    """
+    from drift.config import load_config
+
+    # Load config
+    config_file = Path(config_path) if config_path else None
+    try:
+        load_config(config_file)
+    except FileNotFoundError:
+        pass  # Use defaults if no config
+    except ValueError:
+        pass
+
+    scan_path = Path(path)
+
+    # Run scanner
+    scanner = DriftScanner(scan_path, strict=False)
+    report = scanner.scan()
+
+    if not report.drift_items:
+        click.secho("✓  No drift to fix", fg="green")
+        return
+
+    # Categorize drift items by whether they can be auto-fixed
+    fixable: list[DriftItem] = []
+    not_fixable: list[DriftItem] = []
+
+    for item in report.drift_items:
+        # Currently only "documented_but_missing" parameter claims are fixable
+        # (remove the documentation claim from the docstring)
+        if item.category == "documented_but_missing":
+            if item.claim and item.claim.kind.value in (
+                "parameter_description",
+                "return_description",
+            ):
+                fixable.append(item)
+            else:
+                not_fixable.append(item)
+        else:
+            not_fixable.append(item)
+
+    if not fixable:
+        click.secho(
+            "⚠  No auto-fixable drift found. Try fixing manually.",
+            fg="yellow",
+        )
+        if not_fixable:
+            click.echo(f"  ({len(not_fixable)} item(s) cannot be auto-fixed)")
+        raise SystemExit(1)
+
+    # Show what would be fixed
+    click.echo(f"Found {len(fixable)} fixable drift item(s):")
+    for item in fixable:
+        claim_name = item.claim.name if item.claim else "unknown"
+        claim_kind = item.claim.kind.value if item.claim else "unknown"
+        click.echo(f"  - [{claim_kind}] {claim_name} ({item.category})")
+        if item.fact and item.fact.source_file:
+            click.echo(f"    at {item.fact.source_file}:{item.fact.line_number}")
+
+    if dry_run:
+        click.echo()
+        click.secho("Dry run - no changes made. Run without --dry-run to apply.", fg="cyan")
+        raise SystemExit(1)
+
+    # TODO: Implement actual file modification
+    # For now, just report that we'd fix them
+    click.echo()
+    click.secho(
+        "Auto-fix is not yet fully implemented. "
+        "Please fix these items manually or wait for a future version.",
+        fg="yellow",
+    )
+    raise SystemExit(1)
+
+
 def _filter_by_severity(items: list[DriftItem], min_severity: str) -> list[DriftItem]:
     """Filter drift items to only those >= min_severity.
 

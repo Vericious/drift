@@ -13,6 +13,9 @@
 ### Type Checking
 - **DRIFT-037 — mypy strict mode**: Added `types-PyYAML` to dev dependencies and fixed all mypy errors in `cli_argparse.py`. Changed `result` dict to use `dict[str, Any]` type, added proper type annotations to `_extract_arg_info` and `_build_codefact` methods, and removed all unnecessary `type: ignore` comments. All 485 tests pass with mypy strict mode enabled.
 
+### Pre-commit Integration
+- **DRIFT-082 — pre-commit hook integration**: Added `.pre-commit-hooks.yaml` for using drift as a pre-commit hook. Provides `drift-check` (blocks commit if drift found) and `drift-fix` (experimental auto-fix hook). Updated README with pre-commit usage documentation. Added `drift fix` command stub with `--dry-run` support for future auto-fix implementation.
+
 ## v0.4.0 (2026-03-26)
 
 ### New Features
