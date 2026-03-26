@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from drift.extractors.base import Extractor
+from drift.extractors.registry import register
 from drift.models import ClaimKind, CodeFact, DocClaim, DriftItem, Parameter, Severity
 
 
@@ -173,6 +174,7 @@ def _parse_sphinx_style(docstring: str) -> Optional[list[str]]:
 # DocstringExtractor
 # ---------------------------------------------------------------------------
 
+@register
 class DocstringExtractor(Extractor):
     """Extract DocClaim objects from docstrings in Python source files.
 

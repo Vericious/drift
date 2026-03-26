@@ -23,7 +23,9 @@ def main() -> None:
               help="Path to config file (default: .drift.toml in CWD)")
 @click.option("--strict", is_flag=True,
               help="Treat extractor errors as fatal (fail fast on malformed files).")
-def scan(path: str, output_json: bool, config_path: str | None, strict: bool) -> None:
+@click.option("--severity", "-s", type=click.Choice(["error", "warning", "info", "all"]),
+              default="all", help="Minimum severity to show (default: all).")
+def scan(path: str, output_json: bool, config_path: str | None, strict: bool, severity: str) -> None:
     """Scan a project for documentation drift."""
     # Load config
     config_file = Path(config_path) if config_path else None
@@ -39,11 +41,28 @@ def scan(path: str, output_json: bool, config_path: str | None, strict: bool) ->
 
     scanner = DriftScanner(Path(path), strict=strict)
     report = scanner.scan()
+
+    # Apply severity filter
+    if severity != "all":
+        severity_min = severity
+        report.drift_items = _filter_by_severity(report.drift_items, severity_min)
+
     reporter = DriftReporter(report)
     if output_format == "json":
         click.echo(reporter.report_json())
     else:
         reporter.report_console()
-    # Exit 1 if drift detected (error-severity items)
-    if report.has_drift:
+
+    # Exit 1 if drift detected (error-severity items passing the filter)
+    if any(item.severity.value == "error" for item in report.drift_items):
         raise SystemExit(1)
+
+
+def _filter_by_severity(items: list, min_severity: str) -> list:
+    """Filter drift items to only those >= min_severity.
+
+    Ordering: error > warning > info
+    """
+    order = {"error": 0, "warning": 1, "info": 2}
+    min_level = order.get(min_severity, 2)
+    return [item for item in items if order.get(item.severity.value, 3) <= min_level]

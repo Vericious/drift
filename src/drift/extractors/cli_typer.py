@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from drift.extractors.base import Extractor
+from drift.extractors.registry import register
 from drift.models import CodeFact, FactKind, Parameter
 
 
@@ -117,6 +118,7 @@ def _get_type_from_annotation(annotation: ast.expr) -> Optional[str]:
     return None
 
 
+@register
 class TyperExtractor(Extractor):
     """Extract CLI flags and arguments from Typer-using Python files.
 

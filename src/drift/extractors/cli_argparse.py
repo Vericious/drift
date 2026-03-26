@@ -2,6 +2,7 @@
 
 Detects CLI flags and arguments defined via argparse in Python source code.
 """
+from drift.extractors.registry import register
 import ast
 from pathlib import Path
 from typing import Optional
@@ -35,6 +36,7 @@ def _is_flag_name(name: str) -> bool:
     return isinstance(name, str) and name.startswith("-")
 
 
+@register
 class ArgparseExtractor(Extractor):
     """Extract CLI flags and arguments from argparse-using Python files.
 

@@ -2,6 +2,7 @@
 
 Detects CLI flags and arguments defined via click decorators in Python source code.
 """
+from drift.extractors.registry import register
 import ast
 from pathlib import Path
 from typing import Any, Optional
@@ -186,6 +187,7 @@ def _extract_option_info(dec_type: str, kwargs: dict, args: list) -> Optional[di
     return result
 
 
+@register
 class ClickExtractor(Extractor):
     """Extract CLI flags and arguments from click-using Python files.
 

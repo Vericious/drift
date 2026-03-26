@@ -1,0 +1,24 @@
+# Sample TOML configuration for testing the ConfigFileExtractor
+
+[database]
+host = "localhost"
+port = 5432
+ssl = true
+
+[database.pools]
+min = 2
+max = 10
+
+[server]
+host = "0.0.0.0"
+port = 8080
+debug = false
+workers = 4
+
+[logging]
+level = "info"
+handlers = ["console", "file"]
+
+[app]
+name = "myapp"
+version = "1.0.0"

@@ -4,11 +4,7 @@ from pathlib import Path
 from drift.models import CodeFact, DocClaim, DriftReport
 from drift.python_extractor import PythonExtractor
 from drift.extractors.markdown import MarkdownExtractor
-from drift.extractors.docstring import DocstringExtractor
-from drift.extractors.cli_argparse import ArgparseExtractor
-from drift.extractors.cli_click import ClickExtractor
-from drift.extractors.cli_typer import TyperExtractor
-from drift.extractors.pydantic import PydanticExtractor
+from drift.extractors.registry import get_extractors
 from drift.matcher import SignatureMatcher
 
 
@@ -20,11 +16,6 @@ class DriftScanner:
         self.strict = strict
         self.py_extractor = PythonExtractor()
         self.md_extractor = MarkdownExtractor()
-        self.docstring_extractor = DocstringExtractor()
-        self.argparse_extractor = ArgparseExtractor()
-        self.click_extractor = ClickExtractor()
-        self.typer_extractor = TyperExtractor()
-        self.pydantic_extractor = PydanticExtractor()
         self.matcher = SignatureMatcher()
         self._ignore_patterns: list[str] = []
         self._load_driftignore()
@@ -51,12 +42,12 @@ class DriftScanner:
         return False
 
     def _extract_py(self, py_file: Path) -> tuple[list[CodeFact], list[DocClaim]]:
-        """Extract facts and claims from a Python file using all extractors."""
+        """Extract facts and claims from a Python file using all registered extractors."""
         facts: list[CodeFact] = []
         claims: list[DocClaim] = []
         errors: list[str] = []
 
-        # Python function/method extractor
+        # Python function/method extractor (not in registry)
         try:
             facts.extend(self.py_extractor.extract(py_file))
         except Exception as e:
@@ -65,50 +56,23 @@ class DriftScanner:
                 raise
             errors.append(err)
 
-        # Argparse CLI extractor
-        try:
-            facts.extend(self.argparse_extractor.extract(py_file))
-        except Exception as e:
-            err = f"[ArgparseExtractor] {py_file}: {e}"
-            if self.strict:
-                raise
-            errors.append(err)
+        # Registered extractors
+        for extractor_cls in get_extractors():
+            try:
+                extracted = extractor_cls().extract(py_file)
+            except Exception as e:
+                err = f"[{extractor_cls.__name__}] {py_file}: {e}"
+                if self.strict:
+                    raise
+                errors.append(err)
+                continue
 
-        # Click CLI extractor
-        try:
-            facts.extend(self.click_extractor.extract(py_file))
-        except Exception as e:
-            err = f"[ClickExtractor] {py_file}: {e}"
-            if self.strict:
-                raise
-            errors.append(err)
-
-        # Typer CLI extractor
-        try:
-            facts.extend(self.typer_extractor.extract(py_file))
-        except Exception as e:
-            err = f"[TyperExtractor] {py_file}: {e}"
-            if self.strict:
-                raise
-            errors.append(err)
-
-        # Pydantic extractor
-        try:
-            facts.extend(self.pydantic_extractor.extract(py_file))
-        except Exception as e:
-            err = f"[PydanticExtractor] {py_file}: {e}"
-            if self.strict:
-                raise
-            errors.append(err)
-
-        # Docstring extractor
-        try:
-            claims.extend(self.docstring_extractor.extract(py_file))
-        except Exception as e:
-            err = f"[DocstringExtractor] {py_file}: {e}"
-            if self.strict:
-                raise
-            errors.append(err)
+            # Separate CodeFacts from DocClaims
+            for item in extracted:
+                if isinstance(item, DocClaim):
+                    claims.append(item)
+                else:
+                    facts.append(item)
 
         return facts, claims, errors
 
