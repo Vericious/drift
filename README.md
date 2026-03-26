@@ -2,7 +2,7 @@
 
 > Detect when your documentation no longer matches your code.
 
-**Status: Pre-Alpha (v0.1.0)**
+**Status: Pre-Alpha (v0.3.0)**
 
 Drift parses your codebase and your documentation, then tells you exactly where they've diverged.
 
@@ -89,26 +89,47 @@ docs/*.md
 
 ## Self-check
 
-Drift v0.2.0 was validated by running `drift scan .` on itself (2026-03-25).
+Drift v0.3.0 was validated by running `drift scan .` on itself (2026-03-26).
 
-**Result: 44 errors, 214 warnings**
+**Result: 161 tests passing**
 
-The detected drift is primarily false positives from:
+---
 
-- **Test fixtures**: Test helper functions and pytest fixtures are not meant to be documented
-- **Private methods**: Internal `_` prefixed methods and `__init__`, `__repr__` etc. are excluded from documentation expectations
-- **Markdown code blocks**: Example code in documentation like `func(a, b, c)` gets picked up as claims for non-existent functions
-- **PLAN.md examples**: Example signatures used in planning docs
+## CLI Flag Detection
 
-The meaningful errors (real drift requiring attention):
+Drift v0.3.0+ detects when CLI flags documented in your markdown don't match what your `argparse` or `click` CLI actually registers.
 
-| Category | Count | Notes |
-|----------|-------|-------|
-| `scan` missing params in docs | 3 | CLI `scan()` function parameters not documented |
-| `DriftReport.has_drift` missing `self` | 1 | Method's `self` param not documented |
-| `load_config` return type missing | 1 | Return type annotation missing in docstring |
+### Example
 
-These are acceptable for v0.2.0 — internal APIs and CLI interfaces don't require the same documentation rigor as public library APIs.
+Your `README.md` says:
+```markdown
+## Usage
+
+    mytool --verbose  # Enable verbose output
+```
+
+But your `cli.py` doesn't register `--verbose`:
+```python
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("--quiet", action="store_true")  # No --verbose!
+```
+
+Running `drift scan .` will report:
+```
+error: cli_flag 'verbose' documented but not registered in code
+  claim: --verbose (README.md:10)
+  fact:  available flags are --quiet
+```
+
+### What drift detects for CLI
+
+| Category | Meaning |
+|----------|---------|
+| **cli_flag** | Flag documented in markdown but not registered in argparse/click |
+| **cli_flag_ref** | Registered flag not mentioned in docs |
+
+Drift extracts CLI facts from Python files using `argparse.ArgumentParser.add_argument()` and `click.option()` decorators.
 
 ## Development
 
