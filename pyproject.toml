@@ -29,6 +29,11 @@ dependencies = [
 [project.scripts]
 drift = "drift.cli:main"
 
+[project.entry-points."drift.extractors"]
+# Third-party plugins should add their extractors here.
+# Example:
+# my-extractor = "my_drift_plugin:MyExtractor"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
@@ -49,7 +54,7 @@ testpaths = ["tests"]
 target-version = "py311"
 line-length = 120
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "TCH"]
-ignore = ["E501"]
+ignore = ["E501", "N806"]
 
 [tool.coverage.run]
 source = ["src/drift"]

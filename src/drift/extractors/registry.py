@@ -8,6 +8,7 @@ from drift.extractors.base import Extractor
 
 # Global registry of extractor classes
 _EXTRACTORS: list[type[Extractor]] = []
+_DISCOVERY_DONE = False
 
 
 def register(cls: type[Extractor]) -> type[Extractor]:
@@ -23,12 +24,22 @@ def register(cls: type[Extractor]) -> type[Extractor]:
 
 
 def get_extractors() -> list[type[Extractor]]:
-    """Return all registered extractor classes."""
+    """Return all registered extractor classes (built-in + plugins)."""
+    _ensure_discovered()
     return list(_EXTRACTORS)
 
 
+def _ensure_discovered() -> None:
+    """Ensure extractors have been discovered and registered (idempotent)."""
+    global _DISCOVERY_DONE
+    if _DISCOVERY_DONE:
+        return
+    _discover_extractors()
+    _DISCOVERY_DONE = True
+
+
 def _discover_extractors() -> None:
-    """Import all extractor modules to trigger their @register decorators."""
+    """Import all built-in extractor modules and load plugins to trigger @register decorators."""
     # Import all known extractor modules
     from drift.extractors import (
         cli_argparse,  # noqa: F401
@@ -46,3 +57,7 @@ def _discover_extractors() -> None:
         rst_docs,  # noqa: F401
     )
     from drift import extractor_js  # noqa: F401
+
+    # Load plugins via entry_points
+    from drift.plugin import load_plugins
+    load_plugins()

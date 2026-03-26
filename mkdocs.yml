@@ -28,6 +28,7 @@ theme:
 nav:
   - Home: index.md
   - Extractors: extractors.md
+  - Plugins: plugins.md
   - Configuration: configuration.md
   - CLI Reference: cli.md
 

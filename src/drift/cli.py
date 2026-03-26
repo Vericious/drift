@@ -237,6 +237,54 @@ fail_on = "error"
     click.echo(f"Created {config_path} with sensible defaults.")
 
 
+@main.command("list-extractors")
+def list_extractors() -> None:
+    """List all loaded extractors (built-in + plugins).
+
+    Shows every registered Extractor class including those discovered
+    via the drift.extractors entry_point group.
+    """
+    from drift.extractors.registry import get_extractors
+
+    extractors = get_extractors()
+
+    from rich.console import Console
+    from rich.table import Table
+
+    console = Console()
+    table = Table(title="Drift Extractors", show_header=True, header_style="bold cyan")
+    table.add_column("Name", style="bold")
+    table.add_column("Source", style="dim")
+    table.add_column("Handles")
+
+    # Categorize built-in vs plugin
+    builtins = {
+        "ArgparseExtractor",
+        "ClickExtractor",
+        "TyperExtractor",
+        "ConfigFileExtractor",
+        "DataclassFieldsExtractor",
+        "DecoratorExtractor",
+        "DocstringExtractor",
+        "EnvVarExtractor",
+        "FastAPIRoutesExtractor",
+        "FlaskRoutesExtractor",
+        "MarkdownExtractor",
+        "PydanticExtractor",
+        "RSTDocsExtractor",
+        "OpenAPIExtractor",
+    }
+
+    for cls in extractors:
+        name = cls.__name__
+        source = "built-in" if name in builtins else "plugin"
+        handles = getattr(cls, "_handles", None) or "*"
+        table.add_row(name, source, str(getattr(cls, "handles_pattern", handles)))
+
+    console.print(table)
+    console.print(f"\n[dim]{len(extractors)} extractor(s) loaded[/dim]")
+
+
 @main.command()
 @click.argument("path", type=click.Path(exists=True), default=".")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")

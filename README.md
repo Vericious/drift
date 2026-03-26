@@ -224,6 +224,19 @@ Drift's GitHub Action uploads results as SARIF, enabling GitHub's code scanning 
 
 See `.github/actions/drift-check/action.yml` for the full action definition.
 
+## Extending with Plugins
+
+Drift supports **third-party extractors** via the `drift.extractors` entry_point group. See [docs/plugins.md](docs/plugins.md) for the full plugin authoring guide.
+
+Example `pyproject.toml` addition for a plugin package:
+
+```toml
+[project.entry-points."drift.extractors"]
+my-extractor = "my_package.extractor:MyExtractor"
+```
+
+After installing the plugin package, `drift list-extractors` will show it alongside built-in extractors, and `drift scan` will use it automatically.
+
 ## Development
 
 ```bash

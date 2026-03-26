@@ -5,6 +5,13 @@
 ### New Features
 - **JSDoc extractor (DRIFT-081)**: Added `JSDocExtractor` in `src/drift/extractor_js.py` for extracting documentation claims from `.js`, `.ts`, `.jsx`, `.tsx` files. Supports `@param`, `@returns`, `@type`, `@throws`, `@see`, and `@name` JSDoc annotations. Produces `DocClaim` objects with `ClaimKind.PARAMETER_DESCRIPTION`, `RETURN_DESCRIPTION`, and `FUNCTION_SIGNATURE`. Regex-based extraction from JSDoc comment blocks.
 - **`--include-js` CLI flag**: Added `--include-js` flag to `drift scan` command. When enabled, the scanner discovers and processes `.js`/`.ts`/`.jsx`/`.tsx` files using the `JSDocExtractor`. Both serial and parallel scanning supported.
+
+### Plugin System (DRIFT-085)
+- **`src/drift/plugin.py`**: New module for entry_points-based extractor discovery. `load_plugins()` scans the `drift.extractors` entry_point group and loads third-party Extractor subclasses. Supports `module:ClassName` format, kebab-case → CamelCase conversion, and `extractor` attribute patterns. Added `get_plugins()` and `clear_plugin_cache()` helpers.
+- **`--list-extractors` CLI flag**: New `drift list-extractors` command shows all loaded extractors (built-in + plugins) in a table with source and handles columns.
+- **`drift.extractors` entry_point group**: Declared in `pyproject.toml` for third-party plugins. README and `docs/plugins.md` document the plugin authoring API.
+- **`@register` integration**: Plugin extractors registered via `@register` appear in the shared `_EXTRACTORS` registry alongside built-ins. All plugin extractors participate in normal scan pipeline automatically.
+- **Test plugin** (`tests/plugins/test_drift_example/`): Example `TodoCommentExtractor` plugin demonstrating the full plugin API. Used by `tests/test_plugin.py` for integration testing.
 - **Decorator extractor**: Added `DecoratorExtractor` for detecting behavior-changing decorators (`@login_required`, `@cache`, `@deprecated`, `@app.route`, `@rate_limit`, etc.). AST-based with argument extraction. Registered via `@register`. All 413 tests pass.
 
 ### Documentation
