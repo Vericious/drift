@@ -1,6 +1,30 @@
 # Changelog
 
-## 2026-03-26
+## v0.4.0 (2026-03-26)
+
+### New Features
+- **Fuzzy matching**: `SignatureMatcher` now detects renamed functions via fuzzy string matching (Levenshtein distance-based similarity). Returns `fuzzy_renamed` with confidence score when names are similar but not exact.
+- **Renamed detection**: When names are completely different but parameter signatures match, returns `renamed` category to indicate likely function rename.
+- **Severity filtering**: `--severity error` and `--severity warning` flags filter drift output by severity level. Exit code reflects filtered state.
+- **SARIF output**: `--sarif` flag outputs drift reports in SARIF (Static Analysis Results Interchange Format) for CI integration.
+- **.driftignore**: Project root `.driftignore` file respected by all extractors. Globs exclude paths/files from drift analysis.
+- **`drift init`**: Initializes a `.driftignore` file with sensible defaults.
+- **`drift summary`**: Shows a high-level summary of drift status (no drift / drift detected / N items).
+- **New extractors**: Added support for FastAPI routes, Flask routes, Pydantic models, dataclass fields, environment variables, and config files.
+
+### Bug Fixes
+- Fixed fuzzy_renamed tests (TestFuzzyRenamed suite now passes)
+- Fixed severity filter tests
+- Fixed test typo in `test_fuzzy_rename_chooses_highest_confidence`
+- Fixed type errors across core modules and extractors (mypy strict mode enabled)
+
+### Breaking Changes
+- `DriftItem` model now has a `metadata` dict field for storing match_method, confidence, etc.
+- Exit code behavior: `--severity error` returns exit code 0 when only warnings present
+
+---
+
+## 2026-03-26 (Development)
 
 ### DRIFT-051 — Add renamed category (single signature match, different names)
 

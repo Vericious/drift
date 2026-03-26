@@ -2,7 +2,7 @@
 
 > Detect when your documentation no longer matches your code.
 
-**Status: Pre-Alpha (v0.3.0)**
+**Status: Pre-Alpha (v0.4.0)**
 
 Drift parses your codebase and your documentation, then tells you exactly where they've diverged.
 
@@ -89,7 +89,7 @@ docs/*.md
 
 ## Self-check
 
-Drift v0.3.0 was validated by running `drift scan .` on itself (2026-03-26).
+Drift v0.4.0 was validated by running `drift scan .` on itself (2026-03-26).
 
 **Result: 161 tests passing**
 
@@ -97,7 +97,7 @@ Drift v0.3.0 was validated by running `drift scan .` on itself (2026-03-26).
 
 ## CLI Flag Detection
 
-Drift v0.3.0+ detects when CLI flags documented in your markdown don't match what your `argparse` or `click` CLI actually registers.
+Drift v0.4.0+ detects when CLI flags documented in your markdown don't match what your `argparse` or `click` CLI actually registers.
 
 ### Example
 

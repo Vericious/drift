@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "drift"
-version = "0.3.0"
+version = "0.4.0"
 description = "Detect when your documentation no longer matches your code"
 readme = "README.md"
 requires-python = ">=3.11"
