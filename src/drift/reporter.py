@@ -48,6 +48,8 @@ class DriftReporter:
         self.console.print(f"[cyan]{'=' * 50}[/cyan]")
         self.console.print(f"  [dim]Path:[/dim] {scanned}")
         self.console.print(f"  Summary: {report.summary()}")
+        if report.files_skipped > 0:
+            self.console.print(f"  [dim]Files skipped (unchanged):[/dim] {report.files_skipped}")
         if verbose and elapsed:
             self.console.print(f"  [dim]Scan time:[/dim] {elapsed:.3f}s")
         if verbose:

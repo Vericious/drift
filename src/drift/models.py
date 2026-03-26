@@ -170,6 +170,7 @@ class DriftReport:
     claims: list[DocClaim] = field(default_factory=list)
     drift_items: list[DriftItem] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    files_skipped: int = 0
 
     @property
     def errors_count(self) -> int:

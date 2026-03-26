@@ -86,6 +86,16 @@ def main() -> None:
     is_flag=True,
     help="Scan .js/.ts files for JSDoc documentation claims.",
 )
+@click.option(
+    "--no-cache",
+    is_flag=True,
+    help="Disable incremental scan cache. All files are re-scanned.",
+)
+@click.option(
+    "--clear-cache",
+    is_flag=True,
+    help="Clear the incremental scan cache before scanning.",
+)
 def scan(
     path: str,
     output_json: bool,
@@ -99,6 +109,8 @@ def scan(
     fail_on: str | None,
     parallel: bool,
     include_js: bool,
+    no_cache: bool,
+    clear_cache: bool,
 ) -> None:
     """Scan a project for documentation drift."""
     import time
@@ -133,7 +145,7 @@ def scan(
     # CLI --fail-on overrides config
     fail_on_level = fail_on if fail_on is not None else config.fail_on
 
-    scanner = DriftScanner(Path(path), strict=strict, parallel=parallel, include_js=include_js)
+    scanner = DriftScanner(Path(path), strict=strict, parallel=parallel, include_js=include_js, no_cache=no_cache, clear_cache=clear_cache)
     report = scanner.scan()
 
     elapsed = time.monotonic() - start

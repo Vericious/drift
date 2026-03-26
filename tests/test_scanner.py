@@ -700,3 +700,138 @@ class TestParallelScanning:
         # The documented function should have no drift
         drift_names = {d.fact.name for d in report.drift_items}
         assert "my_func" not in drift_names
+
+
+class TestIncrementalScan:
+    """Tests for incremental scanning with file hash cache."""
+
+    def _make_project(self, tmp_path: Path, files: dict[str, str]) -> None:
+        for rel_path, content in files.items():
+            f = tmp_path / rel_path
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(content)
+
+    def test_first_scan_processes_all_files(self, tmp_path: Path) -> None:
+        """First scan (no cache) processes all files."""
+        self._make_project(tmp_path, {
+            "a.py": "def func_a(x: int) -> None: pass",
+            "b.py": "def func_b(y: str) -> None: pass",
+        })
+        scanner = DriftScanner(tmp_path, no_cache=False, clear_cache=False)
+        report = scanner.scan()
+        assert len(report.facts) == 2
+        assert report.files_skipped == 0
+
+    def test_second_scan_skips_unchanged_files(self, tmp_path: Path) -> None:
+        """Second scan skips files that haven't changed."""
+        self._make_project(tmp_path, {
+            "a.py": "def func_a(x: int) -> None: pass",
+        })
+        # First scan
+        s1 = DriftScanner(tmp_path)
+        r1 = s1.scan()
+        assert len(r1.facts) == 1
+        assert r1.files_skipped == 0
+
+        # Second scan (no changes) — should skip
+        s2 = DriftScanner(tmp_path)
+        r2 = s2.scan()
+        assert len(r2.facts) == 0
+        assert r2.files_skipped == 1
+
+    def test_modified_file_is_not_skipped(self, tmp_path: Path) -> None:
+        """A file that has been modified is re-processed."""
+        self._make_project(tmp_path, {
+            "a.py": "def func_a(x: int) -> None: pass",
+        })
+        # First scan
+        s1 = DriftScanner(tmp_path)
+        r1 = s1.scan()
+        assert len(r1.facts) == 1
+
+        # Modify file
+        import time
+        time.sleep(0.01)
+        (tmp_path / "a.py").write_text("def func_b(y: int) -> None: pass")
+
+        # Second scan
+        s2 = DriftScanner(tmp_path)
+        r2 = s2.scan()
+        assert len(r2.facts) == 1
+        assert r2.facts[0].name == "func_b"
+        assert r2.files_skipped == 0
+
+    def test_no_cache_flag_forces_full_rescan(self, tmp_path: Path) -> None:
+        """--no-cache forces a full rescan regardless of cache."""
+        self._make_project(tmp_path, {
+            "a.py": "def func_a(x: int) -> None: pass",
+        })
+        # First scan
+        s1 = DriftScanner(tmp_path)
+        r1 = s1.scan()
+        assert r1.files_skipped == 0
+
+        # Second scan with no_cache=True
+        s2 = DriftScanner(tmp_path, no_cache=True)
+        r2 = s2.scan()
+        assert len(r2.facts) == 1
+        assert r2.files_skipped == 0
+
+    def test_clear_cache_forces_full_rescan(self, tmp_path: Path) -> None:
+        """--clear-cache clears cache and forces full rescan."""
+        self._make_project(tmp_path, {
+            "a.py": "def func_a(x: int) -> None: pass",
+        })
+        # First scan
+        s1 = DriftScanner(tmp_path)
+        r1 = s1.scan()
+        assert r1.files_skipped == 0
+
+        # Second scan with clear_cache=True
+        s2 = DriftScanner(tmp_path, clear_cache=True)
+        r2 = s2.scan()
+        assert len(r2.facts) == 1
+        assert r2.files_skipped == 0
+
+    def test_added_file_is_processed(self, tmp_path: Path) -> None:
+        """A newly added file is processed even if other files are cached."""
+        self._make_project(tmp_path, {
+            "a.py": "def func_a(x: int) -> None: pass",
+        })
+        # First scan
+        s1 = DriftScanner(tmp_path)
+        r1 = s1.scan()
+        assert len(r1.facts) == 1
+
+        # Add a new file
+        import time
+        time.sleep(0.01)
+        (tmp_path / "b.py").write_text("def func_b(y: int) -> None: pass")
+
+        # Second scan
+        s2 = DriftScanner(tmp_path)
+        r2 = s2.scan()
+        assert len(r2.facts) == 1
+        assert r2.facts[0].name == "func_b"
+        assert r2.files_skipped == 1  # a.py was skipped
+
+    def test_deleted_file_not_in_cache_harms(self, tmp_path: Path) -> None:
+        """Deleted files don't cause issues on subsequent scans."""
+        self._make_project(tmp_path, {
+            "a.py": "def func_a(x: int) -> None: pass",
+            "b.py": "def func_b(y: int) -> None: pass",
+        })
+        # First scan
+        s1 = DriftScanner(tmp_path)
+        r1 = s1.scan()
+        assert len(r1.facts) == 2
+
+        # Delete a.py
+        (tmp_path / "a.py").unlink()
+
+        # Second scan — b.py is still in cache and unchanged, so skipped.
+        # a.py is gone from disk, not in file list, not re-processed.
+        s2 = DriftScanner(tmp_path)
+        r2 = s2.scan()
+        assert len(r2.facts) == 0  # b.py was cached and skipped
+        assert r2.files_skipped == 1  # b.py unchanged

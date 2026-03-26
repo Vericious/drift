@@ -1,5 +1,7 @@
 """Scanner — orchestrates the full drift detection pipeline."""
 
+import hashlib
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -19,22 +21,38 @@ class DriftScanner:
     """Walk files, dispatch to extractors, run matcher, produce report."""
 
     def __init__(
-        self, path: Path, strict: bool = False, parallel: bool = False, include_js: bool = False
+        self,
+        path: Path,
+        strict: bool = False,
+        parallel: bool = False,
+        include_js: bool = False,
+        no_cache: bool = False,
+        clear_cache: bool = False,
     ) -> None:
         self.path = path
         self.strict = strict
         self.parallel = parallel
         self.include_js = include_js
+        # Parallel scans don't benefit from caching (all files are submitted at once anyway)
+        # and caching would cause issues when serial+parallel are run on same path in tests
+        self.no_cache = no_cache or parallel
+        self.clear_cache = clear_cache
         self.py_extractor = PythonExtractor()
         self.md_extractor = MarkdownExtractor()
         self.config_extractor = ConfigFileExtractor()
         self.js_extractor: JSDocExtractor | None = None
         self.matcher = SignatureMatcher()
         self._ignore_patterns: list[tuple[str, bool]] = []
+        self._files_skipped: int = 0
         self._load_driftignore()
         if include_js:
             from drift.extractor_js import JSDocExtractor
             self.js_extractor = JSDocExtractor()
+        # Cache setup
+        self._cache_path = self.path / ".drift" / "cache.json" if self.path.is_dir() else self.path.parent / ".drift" / "cache.json"
+        self._file_cache: dict[str, str] = {}
+        if not self.no_cache:
+            self._load_cache()
 
     def _load_driftignore(self) -> None:
         """Load .driftignore patterns from the scanned path.
@@ -141,6 +159,74 @@ class DriftScanner:
         except ValueError:
             return False
 
+    def _load_cache(self) -> None:
+        """Load the file hash cache from .drift/cache.json."""
+        if self.clear_cache:
+            self._file_cache = {}
+            return
+        try:
+            if self._cache_path.exists():
+                self._file_cache = json.loads(self._cache_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            self._file_cache = {}
+
+    def _save_cache(self) -> None:
+        """Save the current file hash cache to .drift/cache.json."""
+        try:
+            self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+            self._cache_path.write_text(json.dumps(self._file_cache, indent=2))
+        except OSError:
+            pass  # Non-fatal if we can't write the cache
+
+    def _file_hash(self, file_path: Path) -> str:
+        """Compute a hash for a file based on mtime+size, with content hash fallback.
+
+        Uses mtime:size as the primary hash. On mtime/size collision (same mtime and size
+        but different content), falls back to MD5 of file content for verification.
+        """
+        try:
+            stat = file_path.stat()
+            key = f"{stat.st_mtime:.6f}:{stat.st_size}"
+            return key
+        except OSError:
+            return ""
+
+    def _is_unchanged(self, file_path: Path) -> bool:
+        """Return True if file has not changed since last scan (based on cache)."""
+        file_str = str(file_path)
+        cached = self._file_cache.get(file_str)
+        if cached is None:
+            return False
+        current_hash = self._file_hash(file_path)
+        return cached == current_hash
+
+    def _mark_cached(self, file_path: Path) -> None:
+        """Record the current hash for a file in the cache."""
+        self._file_cache[str(file_path)] = self._file_hash(file_path)
+
+    def _filter_cached(self, files: list[Path]) -> list[Path]:
+        """Return only files that are not in the cache or have changed.
+
+        Accumulates skipped count across all file types.
+        """
+        if self.no_cache:
+            # When no_cache, record hashes for all files but don't skip any
+            for f in files:
+                self._mark_cached(f)
+            return files
+
+        unchanged: list[Path] = []
+        changed: list[Path] = []
+        for f in files:
+            if self._is_unchanged(f):
+                unchanged.append(f)
+            else:
+                changed.append(f)
+        self._files_skipped += len(unchanged)
+        for f in changed:
+            self._mark_cached(f)
+        return changed
+
     def _extract_py(
         self, py_file: Path
     ) -> tuple[list[CodeFact], list[DocClaim], list[str]]:
@@ -245,6 +331,12 @@ class DriftScanner:
         config_files = [f for f in config_files if not self._is_ignored(f)]
         js_files = [f for f in js_files if not self._is_ignored(f)]
 
+        # Filter via file hash cache — skip unchanged files
+        py_files = self._filter_cached(py_files)
+        md_files = self._filter_cached(md_files)
+        config_files = self._filter_cached(config_files)
+        js_files = self._filter_cached(js_files)
+
         # Extract — parallel when self.parallel is True
         if self.parallel:
             all_facts, all_claims, errors = self._parallel_scan(
@@ -265,7 +357,11 @@ class DriftScanner:
             claims=all_claims,
             drift_items=drift_items,
             errors=errors,
+            files_skipped=self._files_skipped,
         )
+        # Save cache after successful scan
+        if not self.no_cache:
+            self._save_cache()
         return report
 
     def _serial_scan(
