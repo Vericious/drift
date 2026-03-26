@@ -25,8 +25,12 @@ def main() -> None:
               help="Treat extractor errors as fatal (fail fast on malformed files).")
 @click.option("--severity", "-s", type=click.Choice(["error", "warning", "info", "all"]),
               default="all", help="Minimum severity to show (default: all).")
-def scan(path: str, output_json: bool, config_path: str | None, strict: bool, severity: str) -> None:
+@click.option("--verbose", "-V", is_flag=True, help="Show detailed output including scan timing.")
+def scan(path: str, output_json: bool, config_path: str | None, strict: bool, severity: str, verbose: bool) -> None:
     """Scan a project for documentation drift."""
+    import time
+    start = time.monotonic()
+
     # Load config
     config_file = Path(config_path) if config_path else None
     try:
@@ -42,16 +46,18 @@ def scan(path: str, output_json: bool, config_path: str | None, strict: bool, se
     scanner = DriftScanner(Path(path), strict=strict)
     report = scanner.scan()
 
+    elapsed = time.monotonic() - start
+
     # Apply severity filter
     if severity != "all":
         severity_min = severity
         report.drift_items = _filter_by_severity(report.drift_items, severity_min)
 
-    reporter = DriftReporter(report)
+    reporter = DriftReporter(report, verbose=verbose)
     if output_format == "json":
-        click.echo(reporter.report_json())
+        click.echo(reporter.report_json(verbose=verbose, elapsed=elapsed))
     else:
-        reporter.report_console()
+        reporter.report_console(verbose=verbose, elapsed=elapsed)
 
     # Exit 1 if drift detected (error-severity items passing the filter)
     if any(item.severity.value == "error" for item in report.drift_items):

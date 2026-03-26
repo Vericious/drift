@@ -128,3 +128,27 @@ class TestSeverityFilter:
         result = cli_runner.invoke(main, ["scan", str(tmp_path)])
         # No drift → exit 0
         assert result.exit_code == 0
+
+
+class TestVerboseFlag:
+    """Tests for --verbose / -V CLI flag."""
+
+    def test_verbose_shows_timing_info(self, cli_runner, tmp_path):
+        """--verbose output includes timing info."""
+        result = cli_runner.invoke(main, ["scan", "--verbose", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "s" in result.output  # timing in seconds
+
+    def test_default_does_not_show_timing_info(self, cli_runner, tmp_path):
+        """Default (no --verbose) output does NOT include timing info."""
+        result = cli_runner.invoke(main, ["scan", str(tmp_path)])
+        assert result.exit_code == 0
+        # Default output should not contain timing
+        assert "Scan time" not in result.output
+        assert "Completed in" not in result.output
+
+    def test_verbose_short_flag(self, cli_runner, tmp_path):
+        """-V short flag also enables verbose output."""
+        result = cli_runner.invoke(main, ["scan", "-V", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "s" in result.output  # timing in seconds

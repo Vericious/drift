@@ -22,17 +22,19 @@ from drift.models import (
 class DriftReporter:
     """Render a DriftReport as console text or JSON."""
 
-    def __init__(self, report: DriftReport) -> None:
+    def __init__(self, report: DriftReport, verbose: bool = False) -> None:
         self.report = report
+        self.verbose = verbose
         self.console = Console()
 
     # -------------------------------------------------------------------------
     # Console output
     # -------------------------------------------------------------------------
 
-    def report_console(self) -> None:
+    def report_console(self, verbose: bool = False, elapsed: float = 0.0) -> None:
         """Print a rich terminal report to stdout."""
         report = self.report
+        verbose = verbose or self.verbose
         scanned = str(report.scanned_path) if report.scanned_path else "."
 
         # Header
@@ -40,13 +42,19 @@ class DriftReporter:
         self.console.print(f"[bold cyan]Drift Scan Report[/bold cyan]")
         self.console.print(f"[cyan]{'=' * 50}[/cyan]")
         self.console.print(f"  [dim]Path:[/dim] {scanned}")
-        self.console.print(
-            f"  Summary: {report.summary()}"
-        )
+        self.console.print(f"  Summary: {report.summary()}")
+        if verbose and elapsed:
+            self.console.print(f"  [dim]Scan time:[/dim] {elapsed:.3f}s")
+        if verbose:
+            self.console.print(f"  [dim]Facts:[/dim] {len(report.facts)}")
+            self.console.print(f"  [dim]Claims:[/dim] {len(report.claims)}")
+            self.console.print(f"  [dim]Errors logged:[/dim] {len(report.errors)}")
         self.console.print()
 
         if not report.has_drift and not report.drift_items:
             self.console.print("✅  No drift detected.")
+            if verbose and elapsed:
+                self.console.print(f"[dim]Completed in {elapsed:.3f}s[/dim]")
             self.console.print()
             return
 
@@ -131,9 +139,10 @@ class DriftReporter:
     # JSON output
     # -------------------------------------------------------------------------
 
-    def report_json(self) -> str:
+    def report_json(self, verbose: bool = False, elapsed: float = 0.0) -> str:
         """Return the drift report as a JSON string."""
         report = self.report
+        verbose = verbose or self.verbose
 
         drift_items_list = []
         for item in report.drift_items:
@@ -147,7 +156,7 @@ class DriftReporter:
             }
             drift_items_list.append(entry)
 
-        output = {
+        output: dict = {
             "scanned_path": str(report.scanned_path) if report.scanned_path else ".",
             "summary": {
                 "facts": len(report.facts),
@@ -159,5 +168,8 @@ class DriftReporter:
             "has_drift": report.has_drift,
             "drift_items": drift_items_list,
         }
+
+        if verbose:
+            output["scan_time_seconds"] = round(elapsed, 3)
 
         return json.dumps(output, indent=2)
