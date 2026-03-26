@@ -45,3 +45,4 @@ def _discover_extractors() -> None:
         pydantic,  # noqa: F401
         rst_docs,  # noqa: F401
     )
+    from drift import extractor_js  # noqa: F401

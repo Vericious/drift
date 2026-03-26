@@ -3,6 +3,8 @@
 ## v0.4.1 (2026-03-26)
 
 ### New Features
+- **JSDoc extractor (DRIFT-081)**: Added `JSDocExtractor` in `src/drift/extractor_js.py` for extracting documentation claims from `.js`, `.ts`, `.jsx`, `.tsx` files. Supports `@param`, `@returns`, `@type`, `@throws`, `@see`, and `@name` JSDoc annotations. Produces `DocClaim` objects with `ClaimKind.PARAMETER_DESCRIPTION`, `RETURN_DESCRIPTION`, and `FUNCTION_SIGNATURE`. Regex-based extraction from JSDoc comment blocks.
+- **`--include-js` CLI flag**: Added `--include-js` flag to `drift scan` command. When enabled, the scanner discovers and processes `.js`/`.ts`/`.jsx`/`.tsx` files using the `JSDocExtractor`. Both serial and parallel scanning supported.
 - **Decorator extractor**: Added `DecoratorExtractor` for detecting behavior-changing decorators (`@login_required`, `@cache`, `@deprecated`, `@app.route`, `@rate_limit`, etc.). AST-based with argument extraction. Registered via `@register`. All 413 tests pass.
 
 ### Documentation

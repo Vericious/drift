@@ -3,6 +3,7 @@
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 from drift.extractors.config_file import ConfigFileExtractor
 from drift.extractors.markdown import MarkdownExtractor
@@ -11,22 +12,29 @@ from drift.matcher import SignatureMatcher
 from drift.models import CodeFact, DocClaim, DriftReport
 from drift.python_extractor import PythonExtractor
 
+# JSDocExtractor imported lazily when include_js is True
+
 
 class DriftScanner:
     """Walk files, dispatch to extractors, run matcher, produce report."""
 
     def __init__(
-        self, path: Path, strict: bool = False, parallel: bool = False
+        self, path: Path, strict: bool = False, parallel: bool = False, include_js: bool = False
     ) -> None:
         self.path = path
         self.strict = strict
         self.parallel = parallel
+        self.include_js = include_js
         self.py_extractor = PythonExtractor()
         self.md_extractor = MarkdownExtractor()
         self.config_extractor = ConfigFileExtractor()
+        self.js_extractor: JSDocExtractor | None = None
         self.matcher = SignatureMatcher()
         self._ignore_patterns: list[tuple[str, bool]] = []
         self._load_driftignore()
+        if include_js:
+            from drift.extractor_js import JSDocExtractor
+            self.js_extractor = JSDocExtractor()
 
     def _load_driftignore(self) -> None:
         """Load .driftignore patterns from the scanned path.
@@ -183,6 +191,9 @@ class DriftScanner:
             config_files = (
                 [self.path] if self.config_extractor.can_handle(self.path) else []
             )
+            js_files: list[Path] = (
+                [self.path] if self.include_js and self.js_extractor and self.js_extractor.can_handle(self.path) else []
+            )
         else:
             py_files = list(self.path.rglob("*.py"))
             md_files = list(self.path.rglob("*.md"))
@@ -191,6 +202,16 @@ class DriftScanner:
                 + list(self.path.rglob("*.yml"))
                 + list(self.path.rglob("*.toml"))
             )
+            if self.include_js and self.js_extractor:
+                js_files = [
+                    f for f in list(self.path.rglob("*.js"))
+                    + list(self.path.rglob("*.ts"))
+                    + list(self.path.rglob("*.jsx"))
+                    + list(self.path.rglob("*.tsx"))
+                    if self.js_extractor.can_handle(f)
+                ]
+            else:
+                js_files = []
 
         # Filter out excluded directories
         exclude_dirs = {
@@ -211,20 +232,27 @@ class DriftScanner:
         config_files = [
             f for f in config_files if not any(part in exclude_dirs for part in f.parts)
         ]
+        if self.include_js:
+            js_files = [
+                f for f in js_files if not any(part in exclude_dirs for part in f.parts)
+            ]
+        else:
+            js_files = []
 
         # Filter out ignored files
         py_files = [f for f in py_files if not self._is_ignored(f)]
         md_files = [f for f in md_files if not self._is_ignored(f)]
         config_files = [f for f in config_files if not self._is_ignored(f)]
+        js_files = [f for f in js_files if not self._is_ignored(f)]
 
         # Extract — parallel when self.parallel is True
         if self.parallel:
             all_facts, all_claims, errors = self._parallel_scan(
-                py_files, md_files, config_files
+                py_files, md_files, config_files, js_files
             )
         else:
             all_facts, all_claims, errors = self._serial_scan(
-                py_files, md_files, config_files
+                py_files, md_files, config_files, js_files
             )
 
         # Match facts against claims
@@ -245,6 +273,7 @@ class DriftScanner:
         py_files: list[Path],
         md_files: list[Path],
         config_files: list[Path],
+        js_files: list[Path],
     ) -> tuple[list[CodeFact], list[DocClaim], list[str]]:
         """Extract facts/claims from all files serially. Used when parallel=False."""
         errors: list[str] = []
@@ -277,6 +306,17 @@ class DriftScanner:
                     raise
                 errors.append(err)
 
+        for js_file in js_files:
+            if self.js_extractor:
+                try:
+                    claims = self.js_extractor.extract(js_file)
+                    all_claims.extend(claims)
+                except Exception as e:
+                    err = f"[JSDocExtractor] {js_file}: {e}"
+                    if self.strict:
+                        raise
+                    errors.append(err)
+
         return all_facts, all_claims, errors
 
     def _parallel_scan(
@@ -284,6 +324,7 @@ class DriftScanner:
         py_files: list[Path],
         md_files: list[Path],
         config_files: list[Path],
+        js_files: list[Path],
     ) -> tuple[list[CodeFact], list[DocClaim], list[str]]:
         """Extract facts/claims from all files in parallel using ThreadPoolExecutor.
 
@@ -313,8 +354,12 @@ class DriftScanner:
                 cfg_futures = {
                     executor.submit(self._extract_config, f): f for f in config_files
                 }
+                # Submit JS/TS file extractions
+                js_futures = {
+                    executor.submit(self._extract_js, f): f for f in js_files
+                }
 
-                all_futures = {**py_futures, **md_futures, **cfg_futures}
+                all_futures: dict[Any, Path] = {**py_futures, **md_futures, **cfg_futures, **js_futures}
 
                 for future in as_completed(all_futures):
                     file = all_futures[future]
@@ -334,7 +379,7 @@ class DriftScanner:
                         all_claims.extend(claims)
                         errors.extend(errs)
                     elif isinstance(result, list):
-                        # Markdown result: list of claims
+                        # Markdown or JS result: list of claims
                         all_claims.extend(result)
                     elif isinstance(result, tuple) and len(result) == 2:
                         # Config result: (facts, file)
@@ -348,7 +393,7 @@ class DriftScanner:
 
         except Exception:
             # Fallback to serial on any parallel failure
-            return self._serial_scan(py_files, md_files, config_files)
+            return self._serial_scan(py_files, md_files, config_files, js_files)
 
         return all_facts, all_claims, errors
 
@@ -360,3 +405,9 @@ class DriftScanner:
         """Extract facts from a config file (thread-safe wrapper)."""
         facts = self.config_extractor.extract(path)
         return facts, path
+
+    def _extract_js(self, path: Path) -> list[DocClaim]:
+        """Extract claims from a JS/TS file (thread-safe wrapper)."""
+        if self.js_extractor:
+            return self.js_extractor.extract(path)
+        return []

@@ -15,6 +15,7 @@ from drift.extractors.flask_routes import FlaskRoutesExtractor
 from drift.extractors.markdown import MarkdownExtractor
 from drift.extractors.pydantic import PydanticExtractor
 from drift.extractors.registry import get_extractors
+from drift.extractor_js import JSDocExtractor
 
 __all__ = [
     "MarkdownExtractor",
@@ -29,5 +30,6 @@ __all__ = [
     "EnvVarExtractor",
     "DataclassFieldsExtractor",
     "DecoratorExtractor",
+    "JSDocExtractor",
     "get_extractors",
 ]

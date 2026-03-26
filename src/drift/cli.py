@@ -81,6 +81,11 @@ def main() -> None:
     is_flag=True,
     help="Enable parallel file processing (uses ThreadPoolExecutor).",
 )
+@click.option(
+    "--include-js",
+    is_flag=True,
+    help="Scan .js/.ts files for JSDoc documentation claims.",
+)
 def scan(
     path: str,
     output_json: bool,
@@ -93,6 +98,7 @@ def scan(
     verbose: bool,
     fail_on: str | None,
     parallel: bool,
+    include_js: bool,
 ) -> None:
     """Scan a project for documentation drift."""
     import time
@@ -127,7 +133,7 @@ def scan(
     # CLI --fail-on overrides config
     fail_on_level = fail_on if fail_on is not None else config.fail_on
 
-    scanner = DriftScanner(Path(path), strict=strict, parallel=parallel)
+    scanner = DriftScanner(Path(path), strict=strict, parallel=parallel, include_js=include_js)
     report = scanner.scan()
 
     elapsed = time.monotonic() - start
