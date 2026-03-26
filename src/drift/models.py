@@ -20,6 +20,7 @@ class FactKind(Enum):
     CLI_FLAG = "cli_flag"
     API_ENDPOINT = "api_endpoint"
     CONFIG_KEY = "config_key"
+    DECORATOR = "decorator"
 
 
 class ClaimKind(Enum):

@@ -5,6 +5,7 @@ from drift.extractors.cli_click import ClickExtractor
 from drift.extractors.cli_typer import TyperExtractor
 from drift.extractors.config_file import ConfigFileExtractor
 from drift.extractors.dataclass_fields import DataclassFieldsExtractor
+from drift.extractors.decorators import DecoratorExtractor
 from drift.extractors.docstring import DocstringExtractor
 from drift.extractors.env_vars import EnvVarExtractor
 from drift.extractors.fastapi_routes import FastAPIRoutesExtractor
@@ -27,5 +28,6 @@ __all__ = [
     "FastAPIRoutesExtractor",
     "EnvVarExtractor",
     "DataclassFieldsExtractor",
+    "DecoratorExtractor",
     "get_extractors",
 ]
