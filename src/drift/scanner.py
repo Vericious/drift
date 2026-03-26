@@ -1,5 +1,8 @@
 """Scanner — orchestrates the full drift detection pipeline."""
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Callable
 
 from drift.models import CodeFact, DocClaim, DriftReport
 from drift.python_extractor import PythonExtractor
@@ -14,9 +17,10 @@ from drift.matcher import SignatureMatcher
 class DriftScanner:
     """Walk files, dispatch to extractors, run matcher, produce report."""
 
-    def __init__(self, path: Path, strict: bool = False) -> None:
+    def __init__(self, path: Path, strict: bool = False, parallel: bool = False) -> None:
         self.path = path
         self.strict = strict
+        self.parallel = parallel
         self.py_extractor = PythonExtractor()
         self.md_extractor = MarkdownExtractor()
         self.config_extractor = ConfigFileExtractor()
@@ -188,34 +192,11 @@ class DriftScanner:
         md_files = [f for f in md_files if not self._is_ignored(f)]
         config_files = [f for f in config_files if not self._is_ignored(f)]
 
-        # Extract from Python files
-        for py_file in py_files:
-            facts, claims, errs = self._extract_py(py_file)
-            all_facts.extend(facts)
-            all_claims.extend(claims)
-            errors.extend(errs)
-
-        # Extract from Markdown files
-        for md_file in md_files:
-            try:
-                claims = self.md_extractor.extract(md_file)
-                all_claims.extend(claims)
-            except Exception as e:
-                err = f"[MarkdownExtractor] {md_file}: {e}"
-                if self.strict:
-                    raise
-                errors.append(err)
-
-        # Extract from YAML/TOML config files
-        for config_file in config_files:
-            try:
-                facts = self.config_extractor.extract(config_file)
-                all_facts.extend(facts)
-            except Exception as e:
-                err = f"[ConfigFileExtractor] {config_file}: {e}"
-                if self.strict:
-                    raise
-                errors.append(err)
+        # Extract — parallel when self.parallel is True
+        if self.parallel:
+            all_facts, all_claims, errors = self._parallel_scan(py_files, md_files, config_files)
+        else:
+            all_facts, all_claims, errors = self._serial_scan(py_files, md_files, config_files)
 
         # Match facts against claims
         drift_items = self.matcher.match(all_facts, all_claims)
@@ -229,3 +210,118 @@ class DriftScanner:
             errors=errors,
         )
         return report
+
+    def _serial_scan(
+        self,
+        py_files: list[Path],
+        md_files: list[Path],
+        config_files: list[Path],
+    ) -> tuple[list[CodeFact], list[DocClaim], list[str]]:
+        """Extract facts/claims from all files serially. Used when parallel=False."""
+        errors: list[str] = []
+        all_facts: list[CodeFact] = []
+        all_claims: list[DocClaim] = []
+
+        for py_file in py_files:
+            facts, claims, errs = self._extract_py(py_file)
+            all_facts.extend(facts)
+            all_claims.extend(claims)
+            errors.extend(errs)
+
+        for md_file in md_files:
+            try:
+                claims = self.md_extractor.extract(md_file)
+                all_claims.extend(claims)
+            except Exception as e:
+                err = f"[MarkdownExtractor] {md_file}: {e}"
+                if self.strict:
+                    raise
+                errors.append(err)
+
+        for config_file in config_files:
+            try:
+                facts = self.config_extractor.extract(config_file)
+                all_facts.extend(facts)
+            except Exception as e:
+                err = f"[ConfigFileExtractor] {config_file}: {e}"
+                if self.strict:
+                    raise
+                errors.append(err)
+
+        return all_facts, all_claims, errors
+
+    def _parallel_scan(
+        self,
+        py_files: list[Path],
+        md_files: list[Path],
+        config_files: list[Path],
+    ) -> tuple[list[CodeFact], list[DocClaim], list[str]]:
+        """Extract facts/claims from all files in parallel using ThreadPoolExecutor.
+
+        Falls back to serial processing if parallel execution fails.
+        Results are deterministic regardless of thread scheduling (content-wise).
+        """
+        errors: list[str] = []
+        all_facts: list[CodeFact] = []
+        all_claims: list[DocClaim] = []
+
+        max_workers = min(32, (os.cpu_count() or 1) + 4)
+
+        def extract_py(file: Path) -> tuple[list[CodeFact], list[DocClaim], list[str], Path]:
+            """Wrapper to make _extract_py callable in a thread."""
+            facts, claims, errs = self._extract_py(file)
+            return facts, claims, errs, file
+
+        try:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit Python file extractions
+                py_futures = {executor.submit(extract_py, f): f for f in py_files}
+                # Submit Markdown extractions
+                md_futures = {executor.submit(self._extract_md, f): f for f in md_files}
+                # Submit config file extractions
+                cfg_futures = {executor.submit(self._extract_config, f): f for f in config_files}
+
+                all_futures = {**py_futures, **md_futures, **cfg_futures}
+
+                for future in as_completed(all_futures):
+                    file = all_futures[future]
+                    try:
+                        result = future.result()
+                    except Exception as e:
+                        err = f"[{file}] parallel extraction failed: {e}"
+                        if self.strict:
+                            raise
+                        errors.append(err)
+                        continue
+
+                    if isinstance(result, tuple) and len(result) == 4:
+                        # Python file result: (facts, claims, errors, file)
+                        facts, claims, errs, _ = result
+                        all_facts.extend(facts)
+                        all_claims.extend(claims)
+                        errors.extend(errs)
+                    elif isinstance(result, list):
+                        # Markdown result: list of claims
+                        all_claims.extend(result)
+                    elif isinstance(result, tuple) and len(result) == 2:
+                        # Config result: (facts, file)
+                        cfg_facts, _ = result
+                        all_facts.extend(cfg_facts)
+                    else:
+                        # Unexpected result
+                        errors.append(f"[{file}] unexpected result type from parallel extraction")
+
+        except Exception as e:
+            # Fallback to serial on any parallel failure
+            return self._serial_scan(py_files, md_files, config_files)
+
+        return all_facts, all_claims, errors
+
+    def _extract_md(self, path: Path) -> list[DocClaim]:
+        """Extract claims from a Markdown file (thread-safe wrapper)."""
+        return self.md_extractor.extract(path)
+
+    def _extract_config(self, path: Path) -> tuple[list[CodeFact], Path]:
+        """Extract facts from a config file (thread-safe wrapper)."""
+        facts = self.config_extractor.extract(path)
+        return facts, path

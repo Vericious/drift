@@ -33,7 +33,9 @@ def main() -> None:
 @click.option("--verbose", "-V", is_flag=True, help="Show detailed output including scan timing.")
 @click.option("--fail-on", type=click.Choice(["error", "warning", "info", "none"]),
               default=None, help="Exit code 1 on any drift item at or above this severity (overrides config).")
-def scan(path: str, output_json: bool, output_sarif: bool, output_html: bool, output_file: str | None, config_path: str | None, strict: bool, severity: str, verbose: bool, fail_on: str | None) -> None:
+@click.option("--parallel", "-p", "parallel", is_flag=True,
+              help="Enable parallel file processing (uses ThreadPoolExecutor).")
+def scan(path: str, output_json: bool, output_sarif: bool, output_html: bool, output_file: str | None, config_path: str | None, strict: bool, severity: str, verbose: bool, fail_on: str | None, parallel: bool) -> None:
     """Scan a project for documentation drift."""
     import time
     start = time.monotonic()
@@ -64,7 +66,7 @@ def scan(path: str, output_json: bool, output_sarif: bool, output_html: bool, ou
     # CLI --fail-on overrides config
     fail_on_level = fail_on if fail_on is not None else config.fail_on
 
-    scanner = DriftScanner(Path(path), strict=strict)
+    scanner = DriftScanner(Path(path), strict=strict, parallel=parallel)
     report = scanner.scan()
 
     elapsed = time.monotonic() - start

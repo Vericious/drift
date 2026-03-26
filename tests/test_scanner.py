@@ -579,3 +579,96 @@ class TestDriftignorePatterns:
         names = {f.name for f in report.facts}
         assert "foo" in names
         assert "bar" not in names
+
+
+class TestParallelScanning:
+    """Tests for --parallel flag in DriftScanner."""
+
+    def _make_project(self, tmp_path: Path, files: dict[str, str]) -> None:
+        """Create files in tmp_path. Values are content; '' creates an empty file."""
+        for rel_path, content in files.items():
+            file_path = tmp_path / rel_path
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(content)
+
+    def test_parallel_produces_same_facts_as_serial(self, tmp_path: Path) -> None:
+        """Parallel scan must produce identical facts as serial scan."""
+        self._make_project(tmp_path, {
+            "a.py": "def func_a(x: int) -> None: pass",
+            "b.py": "def func_b(y: str) -> None: pass",
+            "c.py": "def func_c(z: float) -> None: pass",
+            "docs.md": (
+                "# Docs\n\n```python\ndef func_a(x: int) -> None\n```\n"
+                "```python\ndef func_b(y: str) -> None\n```\n"
+                "```python\ndef func_c(z: float) -> None\n```\n"
+            ),
+        })
+
+        serial_scanner = DriftScanner(tmp_path, parallel=False)
+        serial_report = serial_scanner.scan()
+
+        parallel_scanner = DriftScanner(tmp_path, parallel=True)
+        parallel_report = parallel_scanner.scan()
+
+        # Facts must be identical regardless of parallel flag
+        serial_names = sorted(f.name for f in serial_report.facts)
+        parallel_names = sorted(f.name for f in parallel_report.facts)
+        assert serial_names == parallel_names, (
+            f"Parallel scan produced different facts:\n  serial={serial_names}\n  parallel={parallel_names}"
+        )
+
+        # Claims must also be identical
+        serial_claims = sorted(c.name for c in serial_report.claims)
+        parallel_claims = sorted(c.name for c in parallel_report.claims)
+        assert serial_claims == parallel_claims
+
+        # Drift items must be identical
+        serial_drift = sorted((d.category, d.fact.name) for d in serial_report.drift_items)
+        parallel_drift = sorted((d.category, d.fact.name) for d in parallel_report.drift_items)
+        assert serial_drift == parallel_drift
+
+    def test_parallel_scan_multiple_python_files(self, tmp_path: Path) -> None:
+        """Parallel scan correctly processes many Python files."""
+        # Create 20 Python files with distinct functions
+        files: dict[str, str] = {}
+        for i in range(20):
+            files[f"module_{i:02d}.py"] = f"def function_{i}(x: int) -> None: pass\n"
+        files["docs.md"] = "\n\n".join(
+            f"```python\ndef function_{i}(x: int) -> None\n```\n" for i in range(20)
+        )
+        self._make_project(tmp_path, files)
+
+        scanner = DriftScanner(tmp_path, parallel=True)
+        report = scanner.scan()
+
+        # All 20 functions should be found
+        assert len(report.facts) == 20
+
+    def test_parallel_scan_handles_errors_gracefully(self, tmp_path: Path) -> None:
+        """Parallel scan continues when individual files fail."""
+        # Create a mix of valid and invalid Python files
+        (tmp_path / "valid.py").write_text("def good_func() -> None: pass\n")
+        (tmp_path / "invalid.py").write_text("def broken(\n")  # syntax error
+        (tmp_path / "docs.md").write_text("# Docs\n")
+
+        scanner = DriftScanner(tmp_path, parallel=True)
+        report = scanner.scan()
+
+        # valid.py should still be processed
+        fact_names = {f.name for f in report.facts}
+        assert "good_func" in fact_names
+
+    def test_serial_scan_still_works(self, tmp_path: Path) -> None:
+        """Serial (parallel=False) scan still works correctly."""
+        self._make_project(tmp_path, {
+            "example.py": "def my_func(a: int, b: str = 'x') -> bool:\n    pass\n",
+            "docs.md": "# Docs\n\n```python\ndef my_func(a: int, b: str = 'x') -> bool\n```\n",
+        })
+        scanner = DriftScanner(tmp_path, parallel=False)
+        report = scanner.scan()
+
+        fact_names = {f.name for f in report.facts}
+        assert "my_func" in fact_names
+        # The documented function should have no drift
+        drift_names = {d.fact.name for d in report.drift_items}
+        assert "my_func" not in drift_names
