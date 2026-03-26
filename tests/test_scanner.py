@@ -464,3 +464,118 @@ class TestScannerGracefulErrorRecovery:
         scanner = DriftScanner(tmp_path, strict=True)
         with pytest.raises(Exception):
             scanner.scan()
+
+
+# ---------------------------------------------------------------------------
+# .driftignore gitignore-style pattern tests
+# ---------------------------------------------------------------------------
+
+class TestDriftignorePatterns:
+    """Tests for .driftignore gitignore-style pattern matching."""
+
+    def _make_project(self, tmp_path: Path, structure: dict) -> Path:
+        """Create a project structure from a dict like {'src/foo.py': 'code', 'tests/test.py': 'code'}."""
+        for rel_path, content in structure.items():
+            f = tmp_path / rel_path
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(content or "# file " + rel_path)
+        return tmp_path
+
+    def test_basic_glob_pattern(self, tmp_path: Path) -> None:
+        """Basic glob pattern like *.pyc ignores matching files."""
+        self._make_project(tmp_path, {
+            "src/main.py": "def foo(): pass",
+            "src/__pycache__/main.pyc": "def should_not_appear(): pass",
+        })
+        (tmp_path / ".driftignore").write_text("*.pyc\n")
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+        names = {f.name for f in report.facts}
+        assert "foo" in names
+        assert "should_not_appear" not in names
+
+    def test_negation_pattern(self, tmp_path: Path) -> None:
+        """!pattern re-includes a previously ignored file."""
+        self._make_project(tmp_path, {
+            "src/main.py": "def foo(): pass",
+            "src/keep.py": "def bar(): pass",
+        })
+        (tmp_path / ".driftignore").write_text("*.py\n!src/keep.py\n")
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+        names = {f.name for f in report.facts}
+        assert "bar" in names
+        assert "foo" not in names
+
+    def test_recursive_directory_wildcard(self, tmp_path: Path) -> None:
+        """**/ matches directories at any depth."""
+        self._make_project(tmp_path, {
+            "src/core/main.py": "def foo(): pass",
+            "src/core/utils/helper.py": "def bar(): pass",
+            "src/core/utils/deep/nested.py": "def baz(): pass",
+        })
+        (tmp_path / ".driftignore").write_text("**/utils/**/*.py\n")
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+        names = {f.name for f in report.facts}
+        assert "foo" in names
+        assert "helper" not in names
+        assert "nested" not in names
+
+    def test_directory_only_pattern(self, tmp_path: Path) -> None:
+        """A pattern ending with / matches the directory and all its contents."""
+        self._make_project(tmp_path, {
+            "src/main.py": "def foo(): pass",
+            "src/legacy/deprecated.py": "def old(): pass",
+            "src/legacy/utils/helper.py": "def help(): pass",
+        })
+        (tmp_path / ".driftignore").write_text("legacy/\n")
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+        names = {f.name for f in report.facts}
+        assert "foo" in names
+        assert "old" not in names
+        assert "help" not in names
+
+    def test_comments_and_empty_lines(self, tmp_path: Path) -> None:
+        """Lines starting with # are comments; empty lines are skipped."""
+        # *.py matches .py files at any depth (gitignore behavior)
+        # Comments (#) and empty lines should be skipped
+        self._make_project(tmp_path, {
+            "main.py": "def foo(): pass",
+            "src/helper.py": "def bar(): pass",
+        })
+        (tmp_path / ".driftignore").write_text("# This is a comment\n\n*.py\n  # another comment\n")
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+        names = {f.name for f in report.facts}
+        # Both should be ignored by *.py
+        assert "foo" not in names
+        assert "bar" not in names
+
+    def test_order_matters_later_overrides_earlier(self, tmp_path: Path) -> None:
+        """Later patterns override earlier ones."""
+        self._make_project(tmp_path, {
+            "src/main.py": "def foo(): pass",
+            "src/special.py": "def bar(): pass",
+        })
+        # First ignore all .py, then allow special.py
+        (tmp_path / ".driftignore").write_text("*.py\n!special.py\n")
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+        names = {f.name for f in report.facts}
+        assert "foo" not in names
+        assert "bar" in names
+
+    def test_double_star_at_start(self, tmp_path: Path) -> None:
+        """/**/ at start matches any intermediate directories."""
+        self._make_project(tmp_path, {
+            "src/core/main.py": "def foo(): pass",
+            "src/core/utils/helper.py": "def bar(): pass",
+        })
+        (tmp_path / ".driftignore").write_text("**/utils/*.py\n")
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+        names = {f.name for f in report.facts}
+        assert "foo" in names
+        assert "bar" not in names

@@ -2,6 +2,23 @@
 
 ## 2026-03-26
 
+### DRIFT-036 — .driftignore Gitignore-Style Pattern Improvements
+
+**Task:** Improve .driftignore to support gitignore-style patterns.
+
+**What was done:**
+- Added negation pattern support (`!pattern`)
+- Added `**/` recursive directory matching via PurePath.match()
+- Added `dir/` directory-only matching (matches directory and all contents)
+- Patterns processed in order (later rules override earlier)
+- Comments (`#`) and empty lines are skipped
+- Updated `_load_driftignore` and `_is_ignored` methods in `scanner.py`
+- Added 7 comprehensive tests covering: basic glob, negation, recursive **, directory-only, comments/empty lines, order override, double-star patterns
+
+**Tests:** `tests/test_scanner.py::TestDriftignorePatterns` — 7 tests (all passing)
+
+---
+
 ### DRIFT-035 — SARIF Output Format for Reporter
 
 **Task:** Add SARIF (Static Analysis Results Interchange Format) v2.1.0 output to reporter for CI/CD integration.
