@@ -356,3 +356,86 @@ class TestFailOnOption:
         self._make_project_with_errors_and_warnings(tmp_path)
         result = cli_runner.invoke(main, ["scan", str(tmp_path)])
         assert result.exit_code == 1  # default is error level
+
+    def test_output_flag_json_creates_file(self, cli_runner, tmp_path):
+        """--json -o creates a valid JSON file."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int) -> str:\n"
+            "    '''Documented.'''\n"
+            "    return str(x)\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "```bash\n"
+            "documented_func(x: int) -> str\n"
+            "```\n"
+        )
+        output_file = tmp_path / "report.json"
+        result = cli_runner.invoke(
+            main,
+            ["scan", "--json", "-o", str(output_file), str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert output_file.exists()
+        import json
+        data = json.loads(output_file.read_text())
+        assert "facts" in data or "drift_items" in data
+
+    def test_output_flag_text_creates_file(self, cli_runner, tmp_path):
+        """-o creates a plain text file (without Rich formatting)."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int) -> str:\n"
+            "    '''Documented.'''\n"
+            "    return str(x)\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "```bash\n"
+            "documented_func(x: int) -> str\n"
+            "```\n"
+        )
+        output_file = tmp_path / "report.txt"
+        result = cli_runner.invoke(
+            main,
+            ["scan", "-o", str(output_file), str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert output_file.exists()
+        content = output_file.read_text()
+        # Plain text, no Rich formatting codes
+        assert "[" not in content or "Drift" in content
+
+    def test_output_flag_console_still_shows(self, cli_runner, tmp_path):
+        """Console output still appears when -o is used."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def func(): pass\n")
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("func()\n")
+        output_file = tmp_path / "report.txt"
+        result = cli_runner.invoke(
+            main,
+            ["scan", "-o", str(output_file), str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        # Console output should appear
+        assert "Drift" in result.output or "Scan" in result.output
+
+    def test_output_flag_without_json_flag(self, cli_runner, tmp_path):
+        """Without --json, -o writes plain text."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def func(): pass\n")
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("func()\n")
+        output_file = tmp_path / "report.txt"
+        result = cli_runner.invoke(
+            main,
+            ["scan", "-o", str(output_file), str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert output_file.exists()
+        content = output_file.read_text()
+        # Plain text, no Rich formatting codes like [/bold cyan]
+        assert "[/bold" not in content
+

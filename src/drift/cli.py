@@ -20,6 +20,8 @@ def main() -> None:
 @click.argument("path", type=click.Path(exists=True), default=".")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON (mutually exclusive with --sarif)")
 @click.option("--sarif", "output_sarif", is_flag=True, help="Output as SARIF v2.1.0 JSON (mutually exclusive with --json)")
+@click.option("--output", "-o", "output_file", type=click.Path(dir_okay=False), default=None,
+              help="Write report to file (in addition to console)")
 @click.option("--config", "config_path", type=click.Path(exists=False), default=None,
               help="Path to config file (default: .drift.toml in CWD)")
 @click.option("--strict", is_flag=True,
@@ -29,7 +31,7 @@ def main() -> None:
 @click.option("--verbose", "-V", is_flag=True, help="Show detailed output including scan timing.")
 @click.option("--fail-on", type=click.Choice(["error", "warning", "info", "none"]),
               default=None, help="Exit code 1 on any drift item at or above this severity (overrides config).")
-def scan(path: str, output_json: bool, output_sarif: bool, config_path: str | None, strict: bool, severity: str, verbose: bool, fail_on: str | None) -> None:
+def scan(path: str, output_json: bool, output_sarif: bool, output_file: str | None, config_path: str | None, strict: bool, severity: str, verbose: bool, fail_on: str | None) -> None:
     """Scan a project for documentation drift."""
     import time
     start = time.monotonic()
@@ -68,12 +70,37 @@ def scan(path: str, output_json: bool, output_sarif: bool, config_path: str | No
         report.drift_items = _filter_by_severity(report.drift_items, severity_min)
 
     reporter = DriftReporter(report, verbose=verbose)
+
+    # Generate output based on format
     if output_format == "json":
-        click.echo(reporter.report_json(verbose=verbose, elapsed=elapsed))
+        output_content = reporter.report_json(verbose=verbose, elapsed=elapsed)
+        click.echo(output_content)
     elif output_format == "sarif":
-        click.echo(reporter.report_sarif(verbose=verbose, elapsed=elapsed))
+        output_content = reporter.report_sarif(verbose=verbose, elapsed=elapsed)
+        click.echo(output_content)
     else:
+        # For text output, capture to file without Rich formatting
+        # Use StringIO to capture plain text with markup interpreted and stripped
+        import io
+        from rich.console import Console
+        from rich.text import Text
+        text_buffer = io.StringIO()
+        # Use default console (markup=True) so Rich interprets markup tags
+        # and the output buffer contains plain text without markup
+        text_console = Console(file=text_buffer, force_terminal=False)
+        # Temporarily swap the reporter's console
+        original_console = reporter.console
+        reporter.console = text_console
         reporter.report_console(verbose=verbose, elapsed=elapsed)
+        reporter.console = original_console
+        output_content = text_buffer.getvalue()
+        click.echo(output_content)
+
+    # Write to file if --output specified
+    if output_file:
+        output_path = Path(output_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(output_content)
 
     # Exit based on fail_on level
     if fail_on_level == "none":

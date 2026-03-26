@@ -108,10 +108,8 @@ class DriftReporter:
 
         name = (item.fact.name if item.fact else item.claim.name if item.claim else "?")
         from rich.text import Text
-        t = Text.assemble(
-            ("  [", f"bold {color}"),
-            (loc, ""),
-            (f"][/bold {color}] {name}: {item.category}", f"bold {color}"),
+        t = Text.from_markup(
+            f"  [bold {color}]{loc}[/bold {color}] {name}: {item.category}"
         )
         self.console.print(t)
 
