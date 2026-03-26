@@ -122,31 +122,8 @@ class SignatureMatcher:
                     fact = candidates[0]
 
             if fact is None:
-                # NEW: renamed detection for single candidate with matching signature
-                # Run BEFORE fuzzy matching per DRIFT-051 spec
-                if claim.kind not in (ClaimKind.CLI_FLAG_REF, ClaimKind.CONFIG_REF, ClaimKind.CLI_USAGE):
-                    sig_matches = [
-                        f for f in facts
-                        if f.name not in matched_fact_names
-                        and f.kind != FactKind.CLI_FLAG
-                        and self._same_signature_structure(f, claim)
-                    ]
-                    if len(sig_matches) == 1:
-                        renamed_fact = sig_matches[0]
-                        matched_fact_names.add(renamed_fact.name)
-                        drift_items.append(
-                            DriftItem(
-                                fact=renamed_fact,
-                                claim=claim,
-                                severity=Severity.ERROR,
-                                category="renamed",
-                                message=f"'{claim.name}' (docs) may have been renamed to '{renamed_fact.name}'",
-                                suggestion=f"Update docs to reference '{renamed_fact.name}'",
-                            )
-                        )
-                        continue
-
-                # Try fuzzy name matching — highest confidence wins
+                # Step 1: Try fuzzy name matching — highest confidence wins
+                # This runs BEFORE renamed to ensure fuzzy_renamed takes precedence
                 fuzzy_match: Optional[tuple[CodeFact, float]] = None
                 if claim.kind not in (ClaimKind.CLI_FLAG_REF, ClaimKind.CLI_USAGE):
                     for f in facts:
@@ -173,8 +150,32 @@ class SignatureMatcher:
                     )
                     continue
 
-                # Documented but missing — but CLI_USAGE claims don't need a direct
-                # function match; they document CLI invocations (e.g., `$ mycli --flag`)
+                # Step 2: Fallback — renamed when names are completely different
+                # but signatures match (only for single candidate to avoid ambiguity)
+                if claim.kind not in (ClaimKind.CLI_FLAG_REF, ClaimKind.CONFIG_REF, ClaimKind.CLI_USAGE):
+                    sig_matches = [
+                        f for f in facts
+                        if f.name not in matched_fact_names
+                        and f.kind != FactKind.CLI_FLAG
+                        and self._same_signature_structure(f, claim)
+                    ]
+                    if len(sig_matches) == 1:
+                        renamed_fact = sig_matches[0]
+                        matched_fact_names.add(renamed_fact.name)
+                        drift_items.append(
+                            DriftItem(
+                                fact=renamed_fact,
+                                claim=claim,
+                                severity=Severity.ERROR,
+                                category="renamed",
+                                message=f"'{claim.name}' (docs) may have been renamed to '{renamed_fact.name}'",
+                                suggestion=f"Update docs to reference '{renamed_fact.name}'",
+                            )
+                        )
+                        continue
+
+                # Step 3: Documented but missing
+                # CLI_USAGE claims document CLI invocations (e.g., `$ mycli --flag`)
                 # which may be implemented via argparse without a named function.
                 # Also skip --help and --version for CLI_FLAG_REF claims since these
                 # are implicit in argparse and not explicitly defined in add_argument().
