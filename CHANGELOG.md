@@ -2,6 +2,9 @@
 
 ## v0.4.1 (2026-03-26)
 
+### New Features
+- **Decorator extractor**: Added `DecoratorExtractor` for detecting behavior-changing decorators (`@login_required`, `@cache`, `@deprecated`, `@app.route`, `@rate_limit`, etc.). AST-based with argument extraction. Registered via `@register`. All 413 tests pass.
+
 ### Documentation
 - **mkdocs site scaffold**: Added `mkdocs.yml` (Material theme) and `docs/` directory with `index.md`, `extractors.md`, `configuration.md`, and `cli.md`. Added `mkdocs` and `mkdocs-material` to dev dependencies.
 
