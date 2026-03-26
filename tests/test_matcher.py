@@ -1,25 +1,23 @@
 """
 Tests for SignatureMatcher — compares CodeFact objects against DocClaim objects.
 """
+
 from pathlib import Path
 
-import pytest
-
+from drift.matcher import SignatureMatcher, build_report
 from drift.models import (
     ClaimKind,
     CodeFact,
     DocClaim,
-    DriftItem,
     FactKind,
     Parameter,
     Severity,
 )
-from drift.matcher import SignatureMatcher, build_report
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 def fact(
     name: str,
@@ -52,13 +50,16 @@ def claim(
     )
 
 
-def param(name: str, type_annotation: str | None = None, default: str | None = None) -> Parameter:
+def param(
+    name: str, type_annotation: str | None = None, default: str | None = None
+) -> Parameter:
     return Parameter(name=name, type_annotation=type_annotation, default=default)
 
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestExactMatch:
     def test_exact_match_empty_drift(self):
@@ -196,7 +197,9 @@ class TestBuildReport:
     def test_build_report_with_drift(self):
         """build_report includes drift items."""
         f = fact("foo", params=[param("x", "int")])
-        c = claim("ghost_func", params=[param("y", "int")])  # different param → not renamed
+        c = claim(
+            "ghost_func", params=[param("y", "int")]
+        )  # different param → not renamed
 
         report = build_report([f], [c])
 
@@ -210,7 +213,9 @@ class TestHasDrift:
     def test_has_drift_false_when_no_error_severity_items(self):
         """has_drift is False when no ERROR-severity items (only warnings)."""
         f = fact("foo", params=[param("y", "str", '"hello"')])
-        c = claim("foo", params=[param("y", "str", '"world"')])  # wrong default → WARNING
+        c = claim(
+            "foo", params=[param("y", "str", '"world"')]
+        )  # wrong default → WARNING
 
         items = SignatureMatcher().match([f], [c])
         assert len(items) == 1
@@ -224,7 +229,6 @@ class TestHasDrift:
         f = fact("foo", params=[param("x", "int"), param("y", "str")])
         c = claim("foo", params=[param("x", "int")])  # missing y → ERROR
 
-        items = SignatureMatcher().match([f], [c])
         report = build_report([f], [c])
         assert report.has_drift is True
 

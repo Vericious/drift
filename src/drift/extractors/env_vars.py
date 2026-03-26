@@ -3,16 +3,16 @@
 Extracts CONFIG_KEY facts from os.environ usage in Python source code.
 Detects: os.environ["VAR"], os.environ.get("VAR"), os.getenv("VAR").
 """
+
 import ast
 from pathlib import Path
-from typing import Optional
 
 from drift.extractors.base import Extractor
 from drift.extractors.registry import register
 from drift.models import CodeFact, FactKind
 
 
-def _get_func_name(node: ast.expr) -> Optional[str]:
+def _get_func_name(node: ast.expr) -> str | None:
     """Get the dotted name from an Attribute or Name node."""
     if isinstance(node, ast.Name):
         return node.id
@@ -29,14 +29,14 @@ def _is_os_environ(node: ast.expr) -> bool:
     return name == "os.environ"
 
 
-def _get_string_constant(node: ast.expr) -> Optional[str]:
+def _get_string_constant(node: ast.expr) -> str | None:
     """Extract string value from an ast.Constant node."""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
 
 
-def _get_default_value(node: ast.expr | None) -> Optional[str]:
+def _get_default_value(node: ast.expr | None) -> str | None:
     """Repr a default value as a string."""
     if node is None:
         return None
@@ -88,17 +88,19 @@ class EnvVarExtractor(Extractor):
                     if key in seen:
                         continue
                     seen.add(key)
-                    facts.append(CodeFact(
-                        name=var_name,
-                        kind=FactKind.CONFIG_KEY,
-                        source_file=path,
-                        line_number=node.lineno or 0,
-                        metadata={
-                            "env_var": var_name,
-                            "required": True,
-                            "source": "os.environ[...]",
-                        },
-                    ))
+                    facts.append(
+                        CodeFact(
+                            name=var_name,
+                            kind=FactKind.CONFIG_KEY,
+                            source_file=path,
+                            line_number=node.lineno or 0,
+                            metadata={
+                                "env_var": var_name,
+                                "required": True,
+                                "source": "os.environ[...]",
+                            },
+                        )
+                    )
                 continue
 
             # Pattern 2 & 3: os.environ.get("VAR") or os.getenv("VAR") (Call)
@@ -123,18 +125,20 @@ class EnvVarExtractor(Extractor):
                     if key in seen:
                         continue
                     seen.add(key)
-                    facts.append(CodeFact(
-                        name=var_name,
-                        kind=FactKind.CONFIG_KEY,
-                        source_file=path,
-                        line_number=node.lineno or 0,
-                        metadata={
-                            "env_var": var_name,
-                            "required": False,
-                            "default": default_val,
-                            "source": func_name,
-                        },
-                    ))
+                    facts.append(
+                        CodeFact(
+                            name=var_name,
+                            kind=FactKind.CONFIG_KEY,
+                            source_file=path,
+                            line_number=node.lineno or 0,
+                            metadata={
+                                "env_var": var_name,
+                                "required": False,
+                                "default": default_val,
+                                "source": func_name,
+                            },
+                        )
+                    )
                 continue
 
         return facts

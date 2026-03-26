@@ -1,4 +1,5 @@
 """Tests for the Drift CLI."""
+
 from pathlib import Path
 
 import pytest
@@ -76,7 +77,9 @@ class TestSeverityFilter:
     def test_severity_warning_shows_warnings_and_errors(self, cli_runner, tmp_path):
         """--severity warning → warnings and errors in output."""
         self._make_project_with_error_and_warning(tmp_path)
-        result = cli_runner.invoke(main, ["scan", "--severity", "warning", str(tmp_path)])
+        result = cli_runner.invoke(
+            main, ["scan", "--severity", "warning", str(tmp_path)]
+        )
         assert result.exit_code == 1  # errors present
         assert "renamed" in result.output
         assert "undocumented" in result.output  # warning visible
@@ -117,9 +120,7 @@ class TestSeverityFilter:
         """Default behavior (no --severity) unchanged."""
         py_file = tmp_path / "example.py"
         py_file.write_text(
-            "def documented(x: int) -> str:\n"
-            "    '''Docstring.'''\n"
-            "    return str(x)\n"
+            "def documented(x: int) -> str:\n    '''Docstring.'''\n    return str(x)\n"
         )
         md_file = tmp_path / "docs.md"
         md_file.write_text(
@@ -192,6 +193,7 @@ class TestInitCommand:
             config_path = Path(tmp_dir) / ".drift.toml"
             content = config_path.read_text()
             import tomllib
+
             data = tomllib.loads(content)
             assert "ignore_patterns" in data
             assert "threshold" in data
@@ -216,6 +218,7 @@ class TestSummaryCommand:
         result = cli_runner.invoke(main, ["summary", "--json", str(tmp_path)])
         assert result.exit_code == 0
         import json
+
         data = json.loads(result.output)
         assert "files_scanned" in data
         assert "code_facts" in data
@@ -231,6 +234,7 @@ class TestSummaryCommand:
         result = cli_runner.invoke(main, ["summary", "--json", str(tmp_path)])
         assert result.exit_code == 0
         import json
+
         data = json.loads(result.output)
         # No files means no claims → health = 100%
         assert data["health_score"] == 100.0
@@ -253,6 +257,7 @@ class TestSummaryCommand:
         result = cli_runner.invoke(main, ["summary", "--json", str(tmp_path)])
         assert result.exit_code == 0
         import json
+
         data = json.loads(result.output)
         # 1 documented claim (documented_func) → health = 100%
         # 1 undocumented fact → not in claims, so health = 100% of claims = 100%
@@ -316,7 +321,9 @@ class TestFailOnOption:
     def test_fail_on_warning_exits_1_with_warnings(self, cli_runner, tmp_path):
         """--fail-on warning exits 1 when warnings or errors are present."""
         self._make_project_with_errors_and_warnings(tmp_path)
-        result = cli_runner.invoke(main, ["scan", "--fail-on", "warning", str(tmp_path)])
+        result = cli_runner.invoke(
+            main, ["scan", "--fail-on", "warning", str(tmp_path)]
+        )
         assert result.exit_code == 1
 
     def test_fail_on_info_exits_1_with_any_drift(self, cli_runner, tmp_path):
@@ -343,11 +350,11 @@ class TestFailOnOption:
         """CLI --fail-on overrides config file setting."""
         self._make_project_with_errors_and_warnings(tmp_path)
         config_file = tmp_path / ".drift.toml"
-        config_file.write_text("fail_on = \"error\"\n")
+        config_file.write_text('fail_on = "error"\n')
         # Override with --fail-on none
         result = cli_runner.invoke(
             main,
-            ["scan", "--config", str(config_file), "--fail-on", "none", str(tmp_path)]
+            ["scan", "--config", str(config_file), "--fail-on", "none", str(tmp_path)],
         )
         assert result.exit_code == 0
 
@@ -366,19 +373,15 @@ class TestFailOnOption:
             "    return str(x)\n"
         )
         md_file = tmp_path / "docs.md"
-        md_file.write_text(
-            "```bash\n"
-            "documented_func(x: int) -> str\n"
-            "```\n"
-        )
+        md_file.write_text("```bash\ndocumented_func(x: int) -> str\n```\n")
         output_file = tmp_path / "report.json"
         result = cli_runner.invoke(
-            main,
-            ["scan", "--json", "-o", str(output_file), str(tmp_path)]
+            main, ["scan", "--json", "-o", str(output_file), str(tmp_path)]
         )
         assert result.exit_code == 0
         assert output_file.exists()
         import json
+
         data = json.loads(output_file.read_text())
         assert "facts" in data or "drift_items" in data
 
@@ -391,15 +394,10 @@ class TestFailOnOption:
             "    return str(x)\n"
         )
         md_file = tmp_path / "docs.md"
-        md_file.write_text(
-            "```bash\n"
-            "documented_func(x: int) -> str\n"
-            "```\n"
-        )
+        md_file.write_text("```bash\ndocumented_func(x: int) -> str\n```\n")
         output_file = tmp_path / "report.txt"
         result = cli_runner.invoke(
-            main,
-            ["scan", "-o", str(output_file), str(tmp_path)]
+            main, ["scan", "-o", str(output_file), str(tmp_path)]
         )
         assert result.exit_code == 0
         assert output_file.exists()
@@ -415,8 +413,7 @@ class TestFailOnOption:
         md_file.write_text("func()\n")
         output_file = tmp_path / "report.txt"
         result = cli_runner.invoke(
-            main,
-            ["scan", "-o", str(output_file), str(tmp_path)]
+            main, ["scan", "-o", str(output_file), str(tmp_path)]
         )
         assert result.exit_code == 0
         # Console output should appear
@@ -430,8 +427,7 @@ class TestFailOnOption:
         md_file.write_text("func()\n")
         output_file = tmp_path / "report.txt"
         result = cli_runner.invoke(
-            main,
-            ["scan", "-o", str(output_file), str(tmp_path)]
+            main, ["scan", "-o", str(output_file), str(tmp_path)]
         )
         assert result.exit_code == 0
         assert output_file.exists()
@@ -479,7 +475,9 @@ class TestCheckCommand:
         py_file.write_text("def old_func(x: int): pass\n")
         md_file = tmp_path / "docs.md"
         md_file.write_text("new_func(x: int)\n")  # documented but not in code, warning
-        result = cli_runner.invoke(main, ["check", "--fail-on", "warning", str(tmp_path)])
+        result = cli_runner.invoke(
+            main, ["check", "--fail-on", "warning", str(tmp_path)]
+        )
         assert result.exit_code == 1
 
     def test_check_fail_on_error_ignores_warning(self, cli_runner, tmp_path):
@@ -490,5 +488,3 @@ class TestCheckCommand:
         md_file.write_text("old_func()\n")  # exact match, no drift
         result = cli_runner.invoke(main, ["check", "--fail-on", "error", str(tmp_path)])
         assert result.exit_code == 0
-
-

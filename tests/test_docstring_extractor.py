@@ -1,22 +1,19 @@
 """Tests for the docstring extractor."""
-import tempfile
+
 from pathlib import Path
 
 import pytest
 
 from drift.extractors.docstring import (
     DocstringExtractor,
-    extract_docstring_params,
     _parse_docstring,
-    _parse_google_style,
-    _parse_numpy_style,
-    _parse_sphinx_style,
+    extract_docstring_params,
 )
-
 
 # ---------------------------------------------------------------------------
 # Tests for extract_docstring_params helper
 # ---------------------------------------------------------------------------
+
 
 class TestExtractDocstringParams:
     """Tests for the extract_docstring_params function."""
@@ -130,6 +127,7 @@ class TestExtractDocstringParams:
 # Tests for _parse_docstring (internal parser)
 # ---------------------------------------------------------------------------
 
+
 class TestParseDocstring:
     """Tests for the internal _parse_docstring function."""
 
@@ -187,6 +185,7 @@ class TestParseDocstring:
 # ---------------------------------------------------------------------------
 # Tests for DocstringExtractor
 # ---------------------------------------------------------------------------
+
 
 class TestDocstringExtractor:
     """Tests for the DocstringExtractor class."""
@@ -268,27 +267,33 @@ class MyClass:
         claims = extractor.extract(sample_python_file)
 
         # Find the func_with_matching_docs claim
-        matching_claim = next((c for c in claims if c.name == "func_with_matching_docs"), None)
+        matching_claim = next(
+            (c for c in claims if c.name == "func_with_matching_docs"), None
+        )
         assert matching_claim is not None
-        assert set(p.name for p in matching_claim.parameters) == {"a", "b", "c"}
+        assert {p.name for p in matching_claim.parameters} == {"a", "b", "c"}
 
     def test_extract_missing_params(self, extractor, sample_python_file):
         """Test extraction with missing docstring params."""
         claims = extractor.extract(sample_python_file)
 
         # Find the func_with_missing_docs claim
-        missing_claim = next((c for c in claims if c.name == "func_with_missing_docs"), None)
+        missing_claim = next(
+            (c for c in claims if c.name == "func_with_missing_docs"), None
+        )
         assert missing_claim is not None
-        assert set(p.name for p in missing_claim.parameters) == {"a"}
+        assert {p.name for p in missing_claim.parameters} == {"a"}
 
     def test_extract_extra_params(self, extractor, sample_python_file):
         """Test extraction with extra docstring params."""
         claims = extractor.extract(sample_python_file)
 
         # Find the func_with_extra_docs claim
-        extra_claim = next((c for c in claims if c.name == "func_with_extra_docs"), None)
+        extra_claim = next(
+            (c for c in claims if c.name == "func_with_extra_docs"), None
+        )
         assert extra_claim is not None
-        assert set(p.name for p in extra_claim.parameters) == {"a", "b", "c"}
+        assert {p.name for p in extra_claim.parameters} == {"a", "b", "c"}
 
     def test_extract_no_docs(self, extractor, sample_python_file):
         """Test that functions without Args sections are not extracted."""
@@ -303,9 +308,11 @@ class MyClass:
         claims = extractor.extract(sample_python_file)
 
         # Find the method claim with qualified name
-        method_claim = next((c for c in claims if c.name == "MyClass.method_with_docs"), None)
+        method_claim = next(
+            (c for c in claims if c.name == "MyClass.method_with_docs"), None
+        )
         assert method_claim is not None
-        assert set(p.name for p in method_claim.parameters) == {"x", "y"}
+        assert {p.name for p in method_claim.parameters} == {"x", "y"}
 
     def test_extract_empty_file(self, extractor, tmp_path):
         """Test extraction from empty Python file."""

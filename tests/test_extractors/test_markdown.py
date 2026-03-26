@@ -1,8 +1,8 @@
 """Tests for MarkdownExtractor."""
-import pytest
+
 from pathlib import Path
-import tempfile
-import os
+
+import pytest
 
 from drift.extractors.markdown import MarkdownExtractor
 from drift.models import ClaimKind
@@ -107,7 +107,9 @@ class TestMarkdownExtractor:
         assert extractor.can_handle(Path("readme.txt")) is False
         assert extractor.can_handle(Path("readme.py")) is False
 
-    def test_extract_full_function_signature_from_code_block(self, extractor, sample_markdown, tmp_path):
+    def test_extract_full_function_signature_from_code_block(
+        self, extractor, sample_markdown, tmp_path
+    ):
         """Test case 1: Extract full function signature from code block."""
         md_file = tmp_path / "test.md"
         md_file.write_text(sample_markdown)
@@ -120,19 +122,19 @@ class TestMarkdownExtractor:
         assert len(sig_claims) >= 1  # At least simple_func found
 
         # Check simple_func
-        simple_func = next((c for c in sig_claims if c.name == 'simple_func'), None)
+        simple_func = next((c for c in sig_claims if c.name == "simple_func"), None)
         assert simple_func is not None
         assert simple_func.line_number >= 1  # Line number in code block
         assert len(simple_func.parameters) == 2
-        assert simple_func.parameters[0].name == 'x'
-        assert simple_func.parameters[0].type_annotation == 'int'
-        assert simple_func.parameters[1].name == 'y'
-        assert simple_func.parameters[1].type_annotation == 'str'
+        assert simple_func.parameters[0].name == "x"
+        assert simple_func.parameters[0].type_annotation == "int"
+        assert simple_func.parameters[1].name == "y"
+        assert simple_func.parameters[1].type_annotation == "str"
         assert simple_func.parameters[1].default == '"hello"'
-        assert simple_func.return_type == 'bool'
+        assert simple_func.return_type == "bool"
 
         # Check old_function (no type annotations, no return)
-        old_func = next((c for c in sig_claims if c.name == 'old_function'), None)
+        old_func = next((c for c in sig_claims if c.name == "old_function"), None)
         assert old_func is not None
         assert len(old_func.parameters) == 3
 
@@ -150,13 +152,13 @@ class TestMarkdownExtractor:
         assert len(code_claims) >= 2
 
         # Check simple_func call
-        simple_call = next((c for c in code_claims if c.name == 'simple_func'), None)
+        simple_call = next((c for c in code_claims if c.name == "simple_func"), None)
         assert simple_call is not None
-        assert '42' in simple_call.raw_text
-        assert 'world' in simple_call.raw_text
+        assert "42" in simple_call.raw_text
+        assert "world" in simple_call.raw_text
 
         # Check process_data call
-        process_call = next((c for c in code_claims if c.name == 'process_data'), None)
+        process_call = next((c for c in code_claims if c.name == "process_data"), None)
         assert process_call is not None
 
     def test_extract_cli_usage(self, extractor, sample_markdown, tmp_path):
@@ -172,12 +174,14 @@ class TestMarkdownExtractor:
         assert len(cli_claims) >= 2
 
         # Check drift scan
-        scan_claim = next((c for c in cli_claims if 'scan' in c.metadata.get('args', '')), None)
+        scan_claim = next(
+            (c for c in cli_claims if "scan" in c.metadata.get("args", "")), None
+        )
         assert scan_claim is not None
-        assert scan_claim.name == 'drift'
+        assert scan_claim.name == "drift"
 
         # Check drift --version
-        version_claim = next((c for c in cli_claims if 'version' in c.raw_text), None)
+        version_claim = next((c for c in cli_claims if "version" in c.raw_text), None)
         assert version_claim is not None
 
     def test_ignore_plain_prose(self, extractor, sample_markdown, tmp_path):
@@ -195,7 +199,7 @@ class TestMarkdownExtractor:
             assert len(raw) > 0
             # Plain prose words like "This", "function", "was", etc should not appear
             # as standalone raw_text values
-            assert not raw.startswith('This function was')
+            assert not raw.startswith("This function was")
 
     def test_handle_malformed_signatures(self, extractor, malformed_markdown, tmp_path):
         """Test case 5: Handle malformed/partial signatures gracefully."""
@@ -246,17 +250,17 @@ $ drift run
         claims = extractor.extract(md_file)
 
         # Find foo function
-        foo_claim = next((c for c in claims if c.name == 'foo'), None)
+        foo_claim = next((c for c in claims if c.name == "foo"), None)
         assert foo_claim is not None
         assert foo_claim.line_number >= 1  # The def line within code block
 
         # Find bar inline
-        bar_claim = next((c for c in claims if c.name == 'bar'), None)
+        bar_claim = next((c for c in claims if c.name == "bar"), None)
         assert bar_claim is not None
         assert bar_claim.line_number >= 1
 
         # Find drift
-        drift_claim = next((c for c in claims if c.name == 'drift'), None)
+        drift_claim = next((c for c in claims if c.name == "drift"), None)
         assert drift_claim is not None
         assert drift_claim.line_number >= 1
 
@@ -274,11 +278,11 @@ def no_params() -> None:
         md_file.write_text(content)
 
         claims = extractor.extract(md_file)
-        func_claim = next((c for c in claims if c.name == 'no_params'), None)
+        func_claim = next((c for c in claims if c.name == "no_params"), None)
 
         assert func_claim is not None
         assert func_claim.parameters == []
-        assert func_claim.return_type == 'None'
+        assert func_claim.return_type == "None"
 
     def test_function_with_varargs(self, extractor, tmp_path):
         """Function with *args."""
@@ -290,7 +294,7 @@ def with_args(*args, **kwargs):
         md_file.write_text(content)
 
         claims = extractor.extract(md_file)
-        func_claim = next((c for c in claims if c.name == 'with_args'), None)
+        func_claim = next((c for c in claims if c.name == "with_args"), None)
 
         assert func_claim is not None
         assert len(func_claim.parameters) == 2
@@ -316,10 +320,10 @@ def with_args(*args, **kwargs):
         claims1 = extractor.extract(md1)
         claims2 = extractor.extract(md2)
 
-        assert any(c.name == 'func_a' for c in claims1)
-        assert any(c.name == 'func_b' for c in claims2)
-        assert not any(c.name == 'func_b' for c in claims1)
-        assert not any(c.name == 'func_a' for c in claims2)
+        assert any(c.name == "func_a" for c in claims1)
+        assert any(c.name == "func_b" for c in claims2)
+        assert not any(c.name == "func_b" for c in claims1)
+        assert not any(c.name == "func_a" for c in claims2)
 
 
 class TestDriftIgnoreSuppression:
@@ -351,7 +355,9 @@ class TestDriftIgnoreSuppression:
         func2_claim = next(c for c in claims if c.name == "func2")
         assert func2_claim.metadata.get("suppressed") is not True
 
-    def test_targeted_ignore_only_suppresses_matching_function(self, tmp_path: Path) -> None:
+    def test_targeted_ignore_only_suppresses_matching_function(
+        self, tmp_path: Path
+    ) -> None:
         """<!-- drift:ignore func_name --> only suppresses that function."""
         md_file = tmp_path / "docs.md"
         md_file.write_text(
@@ -379,11 +385,7 @@ class TestDriftIgnoreSuppression:
         """Without drift:ignore, claims are not suppressed."""
         md_file = tmp_path / "docs.md"
         md_file.write_text(
-            "# API\n\n"
-            "## func1\n\n"
-            "```python\n"
-            "def func1(x: int) -> str\n"
-            "```\n"
+            "# API\n\n## func1\n\n```python\ndef func1(x: int) -> str\n```\n"
         )
         extractor = MarkdownExtractor()
         claims = extractor.extract(md_file)

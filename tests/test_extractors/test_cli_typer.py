@@ -1,10 +1,8 @@
 """Tests for cli_typer module."""
+
 from pathlib import Path
 
-import pytest
-
 from drift.extractors.cli_typer import TyperExtractor
-
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_typer.py"
 

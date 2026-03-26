@@ -1,10 +1,8 @@
 """Tests for dataclass_fields module."""
+
 from pathlib import Path
 
-import pytest
-
 from drift.extractors.dataclass_fields import DataclassFieldsExtractor
-
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_dataclasses.py"
 

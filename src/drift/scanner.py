@@ -1,23 +1,23 @@
 """Scanner — orchestrates the full drift detection pipeline."""
+
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable
 
-from drift.models import CodeFact, DocClaim, DriftReport
-from drift.python_extractor import PythonExtractor
+from drift.extractors.config_file import ConfigFileExtractor
 from drift.extractors.markdown import MarkdownExtractor
 from drift.extractors.registry import get_extractors
-from drift.extractors.cli_typer import TyperExtractor
-from drift.extractors.pydantic import PydanticExtractor
-from drift.extractors.config_file import ConfigFileExtractor
 from drift.matcher import SignatureMatcher
+from drift.models import CodeFact, DocClaim, DriftReport
+from drift.python_extractor import PythonExtractor
 
 
 class DriftScanner:
     """Walk files, dispatch to extractors, run matcher, produce report."""
 
-    def __init__(self, path: Path, strict: bool = False, parallel: bool = False) -> None:
+    def __init__(
+        self, path: Path, strict: bool = False, parallel: bool = False
+    ) -> None:
         self.path = path
         self.strict = strict
         self.parallel = parallel
@@ -40,7 +40,11 @@ class DriftScanner:
           - Lines starting with # are comments
           - Empty lines are skipped
         """
-        driftignore_path = self.path / ".driftignore" if self.path.is_dir() else self.path.parent / ".driftignore"
+        driftignore_path = (
+            self.path / ".driftignore"
+            if self.path.is_dir()
+            else self.path.parent / ".driftignore"
+        )
         if driftignore_path.exists():
             try:
                 lines = driftignore_path.read_text().splitlines()
@@ -105,7 +109,9 @@ class DriftScanner:
                         matched = True
             # Patterns with ** - PurePath.match() handles these
             elif "**" in pattern:
-                matched = self._match_pattern(path_str, pattern) or self._match_pattern(name_str, pattern)
+                matched = self._match_pattern(path_str, pattern) or self._match_pattern(
+                    name_str, pattern
+                )
             # Patterns with a slash - match against the relative path
             elif "/" in pattern:
                 matched = self._match_pattern(path_str, pattern)
@@ -121,12 +127,15 @@ class DriftScanner:
     def _match_pattern(self, text: str, pattern: str) -> bool:
         """Match text against a pattern using pathlib.PurePath.match()."""
         from pathlib import PurePath
+
         try:
             return PurePath(text).match(pattern)
         except ValueError:
             return False
 
-    def _extract_py(self, py_file: Path) -> tuple[list[CodeFact], list[DocClaim], list[str]]:
+    def _extract_py(
+        self, py_file: Path
+    ) -> tuple[list[CodeFact], list[DocClaim], list[str]]:
         """Extract facts and claims from a Python file using all registered extractors."""
         facts: list[CodeFact] = []
         claims: list[DocClaim] = []
@@ -171,21 +180,37 @@ class DriftScanner:
         if self.path.is_file():
             py_files = [self.path] if self.py_extractor.can_handle(self.path) else []
             md_files = [self.path] if self.md_extractor.can_handle(self.path) else []
-            config_files = [self.path] if self.config_extractor.can_handle(self.path) else []
+            config_files = (
+                [self.path] if self.config_extractor.can_handle(self.path) else []
+            )
         else:
             py_files = list(self.path.rglob("*.py"))
             md_files = list(self.path.rglob("*.md"))
             config_files = (
-                list(self.path.rglob("*.yaml")) +
-                list(self.path.rglob("*.yml")) +
-                list(self.path.rglob("*.toml"))
+                list(self.path.rglob("*.yaml"))
+                + list(self.path.rglob("*.yml"))
+                + list(self.path.rglob("*.toml"))
             )
 
         # Filter out excluded directories
-        exclude_dirs = {".git", "__pycache__", ".venv", "node_modules", ".tox", ".pytest_cache", ".mypy_cache"}
-        py_files = [f for f in py_files if not any(part in exclude_dirs for part in f.parts)]
-        md_files = [f for f in md_files if not any(part in exclude_dirs for part in f.parts)]
-        config_files = [f for f in config_files if not any(part in exclude_dirs for part in f.parts)]
+        exclude_dirs = {
+            ".git",
+            "__pycache__",
+            ".venv",
+            "node_modules",
+            ".tox",
+            ".pytest_cache",
+            ".mypy_cache",
+        }
+        py_files = [
+            f for f in py_files if not any(part in exclude_dirs for part in f.parts)
+        ]
+        md_files = [
+            f for f in md_files if not any(part in exclude_dirs for part in f.parts)
+        ]
+        config_files = [
+            f for f in config_files if not any(part in exclude_dirs for part in f.parts)
+        ]
 
         # Filter out ignored files
         py_files = [f for f in py_files if not self._is_ignored(f)]
@@ -194,9 +219,13 @@ class DriftScanner:
 
         # Extract — parallel when self.parallel is True
         if self.parallel:
-            all_facts, all_claims, errors = self._parallel_scan(py_files, md_files, config_files)
+            all_facts, all_claims, errors = self._parallel_scan(
+                py_files, md_files, config_files
+            )
         else:
-            all_facts, all_claims, errors = self._serial_scan(py_files, md_files, config_files)
+            all_facts, all_claims, errors = self._serial_scan(
+                py_files, md_files, config_files
+            )
 
         # Match facts against claims
         drift_items = self.matcher.match(all_facts, all_claims)
@@ -267,7 +296,9 @@ class DriftScanner:
 
         max_workers = min(32, (os.cpu_count() or 1) + 4)
 
-        def extract_py(file: Path) -> tuple[list[CodeFact], list[DocClaim], list[str], Path]:
+        def extract_py(
+            file: Path,
+        ) -> tuple[list[CodeFact], list[DocClaim], list[str], Path]:
             """Wrapper to make _extract_py callable in a thread."""
             facts, claims, errs = self._extract_py(file)
             return facts, claims, errs, file
@@ -279,7 +310,9 @@ class DriftScanner:
                 # Submit Markdown extractions
                 md_futures = {executor.submit(self._extract_md, f): f for f in md_files}
                 # Submit config file extractions
-                cfg_futures = {executor.submit(self._extract_config, f): f for f in config_files}
+                cfg_futures = {
+                    executor.submit(self._extract_config, f): f for f in config_files
+                }
 
                 all_futures = {**py_futures, **md_futures, **cfg_futures}
 
@@ -309,9 +342,11 @@ class DriftScanner:
                         all_facts.extend(cfg_facts)
                     else:
                         # Unexpected result
-                        errors.append(f"[{file}] unexpected result type from parallel extraction")
+                        errors.append(
+                            f"[{file}] unexpected result type from parallel extraction"
+                        )
 
-        except Exception as e:
+        except Exception:
             # Fallback to serial on any parallel failure
             return self._serial_scan(py_files, md_files, config_files)
 

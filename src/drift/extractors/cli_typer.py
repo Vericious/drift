@@ -2,16 +2,17 @@
 
 Detects CLI flags and arguments defined via Typer decorators in Python source code.
 """
+
 import ast
 from pathlib import Path
-from typing import Any, Optional, cast
+from typing import Any
 
 from drift.extractors.base import Extractor
 from drift.extractors.registry import register
 from drift.models import CodeFact, FactKind, Parameter
 
 
-def _get_func_name(node: ast.expr) -> Optional[str]:
+def _get_func_name(node: ast.expr) -> str | None:
     """Get the dotted name from an Attribute or Name node."""
     if isinstance(node, ast.Name):
         return node.id
@@ -29,7 +30,7 @@ def _get_constant_value(node: ast.expr) -> Any:
     return None
 
 
-def _extract_option_info(call: ast.Call) -> Optional[dict[str, Any]]:
+def _extract_option_info(call: ast.Call) -> dict[str, Any] | None:
     """Extract metadata from a typer.Option() or typer.Argument() call.
 
     Handles:
@@ -62,7 +63,11 @@ def _extract_option_info(call: ast.Call) -> Optional[dict[str, Any]]:
             result["name"] = first_val
         if len(args) > 1:
             second_val = _get_constant_value(args[1])
-            if second_val is not None and isinstance(second_val, str) and second_val.startswith("-"):
+            if (
+                second_val is not None
+                and isinstance(second_val, str)
+                and second_val.startswith("-")
+            ):
                 result["short_flag"] = second_val
 
     # Keyword args
@@ -71,17 +76,23 @@ def _extract_option_info(call: ast.Call) -> Optional[dict[str, Any]]:
         val = kw.value
 
         if key == "default":
-            result["default"] = repr(_get_constant_value(val)) if isinstance(val, ast.Constant) else val.id if isinstance(val, ast.Name) else None
+            result["default"] = (
+                repr(_get_constant_value(val))
+                if isinstance(val, ast.Constant)
+                else val.id
+                if isinstance(val, ast.Name)
+                else None
+            )
 
         elif key == "help":
-            result["help"] = _get_constant_value(val) if isinstance(val, ast.Constant) else None
+            result["help"] = (
+                _get_constant_value(val) if isinstance(val, ast.Constant) else None
+            )
 
         elif key == "type":
             if isinstance(val, ast.Name):
                 result["type"] = val.id
-            elif isinstance(val, ast.Attribute):
-                result["type"] = _get_func_name(val)
-            elif isinstance(val, ast.Subscript):
+            elif isinstance(val, ast.Attribute) or isinstance(val, ast.Subscript):
                 result["type"] = _get_func_name(val)
 
         elif key == "required":
@@ -99,11 +110,17 @@ def _flag_name_from_python_name(name: str) -> str:
     return "--" + name.replace("_", "-")
 
 
-def _get_type_from_annotation(annotation: ast.expr) -> Optional[str]:
+def _get_type_from_annotation(annotation: ast.expr) -> str | None:
     """Extract type name from an annotation (possibly Annotated[...] or bare type)."""
     if isinstance(annotation, ast.Subscript):
-        if isinstance(annotation.value, ast.Name) and annotation.value.id == "Annotated":
-            if isinstance(annotation.slice, ast.Tuple) and len(annotation.slice.elts) >= 1:
+        if (
+            isinstance(annotation.value, ast.Name)
+            and annotation.value.id == "Annotated"
+        ):
+            if (
+                isinstance(annotation.slice, ast.Tuple)
+                and len(annotation.slice.elts) >= 1
+            ):
                 type_node = annotation.slice.elts[0]
                 if isinstance(type_node, ast.Name):
                     return type_node.id
@@ -178,7 +195,9 @@ class TyperExtractor(Extractor):
                     return True
         return False
 
-    def _extract_param_info(self, arg: ast.arg, defaults_map: dict[str, Any]) -> Optional[dict[str, Any]]:
+    def _extract_param_info(
+        self, arg: ast.arg, defaults_map: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Extract option/argument info for a function parameter.
 
         Handles two patterns:
@@ -190,21 +209,37 @@ class TyperExtractor(Extractor):
         # Check Annotated[...] style annotation
         if isinstance(arg.annotation, ast.Subscript):
             subscript = arg.annotation
-            if isinstance(subscript.value, ast.Name) and subscript.value.id == "Annotated":
-                if isinstance(subscript.slice, ast.Tuple) and len(subscript.slice.elts) >= 2:
+            if (
+                isinstance(subscript.value, ast.Name)
+                and subscript.value.id == "Annotated"
+            ):
+                if (
+                    isinstance(subscript.slice, ast.Tuple)
+                    and len(subscript.slice.elts) >= 2
+                ):
                     typer_call = subscript.slice.elts[-1]
                     if isinstance(typer_call, ast.Call):
                         call_info = _extract_option_info(typer_call)
                         if call_info:
                             # Type from Annotated[Type, ...]
-                            call_info["type"] = _get_type_from_annotation(arg.annotation)
+                            call_info["type"] = _get_type_from_annotation(
+                                arg.annotation
+                            )
                             # Name comes from typer.Option("--flag") positional arg, or derived
-                            name = call_info.get("name") or _flag_name_from_python_name(arg.arg)
+                            name = call_info.get("name") or _flag_name_from_python_name(
+                                arg.arg
+                            )
                             call_info["name"] = name
                             call_info["python_name"] = arg.arg
                             # If there's a plain Python default, use it
-                            if python_default is not None and not isinstance(python_default, ast.Call):
-                                call_info["default"] = repr(_get_constant_value(python_default)) if isinstance(python_default, ast.Constant) else None
+                            if python_default is not None and not isinstance(
+                                python_default, ast.Call
+                            ):
+                                call_info["default"] = (
+                                    repr(_get_constant_value(python_default))
+                                    if isinstance(python_default, ast.Constant)
+                                    else None
+                                )
                             return call_info
 
         # Check default style: name = typer.Option(...) or name = typer.Argument(...)
@@ -224,19 +259,23 @@ class TyperExtractor(Extractor):
 
         return None
 
-    def _build_codefact(self, info: dict[str, Any], source_file: Path, line_number: int) -> CodeFact:
+    def _build_codefact(
+        self, info: dict[str, Any], source_file: Path, line_number: int
+    ) -> CodeFact:
         """Build a CodeFact from extracted option/argument metadata."""
         name = info["name"]
         is_flag = info.get("is_flag", True)
 
         params = []
         if info.get("type") or info.get("default") is not None:
-            params.append(Parameter(
-                name=name,
-                type_annotation=info.get("type"),
-                default=info.get("default"),
-                kind="keyword" if is_flag else "positional",
-            ))
+            params.append(
+                Parameter(
+                    name=name,
+                    type_annotation=info.get("type"),
+                    default=info.get("default"),
+                    kind="keyword" if is_flag else "positional",
+                )
+            )
 
         return CodeFact(
             name=name,

@@ -1,10 +1,8 @@
 """Tests for cli_click module."""
+
 from pathlib import Path
 
-import pytest
-
 from drift.extractors.cli_click import ClickExtractor
-
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_click.py"
 

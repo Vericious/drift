@@ -1,10 +1,10 @@
 """Tests for PythonExtractor."""
-import tempfile
+
 from pathlib import Path
 
 import pytest
 
-from drift.models import CodeFact, FactKind, Parameter
+from drift.models import FactKind
 from drift.python_extractor import PythonExtractor
 
 
@@ -120,9 +120,7 @@ class TestFunctionExtraction:
 class TestClassExtraction:
     """Test extraction of classes."""
 
-    def test_extract_class(
-        self, extractor: PythonExtractor, sample_python_file: Path
-    ):
+    def test_extract_class(self, extractor: PythonExtractor, sample_python_file: Path):
         """Test extracting a class."""
         facts = extractor.extract(sample_python_file)
         classes = [f for f in facts if f.kind == FactKind.CLASS]
@@ -231,16 +229,18 @@ class TestReturnTypeAnnotation:
 class TestFileWithSrcPrefix:
     """Test extraction when file is under a src/ directory structure."""
 
-    def test_derive_module_from_src_path(self, tmp_path: Path, extractor: PythonExtractor):
+    def test_derive_module_from_src_path(
+        self, tmp_path: Path, extractor: PythonExtractor
+    ):
         """Test module derivation from src/foo/bar.py -> foo.bar."""
         src_dir = tmp_path / "src"
         foo_dir = src_dir / "foo"
         foo_dir.mkdir(parents=True)
 
-        content = '''
+        content = """
 def my_function(x: int) -> str:
     pass
-'''
+"""
         py_file = foo_dir / "bar.py"
         py_file.write_text(content)
 

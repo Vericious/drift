@@ -3,14 +3,14 @@
 Detects drift between function signatures and their docstrings.
 Parses Google, NumPy, and Sphinx style docstrings.
 """
+
 import ast
 import re
 from pathlib import Path
-from typing import Optional
 
 from drift.extractors.base import Extractor
 from drift.extractors.registry import register
-from drift.models import ClaimKind, CodeFact, DocClaim, DriftItem, Parameter, Severity
+from drift.models import ClaimKind, DocClaim, Parameter
 
 
 def extract_docstring_params(func: object) -> list[str]:
@@ -35,6 +35,7 @@ def extract_docstring_params(func: object) -> list[str]:
 # ---------------------------------------------------------------------------
 # Docstring parsing internals
 # ---------------------------------------------------------------------------
+
 
 def _parse_docstring(docstring: str) -> list[str]:
     """Parse a docstring and return documented parameter names.
@@ -63,7 +64,7 @@ def _parse_docstring(docstring: str) -> list[str]:
     return []
 
 
-def _parse_google_style(docstring: str) -> Optional[list[str]]:
+def _parse_google_style(docstring: str) -> list[str] | None:
     """Parse Google-style Args section.
 
     Example:
@@ -72,14 +73,20 @@ def _parse_google_style(docstring: str) -> Optional[list[str]]:
             bar (str, optional): description
     """
     # Find Args section
-    args_match = re.search(r'(?:Args|Arguments|Parameters):\s*\n', docstring, re.IGNORECASE | re.MULTILINE)
+    args_match = re.search(
+        r"(?:Args|Arguments|Parameters):\s*\n", docstring, re.IGNORECASE | re.MULTILINE
+    )
     if not args_match:
         return None
 
     start = args_match.end()
     # Find next section header or end
     section_end = len(docstring)
-    next_section = re.search(r'\n\s+(?:Returns?|Examples?|Notes?|Raises|Yields):', docstring[start:], re.IGNORECASE)
+    next_section = re.search(
+        r"\n\s+(?:Returns?|Examples?|Notes?|Raises|Yields):",
+        docstring[start:],
+        re.IGNORECASE,
+    )
     if next_section:
         section_end = start + next_section.start()
 
@@ -94,18 +101,20 @@ def _parse_google_style(docstring: str) -> Optional[list[str]]:
         # Dedent to handle indentation
         stripped = line.lstrip()
         indent = len(line) - len(stripped)
-        if indent < 2:  # Not a parameter line (needs at least some indent in Args section)
+        if (
+            indent < 2
+        ):  # Not a parameter line (needs at least some indent in Args section)
             continue
 
         # Google style: name (type): description OR name: description
-        match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\([^)]*\))?\s*:', stripped)
+        match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\([^)]*\))?\s*:", stripped)
         if match:
             params.append(match.group(1))
 
     return params if params else None
 
 
-def _parse_numpy_style(docstring: str) -> Optional[list[str]]:
+def _parse_numpy_style(docstring: str) -> list[str] | None:
     """Parse NumPy-style Parameters section.
 
     Example:
@@ -117,14 +126,18 @@ def _parse_numpy_style(docstring: str) -> Optional[list[str]]:
             description
     """
     # Find Parameters section
-    params_match = re.search(r'Parameters\s*\n\s*(-+)\n', docstring, re.IGNORECASE | re.MULTILINE)
+    params_match = re.search(
+        r"Parameters\s*\n\s*(-+)\n", docstring, re.IGNORECASE | re.MULTILINE
+    )
     if not params_match:
         return None
 
     start = params_match.end()
     # Find next section header
     section_end = len(docstring)
-    next_section = re.search(r'\n\s+[A-Z][a-z]+.*\n\s*-+', docstring[start:], re.MULTILINE)
+    next_section = re.search(
+        r"\n\s+[A-Z][a-z]+.*\n\s*-+", docstring[start:], re.MULTILINE
+    )
     if next_section:
         section_end = start + next_section.start()
 
@@ -138,14 +151,14 @@ def _parse_numpy_style(docstring: str) -> Optional[list[str]]:
         if not stripped:
             continue
         # Look for "name : type" pattern (param name followed by colon)
-        match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*:', stripped)
+        match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*:", stripped)
         if match:
             params.append(match.group(1))
 
     return params if params else None
 
 
-def _parse_sphinx_style(docstring: str) -> Optional[list[str]]:
+def _parse_sphinx_style(docstring: str) -> list[str] | None:
     """Parse Sphinx-style :param: declarations.
 
     Example:
@@ -154,14 +167,14 @@ def _parse_sphinx_style(docstring: str) -> Optional[list[str]]:
         :param bar: description
     """
     # Find any :param: declarations
-    if ':param' not in docstring and ':parameter' not in docstring:
+    if ":param" not in docstring and ":parameter" not in docstring:
         return None
 
     params: list[str] = []
     seen: set[str] = set()
 
     # Match :param name: or :param type name: patterns
-    for match in re.finditer(r':param\s+(\w+):', docstring):
+    for match in re.finditer(r":param\s+(\w+):", docstring):
         name = match.group(1)
         if name not in seen:
             seen.add(name)
@@ -173,6 +186,7 @@ def _parse_sphinx_style(docstring: str) -> Optional[list[str]]:
 # ---------------------------------------------------------------------------
 # DocstringExtractor
 # ---------------------------------------------------------------------------
+
 
 @register
 class DocstringExtractor(Extractor):
@@ -233,7 +247,7 @@ class DocstringExtractor(Extractor):
                 parameters = [Parameter(name=p, kind="positional") for p in doc_params]
 
                 claim = DocClaim(
-                    raw_text=docstring.strip().split('\n')[0],  # First line as raw_text
+                    raw_text=docstring.strip().split("\n")[0],  # First line as raw_text
                     kind=ClaimKind.FUNCTION_SIGNATURE,
                     doc_file=path,
                     line_number=node.lineno,

@@ -1,9 +1,11 @@
 """Sample Flask application for testing the FlaskRoutesExtractor."""
-from flask import Flask, Blueprint, jsonify
+
+from flask import Blueprint, Flask, jsonify
 
 app = Flask(__name__)
 
 # ─── Basic route ────────────────────────────────────────────────────────────
+
 
 @app.route("/")
 def index():
@@ -12,6 +14,7 @@ def index():
 
 
 # ─── HTTP method variants ───────────────────────────────────────────────────
+
 
 @app.route("/users", methods=["GET", "POST"])
 def users():
@@ -38,6 +41,7 @@ def delete_user(user_id):
 
 
 # ─── Flask 2.0+ shortcut decorators ─────────────────────────────────────────
+
 
 @app.get("/api/health")
 def health_check():

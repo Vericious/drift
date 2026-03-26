@@ -3,16 +3,16 @@
 Extracts API_ENDPOINT facts from Flask route decorators.
 Handles @app.route, @blueprint.route, @app.get/post (Flask 2.0+).
 """
+
 import ast
 from pathlib import Path
-from typing import Optional
 
 from drift.extractors.base import Extractor
 from drift.extractors.registry import register
 from drift.models import CodeFact, FactKind
 
 
-def _get_func_name(node: ast.expr) -> Optional[str]:
+def _get_func_name(node: ast.expr) -> str | None:
     """Get the dotted name from an Attribute or Name node."""
     if isinstance(node, ast.Name):
         return node.id
@@ -23,14 +23,14 @@ def _get_func_name(node: ast.expr) -> Optional[str]:
     return None
 
 
-def _get_constant_string(node: ast.expr) -> Optional[str]:
+def _get_constant_string(node: ast.expr) -> str | None:
     """Extract string value from an ast.Constant node."""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
 
 
-def _get_blueprint_prefix(call: ast.Call) -> Optional[str]:
+def _get_blueprint_prefix(call: ast.Call) -> str | None:
     """Extract url_prefix from a Blueprint(...) constructor call."""
     for kw in call.keywords:
         if kw.arg == "url_prefix":
@@ -38,14 +38,16 @@ def _get_blueprint_prefix(call: ast.Call) -> Optional[str]:
     return None
 
 
-def _get_blueprint_name(call: ast.Call) -> Optional[str]:
+def _get_blueprint_name(call: ast.Call) -> str | None:
     """Extract the blueprint name (first positional string arg) from a Blueprint(...) call."""
     if call.args:
         return _get_constant_string(call.args[0])
     return None
 
 
-def _get_route_methods_and_path(call: ast.Call) -> tuple[Optional[list[str]], Optional[str]]:
+def _get_route_methods_and_path(
+    call: ast.Call,
+) -> tuple[list[str] | None, str | None]:
     """Extract HTTP methods and path from a route() or get/post/... call.
 
     Returns (methods, path) where methods is a list like ['GET', 'POST'] or
@@ -71,7 +73,7 @@ def _get_route_methods_and_path(call: ast.Call) -> tuple[Optional[list[str]], Op
     return methods, path
 
 
-def _combine_path(prefix: Optional[str], route_path: Optional[str]) -> Optional[str]:
+def _combine_path(prefix: str | None, route_path: str | None) -> str | None:
     """Combine blueprint prefix with a route path."""
     if route_path is None:
         return prefix
@@ -83,7 +85,7 @@ def _combine_path(prefix: Optional[str], route_path: Optional[str]) -> Optional[
 
 
 # bp_var_name -> (url_prefix, bp_internal_name)
-BlueprintInfo = dict[str, tuple[Optional[str], Optional[str]]]
+BlueprintInfo = dict[str, tuple[str | None, str | None]]
 
 
 @register
@@ -100,8 +102,15 @@ class FlaskRoutesExtractor(Extractor):
     """
 
     HTTP_METHODS = {
-        "get", "post", "put", "patch", "delete",
-        "head", "options", "trace", "connect",
+        "get",
+        "post",
+        "put",
+        "patch",
+        "delete",
+        "head",
+        "options",
+        "trace",
+        "connect",
     }
 
     def can_handle(self, path: Path) -> bool:
@@ -163,13 +172,15 @@ class FlaskRoutesExtractor(Extractor):
                         "blueprint": blueprint_internal_name,
                         "function_name": node.name,
                     }
-                    facts.append(CodeFact(
-                        name=fact_name,
-                        kind=FactKind.API_ENDPOINT,
-                        source_file=path,
-                        line_number=node.lineno,
-                        metadata=metadata,
-                    ))
+                    facts.append(
+                        CodeFact(
+                            name=fact_name,
+                            kind=FactKind.API_ENDPOINT,
+                            source_file=path,
+                            line_number=node.lineno,
+                            metadata=metadata,
+                        )
+                    )
 
         return facts
 
@@ -177,7 +188,7 @@ class FlaskRoutesExtractor(Extractor):
         self,
         decorator: ast.expr,
         blueprint_info: BlueprintInfo,
-    ) -> Optional[tuple[Optional[list[str]], Optional[str], Optional[str]]]:
+    ) -> tuple[list[str] | None, str | None, str | None] | None:
         """Analyze a decorator and return (methods, path, blueprint_internal_name).
 
         Returns None if this is not a Flask route decorator.
@@ -187,18 +198,22 @@ class FlaskRoutesExtractor(Extractor):
             func_name = _get_func_name(decorator.func)
             if func_name and (func_name.endswith(".route") or func_name in ("route",)):
                 methods, route_path = _get_route_methods_and_path(decorator)
-                blueprint_internal_name: Optional[str] = None
-                bp_prefix: Optional[str] = None
+                blueprint_internal_name: str | None = None
+                bp_prefix: str | None = None
 
                 if isinstance(decorator.func, ast.Attribute):
                     obj_name = _get_func_name(decorator.func.value)
                     if obj_name and obj_name not in ("app",):
-                        bp_prefix, blueprint_internal_name = blueprint_info.get(obj_name, (None, None))
+                        bp_prefix, blueprint_internal_name = blueprint_info.get(
+                            obj_name, (None, None)
+                        )
                         route_path = _combine_path(bp_prefix, route_path)
                 elif isinstance(decorator.func, ast.Name):
                     if decorator.func.id not in ("route", "app"):
                         obj_name = decorator.func.id
-                        bp_prefix, blueprint_internal_name = blueprint_info.get(obj_name, (None, None))
+                        bp_prefix, blueprint_internal_name = blueprint_info.get(
+                            obj_name, (None, None)
+                        )
                         route_path = _combine_path(bp_prefix, route_path)
 
                 return (methods, route_path, blueprint_internal_name)
@@ -219,7 +234,9 @@ class FlaskRoutesExtractor(Extractor):
                     obj_name = _get_func_name(decorator.func.value)
                     blueprint_internal_name = None
                     if obj_name:
-                        bp_prefix, blueprint_internal_name = blueprint_info.get(obj_name, (None, None))
+                        bp_prefix, blueprint_internal_name = blueprint_info.get(
+                            obj_name, (None, None)
+                        )
                         route_path = _combine_path(bp_prefix, route_path)
 
                     return ([method], route_path, blueprint_internal_name)
@@ -232,7 +249,9 @@ class FlaskRoutesExtractor(Extractor):
                 obj_name = _get_func_name(decorator.value)
                 blueprint_internal_name = None
                 if obj_name:
-                    _, blueprint_internal_name = blueprint_info.get(obj_name, (None, None))
+                    _, blueprint_internal_name = blueprint_info.get(
+                        obj_name, (None, None)
+                    )
                 return ([method], None, blueprint_internal_name)
 
         return None

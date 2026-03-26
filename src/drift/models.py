@@ -6,6 +6,7 @@ DocClaim: a claim found in documentation about code
 DriftItem: a specific mismatch between a CodeFact and a DocClaim
 DriftReport: the full result of a drift scan
 """
+
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -32,13 +33,14 @@ class ClaimKind(Enum):
 
 
 class Severity(Enum):
-    ERROR = "error"       # signature mismatch, renamed/removed
-    WARNING = "warning"   # possibly stale
-    INFO = "info"        # minor drift
+    ERROR = "error"  # signature mismatch, renamed/removed
+    WARNING = "warning"  # possibly stale
+    INFO = "info"  # minor drift
 
 
 class DriftCategory(Enum):
     """Categories of drift between code and docs."""
+
     MISSING_PARAM = "missing_param"
     EXTRA_PARAM = "extra_param"
     WRONG_DEFAULT = "wrong_default"
@@ -53,6 +55,7 @@ class DriftCategory(Enum):
 @dataclass
 class Parameter:
     """A single function/method parameter."""
+
     name: str
     type_annotation: str | None = None
     default: str | None = None
@@ -62,6 +65,7 @@ class Parameter:
 @dataclass
 class CodeFact:
     """A ground-truth fact extracted from source code."""
+
     name: str
     kind: FactKind
     source_file: Path
@@ -76,7 +80,8 @@ class CodeFact:
     def signature_str(self) -> str:
         """Render the signature as a human-readable string."""
         params = ", ".join(
-            p.name + (f": {p.type_annotation}" if p.type_annotation else "")
+            p.name
+            + (f": {p.type_annotation}" if p.type_annotation else "")
             + (f" = {p.default}" if p.default else "")
             for p in self.parameters
         )
@@ -110,11 +115,12 @@ class CodeFact:
 @dataclass
 class DocClaim:
     """A claim found in documentation about code."""
-    raw_text: str                    # the raw claim text from docs
+
+    raw_text: str  # the raw claim text from docs
     kind: ClaimKind
     doc_file: Path
     line_number: int
-    name: str | None = None          # extracted function/class name
+    name: str | None = None  # extracted function/class name
     parameters: list[Parameter] = field(default_factory=list)
     return_type: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -144,18 +150,20 @@ class DocClaim:
 @dataclass
 class DriftItem:
     """A specific mismatch between a CodeFact and a DocClaim."""
+
     fact: CodeFact | None = None
     claim: DocClaim | None = None
     severity: Severity = Severity.WARNING
-    category: str = ""              # DriftCategory value
-    message: str = ""               # human-readable description
-    suggestion: str | None = None   # what the doc should probably say
+    category: str = ""  # DriftCategory value
+    message: str = ""  # human-readable description
+    suggestion: str | None = None  # what the doc should probably say
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class DriftReport:
     """The full result of a drift scan."""
+
     scanned_path: Path
     facts: list[CodeFact] = field(default_factory=list)
     claims: list[DocClaim] = field(default_factory=list)

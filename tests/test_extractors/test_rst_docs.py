@@ -1,6 +1,8 @@
 """Tests for RSTDocsExtractor."""
-import pytest
+
 from pathlib import Path
+
+import pytest
 
 from drift.extractors.rst_docs import RSTDocsExtractor, _parse_parameters, _split_params
 from drift.models import ClaimKind
@@ -15,7 +17,7 @@ def extractor():
 def sample_rst(tmp_path: Path, request) -> Path:
     """Create a sample RST file for testing."""
     # Allow tests to customize content via param
-    if hasattr(request, 'param'):
+    if hasattr(request, "param"):
         content = request.param
     else:
         content = Path(__file__).parent.parent / "fixtures" / "sample_docs.rst"
@@ -73,14 +75,14 @@ class TestRSTDocsExtractorFunctions:
         sig_claims = [c for c in claims if c.kind == ClaimKind.FUNCTION_SIGNATURE]
         assert len(sig_claims) >= 1
 
-        add_func = next((c for c in sig_claims if c.name == 'add'), None)
+        add_func = next((c for c in sig_claims if c.name == "add"), None)
         assert add_func is not None
         assert len(add_func.parameters) == 2
-        assert add_func.parameters[0].name == 'a'
-        assert add_func.parameters[0].type_annotation == 'int'
-        assert add_func.parameters[1].name == 'b'
-        assert add_func.parameters[1].type_annotation == 'int'
-        assert add_func.return_type == 'int'
+        assert add_func.parameters[0].name == "a"
+        assert add_func.parameters[0].type_annotation == "int"
+        assert add_func.parameters[1].name == "b"
+        assert add_func.parameters[1].type_annotation == "int"
+        assert add_func.return_type == "int"
 
     def test_extract_function_with_defaults(self, extractor, tmp_path: Path):
         content = """.. py:function:: greet(name: str, greeting: str = "Hello") -> str
@@ -98,12 +100,12 @@ class TestRSTDocsExtractorFunctions:
         claims = extractor.extract(rst_file)
 
         sig_claims = [c for c in claims if c.kind == ClaimKind.FUNCTION_SIGNATURE]
-        greet_func = next((c for c in sig_claims if c.name == 'greet'), None)
+        greet_func = next((c for c in sig_claims if c.name == "greet"), None)
         assert greet_func is not None
         assert len(greet_func.parameters) == 2
-        assert greet_func.parameters[1].name == 'greeting'
+        assert greet_func.parameters[1].name == "greeting"
         assert greet_func.parameters[1].default == '"Hello"'
-        assert greet_func.return_type == 'str'
+        assert greet_func.return_type == "str"
 
     def test_extract_function_no_params(self, extractor, tmp_path: Path):
         content = """.. py:function:: no_params() -> None
@@ -117,10 +119,10 @@ class TestRSTDocsExtractorFunctions:
         claims = extractor.extract(rst_file)
 
         sig_claims = [c for c in claims if c.kind == ClaimKind.FUNCTION_SIGNATURE]
-        no_params = next((c for c in sig_claims if c.name == 'no_params'), None)
+        no_params = next((c for c in sig_claims if c.name == "no_params"), None)
         assert no_params is not None
         assert no_params.parameters == []
-        assert no_params.return_type == 'None'
+        assert no_params.return_type == "None"
 
     def test_extract_function_with_varargs(self, extractor, tmp_path: Path):
         content = """.. py:function:: varargs_func(*args, **kwargs)
@@ -134,7 +136,7 @@ class TestRSTDocsExtractorFunctions:
         claims = extractor.extract(rst_file)
 
         sig_claims = [c for c in claims if c.kind == ClaimKind.FUNCTION_SIGNATURE]
-        vf = next((c for c in sig_claims if c.name == 'varargs_func'), None)
+        vf = next((c for c in sig_claims if c.name == "varargs_func"), None)
         assert vf is not None
         assert len(vf.parameters) == 2
 
@@ -154,10 +156,12 @@ class TestRSTDocsExtractorMethods:
         claims = extractor.extract(rst_file)
 
         sig_claims = [c for c in claims if c.kind == ClaimKind.FUNCTION_SIGNATURE]
-        method = next((c for c in sig_claims if c.name == 'User.get_display_name'), None)
+        method = next(
+            (c for c in sig_claims if c.name == "User.get_display_name"), None
+        )
         assert method is not None
-        assert method.metadata.get('directive_type') == 'method'
-        assert method.return_type == 'str'
+        assert method.metadata.get("directive_type") == "method"
+        assert method.return_type == "str"
 
     def test_extract_classmethod(self, extractor, tmp_path: Path):
         content = """.. py:method:: User.from_email(email: str) -> User
@@ -173,7 +177,7 @@ class TestRSTDocsExtractorMethods:
         claims = extractor.extract(rst_file)
 
         sig_claims = [c for c in claims if c.kind == ClaimKind.FUNCTION_SIGNATURE]
-        cm = next((c for c in sig_claims if 'from_email' in c.name), None)
+        cm = next((c for c in sig_claims if "from_email" in c.name), None)
         assert cm is not None
 
 
@@ -194,9 +198,9 @@ class TestRSTDocsExtractorClasses:
         claims = extractor.extract(rst_file)
 
         sig_claims = [c for c in claims if c.kind == ClaimKind.FUNCTION_SIGNATURE]
-        user_cls = next((c for c in sig_claims if c.name == 'User'), None)
+        user_cls = next((c for c in sig_claims if c.name == "User"), None)
         assert user_cls is not None
-        assert user_cls.metadata.get('directive_type') == 'class'
+        assert user_cls.metadata.get("directive_type") == "class"
         assert len(user_cls.parameters) == 2
 
 
@@ -219,10 +223,10 @@ class TestRSTDocsExtractorParameterDescriptions:
         param_claims = [c for c in claims if c.kind == ClaimKind.PARAMETER_DESCRIPTION]
         assert len(param_claims) >= 2
 
-        a_claim = next((c for c in param_claims if c.name == 'a'), None)
+        a_claim = next((c for c in param_claims if c.name == "a"), None)
         assert a_claim is not None
-        assert a_claim.parameters[0].type_annotation == 'int'
-        assert 'First number' in a_claim.metadata.get('description', '')
+        assert a_claim.parameters[0].type_annotation == "int"
+        assert "First number" in a_claim.metadata.get("description", "")
 
     def test_extract_return_description(self, extractor, tmp_path: Path):
         content = """.. py:function:: get_value() -> int
@@ -237,7 +241,7 @@ class TestRSTDocsExtractorParameterDescriptions:
 
         ret_claims = [c for c in claims if c.kind == ClaimKind.RETURN_DESCRIPTION]
         assert len(ret_claims) >= 1
-        assert 'computed value' in ret_claims[0].metadata.get('description', '')
+        assert "computed value" in ret_claims[0].metadata.get("description", "")
 
 
 class TestRSTDocsExtractorCodeBlocks:
@@ -270,7 +274,6 @@ class TestRSTDocsExtractorCodeBlocks:
 
         claims = extractor.extract(rst_file)
 
-        code_claims = [c for c in claims if c.kind == ClaimKind.CODE_EXAMPLE]
         # Should extract something from the literal block
         assert isinstance(claims, list)
 
@@ -300,8 +303,8 @@ class TestRSTDocsExtractorEdgeCases:
 
         sig_claims = [c for c in claims if c.kind == ClaimKind.FUNCTION_SIGNATURE]
         names = {c.name for c in sig_claims}
-        assert 'func1' in names
-        assert 'func2' in names
+        assert "func1" in names
+        assert "func2" in names
 
 
 class TestHelperFunctions:
@@ -314,20 +317,20 @@ class TestHelperFunctions:
     def test_parse_parameters_single(self):
         result = _parse_parameters("x: int")
         assert len(result) == 1
-        assert result[0].name == 'x'
-        assert result[0].type_annotation == 'int'
+        assert result[0].name == "x"
+        assert result[0].type_annotation == "int"
 
     def test_parse_parameters_multiple(self):
         result = _parse_parameters("a: int, b: str, c: bool = True")
         assert len(result) == 3
-        assert result[0].name == 'a'
-        assert result[1].name == 'b'
-        assert result[2].name == 'c'
-        assert result[2].default == 'True'
+        assert result[0].name == "a"
+        assert result[1].name == "b"
+        assert result[2].name == "c"
+        assert result[2].default == "True"
 
     def test_split_params_basic(self):
         result = _split_params("a, b, c")
-        assert result == ['a', ' b', ' c']
+        assert result == ["a", " b", " c"]
 
     def test_split_params_nested(self):
         result = _split_params("func(a, b), other(x)")

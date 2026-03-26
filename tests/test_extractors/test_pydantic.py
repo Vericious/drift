@@ -1,10 +1,8 @@
 """Tests for pydantic module."""
+
 from pathlib import Path
 
-import pytest
-
 from drift.extractors.pydantic import PydanticExtractor
-
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_settings.py"
 
@@ -105,6 +103,8 @@ class TestPydanticExtractor:
         """Alias is captured in metadata."""
         extractor = PydanticExtractor()
         facts = extractor.extract(FIXTURE)
-        log_level_fact = next((f for f in facts if f.name == "AppConfig.log_level"), None)
+        log_level_fact = next(
+            (f for f in facts if f.name == "AppConfig.log_level"), None
+        )
         assert log_level_fact is not None
         assert log_level_fact.metadata.get("alias") == "level"

@@ -1,4 +1,5 @@
 """CLI interface for Drift."""
+
 from pathlib import Path
 
 import click
@@ -6,8 +7,8 @@ import click
 from drift import __version__
 from drift.config import load_config
 from drift.models import DriftItem
-from drift.scanner import DriftScanner
 from drift.reporter import DriftReporter
+from drift.scanner import DriftScanner
 
 
 @click.group()
@@ -19,25 +20,83 @@ def main() -> None:
 
 @main.command()
 @click.argument("path", type=click.Path(exists=True), default=".")
-@click.option("--json", "output_json", is_flag=True, help="Output as JSON (mutually exclusive with --sarif and --html)")
-@click.option("--sarif", "output_sarif", is_flag=True, help="Output as SARIF v2.1.0 JSON (mutually exclusive with --json and --html)")
-@click.option("--html", "output_html", is_flag=True, help="Output as self-contained HTML (mutually exclusive with --json and --sarif)")
-@click.option("--output", "-o", "output_file", type=click.Path(dir_okay=False), default=None,
-              help="Write report to file (in addition to console)")
-@click.option("--config", "config_path", type=click.Path(exists=False), default=None,
-              help="Path to config file (default: .drift.toml in CWD)")
-@click.option("--strict", is_flag=True,
-              help="Treat extractor errors as fatal (fail fast on malformed files).")
-@click.option("--severity", "-s", type=click.Choice(["error", "warning", "info", "all"]),
-              default="all", help="Minimum severity to show (default: all).")
-@click.option("--verbose", "-V", is_flag=True, help="Show detailed output including scan timing.")
-@click.option("--fail-on", type=click.Choice(["error", "warning", "info", "none"]),
-              default=None, help="Exit code 1 on any drift item at or above this severity (overrides config).")
-@click.option("--parallel", "-p", "parallel", is_flag=True,
-              help="Enable parallel file processing (uses ThreadPoolExecutor).")
-def scan(path: str, output_json: bool, output_sarif: bool, output_html: bool, output_file: str | None, config_path: str | None, strict: bool, severity: str, verbose: bool, fail_on: str | None, parallel: bool) -> None:
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output as JSON (mutually exclusive with --sarif and --html)",
+)
+@click.option(
+    "--sarif",
+    "output_sarif",
+    is_flag=True,
+    help="Output as SARIF v2.1.0 JSON (mutually exclusive with --json and --html)",
+)
+@click.option(
+    "--html",
+    "output_html",
+    is_flag=True,
+    help="Output as self-contained HTML (mutually exclusive with --json and --sarif)",
+)
+@click.option(
+    "--output",
+    "-o",
+    "output_file",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Write report to file (in addition to console)",
+)
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=False),
+    default=None,
+    help="Path to config file (default: .drift.toml in CWD)",
+)
+@click.option(
+    "--strict",
+    is_flag=True,
+    help="Treat extractor errors as fatal (fail fast on malformed files).",
+)
+@click.option(
+    "--severity",
+    "-s",
+    type=click.Choice(["error", "warning", "info", "all"]),
+    default="all",
+    help="Minimum severity to show (default: all).",
+)
+@click.option(
+    "--verbose", "-V", is_flag=True, help="Show detailed output including scan timing."
+)
+@click.option(
+    "--fail-on",
+    type=click.Choice(["error", "warning", "info", "none"]),
+    default=None,
+    help="Exit code 1 on any drift item at or above this severity (overrides config).",
+)
+@click.option(
+    "--parallel",
+    "-p",
+    "parallel",
+    is_flag=True,
+    help="Enable parallel file processing (uses ThreadPoolExecutor).",
+)
+def scan(
+    path: str,
+    output_json: bool,
+    output_sarif: bool,
+    output_html: bool,
+    output_file: str | None,
+    config_path: str | None,
+    strict: bool,
+    severity: str,
+    verbose: bool,
+    fail_on: str | None,
+    parallel: bool,
+) -> None:
     """Scan a project for documentation drift."""
     import time
+
     start = time.monotonic()
 
     # Load config
@@ -53,7 +112,9 @@ def scan(path: str, output_json: bool, output_sarif: bool, output_html: bool, ou
     # --json, --sarif, and --html are mutually exclusive
     flag_count = sum(1 for f in [output_json, output_sarif, output_html] if f)
     if flag_count > 1:
-        raise click.ClickException("--json, --sarif, and --html cannot be used together.")
+        raise click.ClickException(
+            "--json, --sarif, and --html cannot be used together."
+        )
     if output_json:
         output_format = "json"
     elif output_sarif:
@@ -92,8 +153,9 @@ def scan(path: str, output_json: bool, output_sarif: bool, output_html: bool, ou
         # For text output, capture to file without Rich formatting
         # Use StringIO to capture plain text with markup interpreted and stripped
         import io
+
         from rich.console import Console
-        from rich.text import Text
+
         text_buffer = io.StringIO()
         # Use default console (markup=True) so Rich interprets markup tags
         # and the output buffer contains plain text without markup
@@ -131,8 +193,7 @@ def init(force: bool) -> None:
     config_path = Path.cwd() / ".drift.toml"
     if config_path.exists() and not force:
         raise click.ClickException(
-            f".drift.toml already exists at {config_path}. "
-            "Use --force to overwrite it."
+            f".drift.toml already exists at {config_path}. Use --force to overwrite it."
         )
 
     default_config = """# Drift configuration
@@ -173,19 +234,24 @@ fail_on = "error"
 @main.command()
 @click.argument("path", type=click.Path(exists=True), default=".")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
-@click.option("--config", "config_path", type=click.Path(exists=False), default=None,
-              help="Path to config file (default: .drift.toml in CWD)")
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=False),
+    default=None,
+    help="Path to config file (default: .drift.toml in CWD)",
+)
 def summary(path: str, output_json: bool, config_path: str | None) -> None:
     """Show a quick health overview of a project's documentation drift."""
     from drift.config import load_config
-    from drift.extractors.registry import get_extractors
-    from drift.extractors.markdown import MarkdownExtractor
     from drift.extractors.config_file import ConfigFileExtractor
+    from drift.extractors.markdown import MarkdownExtractor
+    from drift.extractors.registry import get_extractors
 
     # Load config
     config_file = Path(config_path) if config_path else None
     try:
-        config = load_config(config_file)
+        load_config(config_file)
     except FileNotFoundError as e:
         raise click.ClickException(str(e)) from e
     except ValueError as e:
@@ -203,17 +269,34 @@ def summary(path: str, output_json: bool, config_path: str | None) -> None:
             break
 
     if scan_path.is_file():
-        py_files = [scan_path] if py_extractor and py_extractor.can_handle(scan_path) else []
+        py_files = (
+            [scan_path] if py_extractor and py_extractor.can_handle(scan_path) else []
+        )
         md_files = [scan_path] if md_extractor.can_handle(scan_path) else []
         config_files = [scan_path] if config_extractor.can_handle(scan_path) else []
     else:
-        py_files = [f for f in scan_path.rglob("*.py")
-                    if not any(part in {".git", "__pycache__", ".venv", "node_modules", ".tox", ".pytest_cache", ".mypy_cache"} for part in f.parts)]
+        py_files = [
+            f
+            for f in scan_path.rglob("*.py")
+            if not any(
+                part
+                in {
+                    ".git",
+                    "__pycache__",
+                    ".venv",
+                    "node_modules",
+                    ".tox",
+                    ".pytest_cache",
+                    ".mypy_cache",
+                }
+                for part in f.parts
+            )
+        ]
         md_files = list(scan_path.rglob("*.md"))
         config_files = (
-            list(scan_path.rglob("*.yaml")) +
-            list(scan_path.rglob("*.yml")) +
-            list(scan_path.rglob("*.toml"))
+            list(scan_path.rglob("*.yaml"))
+            + list(scan_path.rglob("*.yml"))
+            + list(scan_path.rglob("*.toml"))
         )
 
     files_scanned = len(py_files) + len(md_files) + len(config_files)
@@ -237,7 +320,8 @@ def summary(path: str, output_json: bool, config_path: str | None) -> None:
             if item.category == "documented_but_missing" and item.claim:
                 missing_claim_names.add((item.claim.name, item.claim.kind.value))
         matched_claims = sum(
-            1 for c in report.claims
+            1
+            for c in report.claims
             if (c.name, c.kind.value) not in missing_claim_names
         )
         health_score = round(matched_claims / total_claims * 100, 1)
@@ -246,6 +330,7 @@ def summary(path: str, output_json: bool, config_path: str | None) -> None:
 
     if output_json:
         import json
+
         data = {
             "files_scanned": files_scanned,
             "code_facts": total_facts,
@@ -265,21 +350,29 @@ def summary(path: str, output_json: bool, config_path: str | None) -> None:
 
     console = Console()
     console.print()
-    console.print(Panel(
-        f"[bold]Drift Summary — {path}[/bold]\n"
-        f"[dim]Files scanned: {files_scanned}  |  "
-        f"Code facts: {total_facts}  |  "
-        f"Doc claims: {total_claims}[/dim]",
-        border_style="cyan",
-    ))
+    console.print(
+        Panel(
+            f"[bold]Drift Summary — {path}[/bold]\n"
+            f"[dim]Files scanned: {files_scanned}  |  "
+            f"Code facts: {total_facts}  |  "
+            f"Doc claims: {total_claims}[/dim]",
+            border_style="cyan",
+        )
+    )
 
     # Drift status
     if total_drift == 0:
         status_text = Text("✓  No drift detected", style="bold green")
     elif errors > 0:
-        status_text = Text(f"✗  {total_drift} drift item(s) ({errors} error(s), {warnings} warning(s))", style="bold red")
+        status_text = Text(
+            f"✗  {total_drift} drift item(s) ({errors} error(s), {warnings} warning(s))",
+            style="bold red",
+        )
     else:
-        status_text = Text(f"⚠  {total_drift} drift item(s) ({warnings} warning(s))", style="bold yellow")
+        status_text = Text(
+            f"⚠  {total_drift} drift item(s) ({warnings} warning(s))",
+            style="bold yellow",
+        )
 
     console.print()
     console.print(status_text)
@@ -293,19 +386,29 @@ def summary(path: str, output_json: bool, config_path: str | None) -> None:
     else:
         score_color = "red"
 
-    console.print(f"[bold]Health score:[/bold] [bold {score_color}]{health_score}%[/bold {score_color}]")
+    console.print(
+        f"[bold]Health score:[/bold] [bold {score_color}]{health_score}%[/bold {score_color}]"
+    )
 
     if total_claims > 0:
-        console.print(f"[dim]Matched {matched_claims}/{total_claims} documented items[/dim]")
+        console.print(
+            f"[dim]Matched {matched_claims}/{total_claims} documented items[/dim]"
+        )
 
     console.print()
 
 
 @main.command()
 @click.argument("path", type=click.Path(exists=True), default=".")
-@click.option("--fail-on", type=click.Choice(["error", "warning", "none"]),
-              default="error", help="Exit code 1 when drift items at this severity are found.")
-@click.option("--quiet", "-q", is_flag=True, help="Suppress output, only set exit code.")
+@click.option(
+    "--fail-on",
+    type=click.Choice(["error", "warning", "none"]),
+    default="error",
+    help="Exit code 1 when drift items at this severity are found.",
+)
+@click.option(
+    "--quiet", "-q", is_flag=True, help="Suppress output, only set exit code."
+)
 def check(path: str, fail_on: str, quiet: bool) -> None:
     """Check a file or path for documentation drift.
 
@@ -319,6 +422,7 @@ def check(path: str, fail_on: str, quiet: bool) -> None:
         git diff --name-only | xargs drift check
     """
     import time
+
     start = time.monotonic()
 
     scan_path = Path(path)

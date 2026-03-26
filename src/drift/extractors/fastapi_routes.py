@@ -3,17 +3,17 @@
 Extracts API_ENDPOINT facts from FastAPI route decorators.
 Handles @app.get/post/put/delete/patch, @router.get, @app.api_route, etc.
 """
+
 import ast
 import re
 from pathlib import Path
-from typing import Optional
 
 from drift.extractors.base import Extractor
 from drift.extractors.registry import register
 from drift.models import CodeFact, FactKind, Parameter
 
 
-def _get_func_name(node: ast.expr) -> Optional[str]:
+def _get_func_name(node: ast.expr) -> str | None:
     """Get the dotted name from an Attribute or Name node."""
     if isinstance(node, ast.Name):
         return node.id
@@ -24,21 +24,21 @@ def _get_func_name(node: ast.expr) -> Optional[str]:
     return None
 
 
-def _get_constant_string(node: ast.expr) -> Optional[str]:
+def _get_constant_string(node: ast.expr) -> str | None:
     """Extract string value from an ast.Constant node."""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
 
 
-def _get_constant_int(node: ast.expr) -> Optional[int]:
+def _get_constant_int(node: ast.expr) -> int | None:
     """Extract int value from an ast.Constant node."""
     if isinstance(node, ast.Constant) and isinstance(node.value, int):
         return node.value
     return None
 
 
-def _get_status_code(node: ast.expr) -> Optional[str]:
+def _get_status_code(node: ast.expr) -> str | None:
     """Extract HTTP status code from a FastAPI status code value.
 
     Handles:
@@ -58,7 +58,7 @@ def _get_status_code(node: ast.expr) -> Optional[str]:
     return None
 
 
-def _get_annotation_name(node: ast.expr) -> Optional[str]:
+def _get_annotation_name(node: ast.expr) -> str | None:
     """Get a type annotation as a string."""
     if isinstance(node, ast.Name):
         return node.id
@@ -80,7 +80,7 @@ def _get_annotation_name(node: ast.expr) -> Optional[str]:
     return None
 
 
-def _get_default_value(node: ast.expr | None) -> Optional[str]:
+def _get_default_value(node: ast.expr | None) -> str | None:
     """Get the default value as a string repr."""
     if node is None:
         return None
@@ -101,8 +101,15 @@ def _get_default_value(node: ast.expr | None) -> Optional[str]:
 
 
 HTTP_METHODS = {
-    "get", "post", "put", "patch", "delete",
-    "head", "options", "trace", "connect",
+    "get",
+    "post",
+    "put",
+    "patch",
+    "delete",
+    "head",
+    "options",
+    "trace",
+    "connect",
 }
 
 
@@ -111,7 +118,7 @@ def _is_http_method(name: str) -> bool:
 
 
 # router_var_name -> prefix string
-RouterPrefixes = dict[str, Optional[str]]
+RouterPrefixes = dict[str, str | None]
 
 
 def _collect_router_prefixes(tree: ast.AST) -> RouterPrefixes:
@@ -133,7 +140,7 @@ def _collect_router_prefixes(tree: ast.AST) -> RouterPrefixes:
     return prefixes
 
 
-def _combine_path(prefix: Optional[str], route_path: Optional[str]) -> Optional[str]:
+def _combine_path(prefix: str | None, route_path: str | None) -> str | None:
     """Combine router prefix with a route path."""
     if route_path is None:
         return prefix
@@ -147,17 +154,17 @@ def _combine_path(prefix: Optional[str], route_path: Optional[str]) -> Optional[
 def _extract_decorator_info(
     decorator: ast.expr,
     router_prefixes: RouterPrefixes,
-) -> Optional[tuple[Optional[list[str]], Optional[str], Optional[str], Optional[str], Optional[str], Optional[list[str]]]]:
+) -> tuple[list[str] | None, str | None, str | None, str | None, str | None, list[str] | None] | None:
     """Analyze a decorator and return (methods, path, router_name, status_code, response_model, tags).
 
     Returns None if this is not a FastAPI route decorator.
     """
-    methods: Optional[list[str]] = None
-    path: Optional[str] = None
-    router_name: Optional[str] = None
-    status_code: Optional[str] = None
-    response_model: Optional[str] = None
-    tags: Optional[list[str]] = None
+    methods: list[str] | None = None
+    path: str | None = None
+    router_name: str | None = None
+    status_code: str | None = None
+    response_model: str | None = None
+    tags: list[str] | None = None
 
     if isinstance(decorator, ast.Call):
         func_name = _get_func_name(decorator.func)
@@ -168,7 +175,9 @@ def _extract_decorator_info(
             if _is_http_method(attr_name):
                 method = attr_name.upper()
                 methods = [method]
-                path = _get_constant_string(decorator.args[0]) if decorator.args else None
+                path = (
+                    _get_constant_string(decorator.args[0]) if decorator.args else None
+                )
                 obj_name = _get_func_name(decorator.func.value)
                 # Apply router prefix if this is a router
                 if obj_name and obj_name in router_prefixes:
@@ -184,7 +193,13 @@ def _extract_decorator_info(
                         response_model = _get_annotation_name(kw.value)
                     elif kw.arg == "tags":
                         if isinstance(kw.value, ast.List):
-                            tags = [t for t in [_get_constant_string(e) for e in kw.value.elts] if t is not None]
+                            tags = [
+                                t
+                                for t in [
+                                    _get_constant_string(e) for e in kw.value.elts
+                                ]
+                                if t is not None
+                            ]
                 return (methods, path, router_name, status_code, response_model, tags)
 
         # @app.api_route("/path", methods=["GET", "POST"])
@@ -199,15 +214,22 @@ def _extract_decorator_info(
             for kw in decorator.keywords:
                 if kw.arg == "methods":
                     if isinstance(kw.value, ast.List):
-                        methods = [e.value.upper() for e in kw.value.elts
-                                   if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+                        methods = [
+                            e.value.upper()
+                            for e in kw.value.elts
+                            if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                        ]
                 elif kw.arg == "status_code":
                     status_code = _get_status_code(kw.value)
                 elif kw.arg == "response_model":
                     response_model = _get_annotation_name(kw.value)
                 elif kw.arg == "tags":
                     if isinstance(kw.value, ast.List):
-                        tags = [t for t in [_get_constant_string(e) for e in kw.value.elts] if t is not None]
+                        tags = [
+                            t
+                            for t in [_get_constant_string(e) for e in kw.value.elts]
+                            if t is not None
+                        ]
             return (methods, path, router_name, status_code, response_model, tags)
 
     elif isinstance(decorator, ast.Attribute):
@@ -238,12 +260,14 @@ def _extract_function_params(func_node: ast.FunctionDef) -> list[Parameter]:
             default_val = _get_default_value(args.defaults[default_idx])
 
         kind = "path" if "path" in (type_str or "").lower() else "query"
-        params.append(Parameter(
-            name=param_name,
-            type_annotation=type_str,
-            default=default_val,
-            kind=kind,
-        ))
+        params.append(
+            Parameter(
+                name=param_name,
+                type_annotation=type_str,
+                default=default_val,
+                kind=kind,
+            )
+        )
 
     return params
 
@@ -292,7 +316,9 @@ class FastAPIRoutesExtractor(Extractor):
                 if info is None:
                     continue
 
-                methods, route_path, router_name, status_code, response_model, tags = info
+                methods, route_path, router_name, status_code, response_model, tags = (
+                    info
+                )
                 if route_path is None:
                     continue
                 if methods is None:
@@ -311,13 +337,15 @@ class FastAPIRoutesExtractor(Extractor):
                         "tags": tags,
                         "function_name": node.name,
                     }
-                    facts.append(CodeFact(
-                        name=fact_name,
-                        kind=FactKind.API_ENDPOINT,
-                        source_file=path,
-                        line_number=node.lineno,
-                        parameters=func_params,
-                        metadata=metadata,
-                    ))
+                    facts.append(
+                        CodeFact(
+                            name=fact_name,
+                            kind=FactKind.API_ENDPOINT,
+                            source_file=path,
+                            line_number=node.lineno,
+                            parameters=func_params,
+                            metadata=metadata,
+                        )
+                    )
 
         return facts

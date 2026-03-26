@@ -1,5 +1,5 @@
 """Tests for the config module."""
-import tempfile
+
 from pathlib import Path
 
 import pytest
@@ -42,6 +42,7 @@ output_format = "json"
         old_cwd = Path.cwd()
         try:
             import os
+
             os.chdir(tmp_path)
             config = load_config(None)
             assert config.ignore_patterns == ["*.md"]
@@ -55,6 +56,7 @@ output_format = "json"
         old_cwd = Path.cwd()
         try:
             import os
+
             os.chdir(tmp_path)
             config = load_config(None)
             assert config.ignore_patterns == []

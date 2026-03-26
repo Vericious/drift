@@ -1,10 +1,8 @@
 """Tests for openapi extractor module."""
+
 from pathlib import Path
 
-import pytest
-
 from drift.extractors.openapi import OpenAPIExtractor
-
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_openapi.yaml"
 
@@ -66,11 +64,15 @@ class TestOpenAPIExtractor:
         """operationId is stored in metadata."""
         extractor = OpenAPIExtractor()
         facts = extractor.extract(FIXTURE)
-        list_pets = next((f for f in facts if f.metadata.get("operation_id") == "listPets"), None)
+        list_pets = next(
+            (f for f in facts if f.metadata.get("operation_id") == "listPets"), None
+        )
         assert list_pets is not None
         assert list_pets.metadata.get("summary") == "List all pets"
 
-        get_pet = next((f for f in facts if f.metadata.get("operation_id") == "getPet"), None)
+        get_pet = next(
+            (f for f in facts if f.metadata.get("operation_id") == "getPet"), None
+        )
         assert get_pet is not None
         assert get_pet.metadata.get("summary") == "Get a specific pet"
 
@@ -78,16 +80,22 @@ class TestOpenAPIExtractor:
         """Path parameters are stored in metadata."""
         extractor = OpenAPIExtractor()
         facts = extractor.extract(FIXTURE)
-        get_pet = next((f for f in facts if f.metadata.get("operation_id") == "getPet"), None)
+        get_pet = next(
+            (f for f in facts if f.metadata.get("operation_id") == "getPet"), None
+        )
         assert get_pet is not None
         assert "pet_id" in get_pet.metadata.get("path_param_names", [])
-        assert get_pet.metadata.get("path") == "https://api.example.com/v1/pets/{pet_id}"
+        assert (
+            get_pet.metadata.get("path") == "https://api.example.com/v1/pets/{pet_id}"
+        )
 
     def test_query_parameters_extracted(self):
         """Query parameters are stored in metadata."""
         extractor = OpenAPIExtractor()
         facts = extractor.extract(FIXTURE)
-        list_pets = next((f for f in facts if f.metadata.get("operation_id") == "listPets"), None)
+        list_pets = next(
+            (f for f in facts if f.metadata.get("operation_id") == "listPets"), None
+        )
         assert list_pets is not None
         param_names = [p["name"] for p in list_pets.metadata.get("parameters", [])]
         assert "limit" in param_names
@@ -97,7 +105,9 @@ class TestOpenAPIExtractor:
         """Method is stored uppercase in metadata."""
         extractor = OpenAPIExtractor()
         facts = extractor.extract(FIXTURE)
-        get_pet = next((f for f in facts if f.metadata.get("operation_id") == "getPet"), None)
+        get_pet = next(
+            (f for f in facts if f.metadata.get("operation_id") == "getPet"), None
+        )
         assert get_pet is not None
         assert get_pet.metadata.get("method") == "GET"
 
@@ -142,6 +152,8 @@ class TestOpenAPIExtractor:
         """Description is stored in metadata."""
         extractor = OpenAPIExtractor()
         facts = extractor.extract(FIXTURE)
-        list_pets = next((f for f in facts if f.metadata.get("operation_id") == "listPets"), None)
+        list_pets = next(
+            (f for f in facts if f.metadata.get("operation_id") == "listPets"), None
+        )
         assert list_pets is not None
         assert "list" in list_pets.metadata.get("description", "").lower()

@@ -5,43 +5,43 @@ Extracts DocClaim objects from Markdown files by finding:
 - Inline code references
 - CLI usage patterns
 """
+
 import re
 from pathlib import Path
 
 from drift.models import ClaimKind, DocClaim, Parameter
 
-
 # Pattern for function signatures in code blocks:
 # def function_name(param: Type = default, ...) -> ReturnType:
 # Note: colon is optional to handle malformed signatures
 _FUNC_SIGNATURE_RE = re.compile(
-    r'^def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)\s*(?:->\s*([^:\n]+))?\s*:?',
-    re.MULTILINE
+    r"^def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)\s*(?:->\s*([^:\n]+))?\s*:?",
+    re.MULTILINE,
 )
 
 # Pattern to parse individual parameters
-_PARAM_RE = re.compile(
-    r'([a-zA-Z_][a-zA-Z0-9_]*)\s*(?::\s*([^=]+?))?\s*(?:=\s*(.+))?$'
-)
+_PARAM_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?::\s*([^=]+?))?\s*(?:=\s*(.+))?$")
 
 # Pattern for inline code references: `function_name(...)`
-_INLINE_CODE_RE = re.compile(r'`([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^`]*`')
+_INLINE_CODE_RE = re.compile(r"`([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^`]*`")
 
 # Pattern for CLI usage: $ command or just command at start of line
-_CLI_RE = re.compile(r'^\$\s+(\S+)(?:\s+(.+))?$|^(?:^|\n)([a-zA-Z_][a-zA-Z0-9_-]*)\s+(?:scan|run|exec|check)')
+_CLI_RE = re.compile(
+    r"^\$\s+(\S+)(?:\s+(.+))?$|^(?:^|\n)([a-zA-Z_][a-zA-Z0-9_-]*)\s+(?:scan|run|exec|check)"
+)
 
 # Pattern for CLI flags in documentation:
 # --flag or -f (with optional =value)
-_CLI_FLAG_PATTERN = re.compile(r'(--[a-zA-Z0-9_-]+|-[a-zA-Z])(?:[=:\s][^`\s]*)?')
+_CLI_FLAG_PATTERN = re.compile(r"(--[a-zA-Z0-9_-]+|-[a-zA-Z])(?:[=:\s][^`\s]*)?")
 
 # Simple backtick inline: `code`
-_SIMPLE_BACKTICK_RE = re.compile(r'`([^`]+)`')
+_SIMPLE_BACKTICK_RE = re.compile(r"`([^`]+)`")
 
 # Pattern for a markdown table row separator: |---|---|
-_TABLE_SEP_RE = re.compile(r'^\|[\s|-]+\|[\s|-]+\|$')
+_TABLE_SEP_RE = re.compile(r"^\|[\s|-]+\|[\s|-]+\|$")
 
 # Pattern to find a CLI flag in a table cell: --flag or -f (with optional value)
-_TABLE_FLAG_RE = re.compile(r'^(-{1,2}[a-zA-Z0-9_-]+)(?:\s*=\s*(\S+))?$')
+_TABLE_FLAG_RE = re.compile(r"^(-{1,2}[a-zA-Z0-9_-]+)(?:\s*=\s*(\S+))?$")
 
 
 class MarkdownExtractor:
@@ -52,12 +52,12 @@ class MarkdownExtractor:
         claims: list[DocClaim] = []
 
         try:
-            content = path.read_text(encoding='utf-8')
-        except (OSError, UnicodeDecodeError) as e:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
             # Gracefully handle file read errors
             return claims
 
-        lines = content.split('\n')
+        lines = content.split("\n")
 
         # Extract code blocks
         claims.extend(self._extract_code_blocks(content, lines, path))
@@ -81,9 +81,11 @@ class MarkdownExtractor:
 
     def can_handle(self, path: Path) -> bool:
         """Return True if this is a Markdown file."""
-        return path.suffix.lower() == '.md'
+        return path.suffix.lower() == ".md"
 
-    def _extract_code_blocks(self, content: str, lines: list[str], path: Path) -> list[DocClaim]:
+    def _extract_code_blocks(
+        self, content: str, lines: list[str], path: Path
+    ) -> list[DocClaim]:
         """Extract function signatures from code blocks."""
         claims: list[DocClaim] = []
         in_code_block = False
@@ -92,10 +94,10 @@ class MarkdownExtractor:
         pending_suppression: dict[str, object] | None = None
 
         for i, line in enumerate(lines):
-            if line.strip().startswith('```'):
+            if line.strip().startswith("```"):
                 if in_code_block:
                     # End of code block - parse it
-                    block_text = '\n'.join(code_block_content)
+                    block_text = "\n".join(code_block_content)
                     parsed = self._parse_code_block_signature(
                         block_text, code_block_start_line + 1, path, pending_suppression
                     )
@@ -114,7 +116,9 @@ class MarkdownExtractor:
 
         return claims
 
-    def _check_suppression_before(self, lines: list[str], code_block_start: int) -> dict[str, object] | None:
+    def _check_suppression_before(
+        self, lines: list[str], code_block_start: int
+    ) -> dict[str, object] | None:
         """Check lines before a code block for drift:ignore suppression comments.
 
         Returns a dict with suppression info or None if no suppression.
@@ -126,10 +130,11 @@ class MarkdownExtractor:
         # Look at the 5 lines before the code block
         for j in range(code_block_start - 1, max(0, code_block_start - 6), -1):
             line = lines[j].strip()
-            if '<!--' in line and '-->' in line and 'drift:ignore' in line:
+            if "<!--" in line and "-->" in line and "drift:ignore" in line:
                 # Extract target if any
                 import re
-                m = re.search(r'drift:ignore\s*(.*?)-->', line)
+
+                m = re.search(r"drift:ignore\s*(.*?)-->", line)
                 if m:
                     target = m.group(1).strip()
                     if target:
@@ -155,16 +160,14 @@ class MarkdownExtractor:
             func_name = match.group(1)
             params_str = match.group(2)
             return_type = match.group(3)
-            offset = block_text[:match.start()].count('\n')
+            offset = block_text[: match.start()].count("\n")
 
             parameters = self._parse_parameters(params_str)
 
             metadata: dict[str, object] = {}
             is_suppressed = False
             if suppression:
-                if suppression.get("suppress_all"):
-                    is_suppressed = True
-                elif suppression.get("suppress_for") == func_name:
+                if suppression.get("suppress_all") or suppression.get("suppress_for") == func_name:
                     is_suppressed = True
                 metadata["suppressed"] = is_suppressed
                 if is_suppressed:
@@ -200,15 +203,15 @@ class MarkdownExtractor:
                 continue
 
             # Handle *args and **kwargs
-            if part.startswith('*') and '**' not in part:
-                name = part.lstrip('*').strip()
-                param_kind = 'varargs'
-            elif part.startswith('**'):
-                name = part.lstrip('*').strip()
-                param_kind = 'varkw'
+            if part.startswith("*") and "**" not in part:
+                name = part.lstrip("*").strip()
+                param_kind = "varargs"
+            elif part.startswith("**"):
+                name = part.lstrip("*").strip()
+                param_kind = "varkw"
             else:
                 name = part
-                param_kind = 'positional'
+                param_kind = "positional"
 
             # Try to parse name:type = default or name = default
             param_match = _PARAM_RE.match(part)
@@ -223,12 +226,14 @@ class MarkdownExtractor:
                 if default:
                     default = default.strip()
 
-                parameters.append(Parameter(
-                    name=name,
-                    type_annotation=type_annotation,
-                    default=default,
-                    kind=param_kind,
-                ))
+                parameters.append(
+                    Parameter(
+                        name=name,
+                        type_annotation=type_annotation,
+                        default=default,
+                        kind=param_kind,
+                    )
+                )
             else:
                 # Fallback: just use the part as name
                 parameters.append(Parameter(name=name, kind=param_kind))
@@ -242,24 +247,26 @@ class MarkdownExtractor:
         bracket_depth = 0
 
         for char in params_str:
-            if char in '([{':
+            if char in "([{":
                 bracket_depth += 1
                 current.append(char)
-            elif char in ')]}':
+            elif char in ")]}":
                 bracket_depth -= 1
                 current.append(char)
-            elif char == ',' and bracket_depth == 0:
-                result.append(''.join(current))
+            elif char == "," and bracket_depth == 0:
+                result.append("".join(current))
                 current = []
             else:
                 current.append(char)
 
         if current:
-            result.append(''.join(current))
+            result.append("".join(current))
 
         return result
 
-    def _extract_inline_refs(self, content: str, lines: list[str], path: Path) -> list[DocClaim]:
+    def _extract_inline_refs(
+        self, content: str, lines: list[str], path: Path
+    ) -> list[DocClaim]:
         """Extract inline code references like `function_name(args)`."""
         claims = []
         seen = set()  # Avoid duplicate claims on same line
@@ -270,11 +277,11 @@ class MarkdownExtractor:
 
             for match in matches:
                 # Skip if it looks like a code block marker or is too short
-                if match.strip().startswith('```') or len(match) < 2:
+                if match.strip().startswith("```") or len(match) < 2:
                     continue
 
                 # Check if this is a function call pattern
-                call_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$', match)
+                call_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$", match)
 
                 if call_match:
                     func_name = call_match.group(1)
@@ -285,7 +292,9 @@ class MarkdownExtractor:
 
                     # Try to parse parameters
                     params_str = call_match.group(2)
-                    parameters = self._parse_parameters(params_str) if params_str.strip() else []
+                    parameters = (
+                        self._parse_parameters(params_str) if params_str.strip() else []
+                    )
 
                     claim = DocClaim(
                         raw_text=match,
@@ -296,7 +305,7 @@ class MarkdownExtractor:
                         parameters=parameters,
                     )
                     claims.append(claim)
-                elif re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', match):
+                elif re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", match):
                     # Simple identifier in backticks - record as code example
                     key = (i, match)
                     if key in seen:
@@ -315,7 +324,9 @@ class MarkdownExtractor:
 
         return claims
 
-    def _extract_cli_usage(self, content: str, lines: list[str], path: Path) -> list[DocClaim]:
+    def _extract_cli_usage(
+        self, content: str, lines: list[str], path: Path
+    ) -> list[DocClaim]:
         """Extract CLI usage patterns like $ drift scan [PATH]."""
         claims = []
 
@@ -323,7 +334,7 @@ class MarkdownExtractor:
             line = line.strip()
 
             # Pattern: $ command args
-            dollar_match = re.match(r'^\$\s+([a-zA-Z_][a-zA-Z0-9_-]*)\s*(.*)?$', line)
+            dollar_match = re.match(r"^\$\s+([a-zA-Z_][a-zA-Z0-9_-]*)\s*(.*)?$", line)
             if dollar_match:
                 cmd_name = dollar_match.group(1)
                 args_str = dollar_match.group(2) or ""
@@ -334,13 +345,17 @@ class MarkdownExtractor:
                     doc_file=path,
                     line_number=i + 1,
                     name=cmd_name,
-                    metadata={'args': args_str},
+                    metadata={"args": args_str},
                 )
                 claims.append(claim)
                 continue
 
             # Pattern: command scan/run/etc (without $)
-            bare_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_-]*)\s+(scan|run|exec|check|version|help)\s*(.*)$', line, re.MULTILINE)
+            bare_match = re.match(
+                r"^([a-zA-Z_][a-zA-Z0-9_-]*)\s+(scan|run|exec|check|version|help)\s*(.*)$",
+                line,
+                re.MULTILINE,
+            )
             if bare_match:
                 cmd_name = bare_match.group(1)
                 action = bare_match.group(2)
@@ -348,7 +363,9 @@ class MarkdownExtractor:
 
                 # Avoid double-counting if we already found this with $
                 existing = any(
-                    c.kind == ClaimKind.CLI_USAGE and c.name == cmd_name and c.line_number == i + 1
+                    c.kind == ClaimKind.CLI_USAGE
+                    and c.name == cmd_name
+                    and c.line_number == i + 1
                     for c in claims
                 )
                 if not existing:
@@ -358,13 +375,15 @@ class MarkdownExtractor:
                         doc_file=path,
                         line_number=i + 1,
                         name=cmd_name,
-                        metadata={'args': args_str, 'action': action},
+                        metadata={"args": args_str, "action": action},
                     )
                     claims.append(claim)
 
         return claims
 
-    def _extract_cli_flag_refs(self, content: str, lines: list[str], path: Path) -> list[DocClaim]:
+    def _extract_cli_flag_refs(
+        self, content: str, lines: list[str], path: Path
+    ) -> list[DocClaim]:
         """Extract CLI flag references from bash/shell code blocks and inline text."""
         claims: list[DocClaim] = []
         in_shell_block = False
@@ -374,9 +393,9 @@ class MarkdownExtractor:
             stripped = line.strip()
 
             # Track shell/bash code blocks
-            if stripped.startswith('```'):
-                lang = stripped.lstrip('`').strip().lower()
-                if lang in ('bash', 'shell', 'sh', 'zsh', ''):
+            if stripped.startswith("```"):
+                lang = stripped.lstrip("`").strip().lower()
+                if lang in ("bash", "shell", "sh", "zsh", ""):
                     in_shell_block = not in_shell_block
                 continue
 
@@ -387,14 +406,18 @@ class MarkdownExtractor:
 
             # Also extract from plain lines that look like usage/documentation
             # Only flag lines that look like command invocations
-            if stripped.startswith('$') or stripped.startswith('>'):
+            if stripped.startswith("$") or stripped.startswith(">"):
                 self._extract_flags_from_line(line, i + 1, path, claims, seen)
 
         return claims
 
     def _extract_flags_from_line(
-        self, line: str, line_number: int, path: Path,
-        claims: list[DocClaim], seen: set[tuple[int, str]]
+        self,
+        line: str,
+        line_number: int,
+        path: Path,
+        claims: list[DocClaim],
+        seen: set[tuple[int, str]],
     ) -> None:
         """Extract CLI flag references from a single line."""
         for match in _CLI_FLAG_PATTERN.finditer(line):
@@ -405,10 +428,10 @@ class MarkdownExtractor:
             seen.add(key)
 
             # Extract associated value if present (e.g. --flag=value)
-            rest = match.group(0)[len(flag):].strip()
+            rest = match.group(0)[len(flag) :].strip()
             default = None
-            if rest.startswith('=') or rest.startswith(':'):
-                default = rest.lstrip('=:').strip().strip('"\'')
+            if rest.startswith("=") or rest.startswith(":"):
+                default = rest.lstrip("=:").strip().strip("\"'")
 
             claim = DocClaim(
                 raw_text=flag,
@@ -416,7 +439,7 @@ class MarkdownExtractor:
                 doc_file=path,
                 line_number=line_number,
                 name=flag,
-                metadata={} if default is None else {'default': default},
+                metadata={} if default is None else {"default": default},
             )
             claims.append(claim)
 
@@ -444,11 +467,11 @@ class MarkdownExtractor:
             line = lines[i]
             stripped = line.strip()
 
-            if not stripped.startswith('|'):
+            if not stripped.startswith("|"):
                 i += 1
                 continue
 
-            cells = [c.strip() for c in stripped.split('|')[1:-1]]
+            cells = [c.strip() for c in stripped.split("|")[1:-1]]
             if not cells:
                 i += 1
                 continue
@@ -463,7 +486,7 @@ class MarkdownExtractor:
                 header_line = i
                 for idx, cell in enumerate(cells):
                     cell_lower = cell.lower()
-                    if 'default' in cell_lower or 'dflt' in cell_lower:
+                    if "default" in cell_lower or "dflt" in cell_lower:
                         default_col_indices.add(idx)
                 i += 1
                 continue
@@ -472,11 +495,11 @@ class MarkdownExtractor:
             for idx, cell in enumerate(cells):
                 # Skip cells that are plain default values (not flag cells)
                 # unless they are in the default column AND adjacent to a flag cell
-                if not cell.startswith('-') and not cell.startswith('`'):
+                if not cell.startswith("-") and not cell.startswith("`"):
                     continue
 
                 # Handle comma-separated flags: "-v, --verbose" or "-v, --verbose=8080"
-                parts = [p.strip() for p in cell.split(',')]
+                parts = [p.strip() for p in cell.split(",")]
                 for part in parts:
                     flag_match = _TABLE_FLAG_RE.match(part)
                     if flag_match:
@@ -490,7 +513,10 @@ class MarkdownExtractor:
                                 if dc_idx < len(cells) and dc_idx != idx:
                                     potential_default = cells[dc_idx]
                                     # Skip if it looks like another flag
-                                    if potential_default and not potential_default.startswith('-'):
+                                    if (
+                                        potential_default
+                                        and not potential_default.startswith("-")
+                                    ):
                                         default = potential_default
                                         break
 
@@ -501,7 +527,7 @@ class MarkdownExtractor:
 
                         metadata = {}
                         if default:
-                            metadata['default'] = default
+                            metadata["default"] = default
 
                         claim = DocClaim(
                             raw_text=flag_name,
@@ -517,7 +543,9 @@ class MarkdownExtractor:
 
         return claims
 
-    def _extract_config_refs(self, content: str, lines: list[str], path: Path) -> list[DocClaim]:
+    def _extract_config_refs(
+        self, content: str, lines: list[str], path: Path
+    ) -> list[DocClaim]:
         """Extract config/env var references from inline text and markdown tables.
 
         Handles:
@@ -530,54 +558,53 @@ class MarkdownExtractor:
         # ── Inline patterns ────────────────────────────────────────────────────
         # $DATABASE_URL or ${DATABASE_URL} or $API_KEY
         for i, line in enumerate(lines):
-            line_stripped = line.strip()
-
             # Skip inside code blocks (lines already in a block are skipped by content scanning)
             # $VAR patterns
-            for m in re.finditer(r'\$({[A-Z_][A-Z0-9_]*}|[A-Z_][A-Z0-9_]*)', line):
-                var_name = m.group(1).strip('{}')
+            for m in re.finditer(r"\$({[A-Z_][A-Z0-9_]*}|[A-Z_][A-Z0-9_]*)", line):
+                var_name = m.group(1).strip("{}")
                 key = (i + 1, var_name)
                 if key in seen:
                     continue
                 seen.add(key)
-                claims.append(DocClaim(
-                    raw_text=m.group(0),
-                    kind=ClaimKind.CONFIG_REF,
-                    doc_file=path,
-                    line_number=i + 1,
-                    name=var_name,
-                    metadata={},
-                ))
+                claims.append(
+                    DocClaim(
+                        raw_text=m.group(0),
+                        kind=ClaimKind.CONFIG_REF,
+                        doc_file=path,
+                        line_number=i + 1,
+                        name=var_name,
+                        metadata={},
+                    )
+                )
 
             # Backtick refs: `DATABASE_URL`
-            for m in re.finditer(r'`([A-Z_][A-Z0-9_]*)`', line):
+            for m in re.finditer(r"`([A-Z_][A-Z0-9_]*)`", line):
                 var_name = m.group(1)
                 key = (i + 1, var_name)
                 if key in seen:
                     continue
                 seen.add(key)
-                claims.append(DocClaim(
-                    raw_text=m.group(0),
-                    kind=ClaimKind.CONFIG_REF,
-                    doc_file=path,
-                    line_number=i + 1,
-                    name=var_name,
-                    metadata={},
-                ))
+                claims.append(
+                    DocClaim(
+                        raw_text=m.group(0),
+                        kind=ClaimKind.CONFIG_REF,
+                        doc_file=path,
+                        line_number=i + 1,
+                        name=var_name,
+                        metadata={},
+                    )
+                )
 
         # ── Table patterns ────────────────────────────────────────────────────
         in_table = False
-        header_cols: list[str] = []
-        table_line_start = -1
 
         for i, line in enumerate(lines):
             line = line.strip()
-            if not line.startswith('|'):
+            if not line.startswith("|"):
                 in_table = False
-                header_cols = []
                 continue
 
-            cells = [c.strip() for c in line.split('|')[1:-1]]
+            cells = [c.strip() for c in line.split("|")[1:-1]]
             if not cells:
                 continue
 
@@ -588,30 +615,34 @@ class MarkdownExtractor:
                 name_col = None
                 default_col = None
                 for idx, col in enumerate(header_lower):
-                    if name_col is None and any(k in col for k in ('variable', 'env', 'name', 'key')):
+                    if name_col is None and any(
+                        k in col for k in ("variable", "env", "name", "key")
+                    ):
                         name_col = idx
-                    if default_col is None and any(k in col for k in ('default', 'dflt', 'value')):
+                    if default_col is None and any(
+                        k in col for k in ("default", "dflt", "value")
+                    ):
                         default_col = idx
                 if name_col is not None:
                     in_table = True
-                    header_cols = cells
-                    table_line_start = i
                 continue
 
             # Separator row (|---|---|)
-            if re.match(r'^\|[-:|\s]+\|$', line):
+            if re.match(r"^\|[-:|\s]+\|$", line):
                 continue
 
             # Data row
             if name_col is not None and name_col < len(cells):
                 cell = cells[name_col].strip()
                 # Skip flag-like cells (--flag or -f)
-                if cell.startswith('-'):
+                if cell.startswith("-"):
                     continue
                 # Match UPPER_SNAKE_CASE identifiers (env var names) or
                 # dot-notation keys (e.g., database.port, server.host)
-                is_upper_snake = re.match(r'^[A-Z_][A-Z0-9_]*$', cell) and len(cell) > 1
-                is_dot_notation = re.match(r'^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)+$', cell, re.IGNORECASE)
+                is_upper_snake = re.match(r"^[A-Z_][A-Z0-9_]*$", cell) and len(cell) > 1
+                is_dot_notation = re.match(
+                    r"^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)+$", cell, re.IGNORECASE
+                )
                 if is_upper_snake or is_dot_notation:
                     default_val = None
                     if default_col is not None and default_col < len(cells):
@@ -622,14 +653,16 @@ class MarkdownExtractor:
                     seen.add(key)
                     metadata = {}
                     if default_val:
-                        metadata['default'] = default_val
-                    claims.append(DocClaim(
-                        raw_text=cell,
-                        kind=ClaimKind.CONFIG_REF,
-                        doc_file=path,
-                        line_number=i + 1,
-                        name=cell,
-                        metadata=metadata,
-                    ))
+                        metadata["default"] = default_val
+                    claims.append(
+                        DocClaim(
+                            raw_text=cell,
+                            kind=ClaimKind.CONFIG_REF,
+                            doc_file=path,
+                            line_number=i + 1,
+                            name=cell,
+                            metadata=metadata,
+                        )
+                    )
 
         return claims

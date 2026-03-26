@@ -2,16 +2,16 @@
 
 Detects CLI flags and arguments defined via argparse in Python source code.
 """
-from drift.extractors.registry import register
+
 import ast
 from pathlib import Path
-from typing import Optional
 
 from drift.extractors.base import Extractor
+from drift.extractors.registry import register
 from drift.models import CodeFact, FactKind, Parameter
 
 
-def _get_func_name(node: ast.expr) -> Optional[str]:
+def _get_func_name(node: ast.expr) -> str | None:
     """Get the dotted name from an Attribute or Name node."""
     if isinstance(node, ast.Name):
         return node.id
@@ -76,7 +76,9 @@ class ArgparseExtractor(Extractor):
                 continue
 
             name = arg_info["name"]
-            is_flag = _is_flag_name(name) or _is_flag_name(arg_info.get("short_flag", ""))
+            is_flag = _is_flag_name(name) or _is_flag_name(
+                arg_info.get("short_flag", "")
+            )
             if arg_info.get("action") in ("store_true", "store_false", "count"):
                 is_flag = True
 
@@ -85,7 +87,7 @@ class ArgparseExtractor(Extractor):
 
         return facts
 
-    def _extract_arg_info(self, call: ast.Call) -> Optional[dict]:  # type: ignore[type-arg]
+    def _extract_arg_info(self, call: ast.Call) -> dict | None:  # type: ignore[type-arg]
         """Extract all argument metadata from an add_argument() call.
 
         Handles:
@@ -107,7 +109,6 @@ class ArgparseExtractor(Extractor):
         }
 
         args = list(call.args)
-        kwargs = {kw.arg for kw in call.keywords}
 
         # Positional args: first is name/flag, second (if dash) is short flag
         if args:
@@ -117,7 +118,11 @@ class ArgparseExtractor(Extractor):
 
         if len(args) > 1:
             second_val = _get_constant_value(args[1])
-            if second_val is not None and isinstance(second_val, str) and second_val.startswith("-"):
+            if (
+                second_val is not None
+                and isinstance(second_val, str)
+                and second_val.startswith("-")
+            ):
                 result["short_flag"] = str(second_val)  # type: ignore[assignment]
 
         # Keyword args
@@ -134,10 +139,18 @@ class ArgparseExtractor(Extractor):
                     result["type"] = type(val.value).__name__  # type: ignore[assignment]
 
             elif key == "default":
-                result["default"] = repr(_get_constant_value(val)) if _get_constant_value(val) is not None else val.id if isinstance(val, ast.Name) else None  # type: ignore[assignment]
+                result["default"] = (
+                    repr(_get_constant_value(val))
+                    if _get_constant_value(val) is not None
+                    else val.id
+                    if isinstance(val, ast.Name)
+                    else None
+                )  # type: ignore[assignment]
 
             elif key == "help":
-                result["help"] = _get_constant_value(val) if isinstance(val, ast.Constant) else None  # type: ignore[assignment]
+                result["help"] = (
+                    _get_constant_value(val) if isinstance(val, ast.Constant) else None
+                )  # type: ignore[assignment]
 
             elif key == "required":
                 if isinstance(val, ast.Constant):
@@ -161,7 +174,14 @@ class ArgparseExtractor(Extractor):
 
         return result
 
-    def _build_codefact(self, name: str, metadata: dict, source_file: Path, line_number: int, is_flag: bool) -> CodeFact:  # type: ignore[type-arg]
+    def _build_codefact(
+        self,
+        name: str,
+        metadata: dict,
+        source_file: Path,
+        line_number: int,
+        is_flag: bool,
+    ) -> CodeFact:  # type: ignore[type-arg]
         """Build a CodeFact from extracted argument metadata."""
         # Normalize: use long flag name if available
         display_name = name
@@ -170,12 +190,14 @@ class ArgparseExtractor(Extractor):
 
         params = []
         if metadata.get("type"):
-            params.append(Parameter(
-                name=name,
-                type_annotation=metadata["type"],
-                default=metadata.get("default"),
-                kind="keyword" if is_flag else "positional",
-            ))
+            params.append(
+                Parameter(
+                    name=name,
+                    type_annotation=metadata["type"],
+                    default=metadata.get("default"),
+                    kind="keyword" if is_flag else "positional",
+                )
+            )
 
         return CodeFact(
             name=display_name,

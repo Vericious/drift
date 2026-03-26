@@ -1,5 +1,6 @@
 """Sample Pydantic settings/models for testing the PydanticExtractor."""
-from pydantic import BaseSettings, BaseModel, Field
+
+from pydantic import BaseModel, BaseSettings, Field
 
 
 class AppConfig(BaseSettings):
@@ -8,7 +9,9 @@ class AppConfig(BaseSettings):
     debug: bool = Field(False, description="Enable debug mode.")
     port: int = Field(8000, description="Port to listen on.", env="PORT")
     host: str = Field("localhost", description="Host to bind to.", env="HOST")
-    database_url: str = Field(..., description="Database connection URL.", env="DATABASE_URL")
+    database_url: str = Field(
+        ..., description="Database connection URL.", env="DATABASE_URL"
+    )
     log_level: str = Field("info", alias="level", description="Logging level.")
 
 

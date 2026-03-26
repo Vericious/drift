@@ -1,11 +1,8 @@
 """Tests for cli_argparse module."""
-import ast
+
 from pathlib import Path
 
-import pytest
-
 from drift.extractors.cli_argparse import ArgparseExtractor
-
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_argparse.py"
 
@@ -104,22 +101,23 @@ class TestArgparseExtractor:
     def test_subparsers_arguments_captured(self):
         """Arguments from subparsers are captured."""
         import tempfile
-        subparser_code = '''import argparse
+
+        subparser_code = """import argparse
 parser = argparse.ArgumentParser()
 subparsers = parser.add_subparsers(dest='command')
 subparser = subparsers.add_parser('scan')
 subparser.add_argument('--path', help='Path to scan')
 subparser.add_argument('--verbose', '-v', action='store_true')
-'''
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write(subparser_code)
             path = Path(f.name)
         try:
             extractor = ArgparseExtractor()
             facts = extractor.extract(path)
             names = {f.name for f in facts}
-            assert '--path' in names
-            assert '--verbose' in names
+            assert "--path" in names
+            assert "--verbose" in names
             # Should have 2 facts (--path and --verbose), not just 1
             assert len(facts) == 2
         finally:

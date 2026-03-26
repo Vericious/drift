@@ -2,9 +2,9 @@
 
 Extracts configuration keys from YAML and TOML files as CONFIG_KEY CodeFacts.
 """
-import ast
+
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from drift.extractors.base import Extractor
 from drift.extractors.registry import register
@@ -73,7 +73,7 @@ class ConfigFileExtractor(Extractor):
         except (OSError, UnicodeDecodeError):
             return facts
 
-        data: Optional[dict[str, Any]] = None
+        data: dict[str, Any] | None = None
 
         if path.suffix.lower() in self.YAML_EXTS:
             data = self._parse_yaml(content)
@@ -90,7 +90,7 @@ class ConfigFileExtractor(Extractor):
 
         return facts
 
-    def _parse_yaml(self, content: str) -> Optional[dict[str, Any]]:
+    def _parse_yaml(self, content: str) -> dict[str, Any] | None:
         """Parse YAML content using PyYAML."""
         try:
             import yaml
@@ -102,7 +102,7 @@ class ConfigFileExtractor(Extractor):
         except Exception:
             return None
 
-    def _parse_toml(self, content: str) -> Optional[dict[str, Any]]:
+    def _parse_toml(self, content: str) -> dict[str, Any] | None:
         """Parse TOML content using the stdlib tomllib."""
         try:
             import tomllib

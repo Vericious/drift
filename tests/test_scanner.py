@@ -1,4 +1,5 @@
 """Tests for the DriftScanner orchestrator."""
+
 import tempfile
 from pathlib import Path
 
@@ -113,7 +114,9 @@ def test_scanner_empty_dir() -> None:
 class TestCLIFlagScannerIntegration:
     """Integration tests for CLI flag drift via the scanner pipeline."""
 
-    def test_argparse_flag_documented_in_markdown_table_no_drift(self, tmp_path: Path) -> None:
+    def test_argparse_flag_documented_in_markdown_table_no_drift(
+        self, tmp_path: Path
+    ) -> None:
         """CLI flag in argparse + documented in markdown table → no drift."""
         py_file = tmp_path / "cli.py"
         py_file.write_text(
@@ -165,10 +168,16 @@ class TestCLIFlagScannerIntegration:
 
         # --verbose is undocumented (error), --other is documented-but-missing (error)
         assert report.has_drift is True
-        cli_drift = [d for d in report.drift_items if d.category in ("undocumented", "documented_but_missing")]
+        cli_drift = [
+            d
+            for d in report.drift_items
+            if d.category in ("undocumented", "documented_but_missing")
+        ]
         assert len(cli_drift) == 2
 
-    def test_click_flag_documented_in_markdown_table_no_drift(self, tmp_path: Path) -> None:
+    def test_click_flag_documented_in_markdown_table_no_drift(
+        self, tmp_path: Path
+    ) -> None:
         """Click CLI option documented in markdown table → no drift."""
         py_file = tmp_path / "cli.py"
         py_file.write_text(
@@ -227,7 +236,9 @@ class TestCLIFlagScannerIntegration:
         assert len(cli_claims) >= 2
         assert report.has_drift is False
 
-    def test_typer_flag_documented_in_markdown_table_no_drift(self, tmp_path: Path) -> None:
+    def test_typer_flag_documented_in_markdown_table_no_drift(
+        self, tmp_path: Path
+    ) -> None:
         """Typer CLI option documented in markdown table → no drift."""
         py_file = tmp_path / "cli.py"
         py_file.write_text(
@@ -274,10 +285,7 @@ class TestCLIFlagScannerIntegration:
         )
         md_file = tmp_path / "README.md"
         md_file.write_text(
-            "# CLI Reference\n\n"
-            "| Flag | Type |\n"
-            "|------|------|\n"
-            "| --name | string |\n"
+            "# CLI Reference\n\n| Flag | Type |\n|------|------|\n| --name | string |\n"
             # --port is intentionally undocumented
         )
 
@@ -332,9 +340,7 @@ class TestCLIFlagScannerIntegration:
         )
         md_file = tmp_path / "README.md"
         md_file.write_text(
-            "| Flag | Default |\n"
-            "|------|---------|\n"
-            "| --port | 8080 |\n"
+            "| Flag | Default |\n|------|---------|\n| --port | 8080 |\n"
         )
 
         scanner = DriftScanner(tmp_path)
@@ -353,11 +359,7 @@ class TestConfigScannerIntegration:
         """YAML config file keys are extracted as CONFIG_KEY facts."""
         config_file = tmp_path / "config.yaml"
         config_file.write_text(
-            "database:\n"
-            "  host: localhost\n"
-            "  port: 5432\n"
-            "app:\n"
-            "  debug: false\n"
+            "database:\n  host: localhost\n  port: 5432\napp:\n  debug: false\n"
         )
 
         scanner = DriftScanner(tmp_path)
@@ -373,12 +375,7 @@ class TestConfigScannerIntegration:
         """TOML config file keys are extracted as CONFIG_KEY facts."""
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            "[database]\n"
-            "host = \"localhost\"\n"
-            "port = 5432\n"
-            "\n"
-            "[server]\n"
-            "port = 8000\n"
+            '[database]\nhost = "localhost"\nport = 5432\n\n[server]\nport = 8000\n'
         )
 
         scanner = DriftScanner(tmp_path)
@@ -393,10 +390,7 @@ class TestConfigScannerIntegration:
     def test_yaml_config_drift_vs_doc(self, tmp_path: Path) -> None:
         """Config value mismatch between YAML and documentation detected as drift."""
         config_file = tmp_path / "config.yaml"
-        config_file.write_text(
-            "server:\n"
-            "  port: 5432\n"
-        )
+        config_file.write_text("server:\n  port: 5432\n")
         md_file = tmp_path / "README.md"
         md_file.write_text(
             "# Configuration\n\n"
@@ -462,13 +456,14 @@ class TestScannerGracefulErrorRecovery:
         bad_py.write_text("def broken({{[[\n")
 
         scanner = DriftScanner(tmp_path, strict=True)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             scanner.scan()
 
 
 # ---------------------------------------------------------------------------
 # .driftignore gitignore-style pattern tests
 # ---------------------------------------------------------------------------
+
 
 class TestDriftignorePatterns:
     """Tests for .driftignore gitignore-style pattern matching."""
@@ -483,10 +478,13 @@ class TestDriftignorePatterns:
 
     def test_basic_glob_pattern(self, tmp_path: Path) -> None:
         """Basic glob pattern like *.pyc ignores matching files."""
-        self._make_project(tmp_path, {
-            "src/main.py": "def foo(): pass",
-            "src/__pycache__/main.pyc": "def should_not_appear(): pass",
-        })
+        self._make_project(
+            tmp_path,
+            {
+                "src/main.py": "def foo(): pass",
+                "src/__pycache__/main.pyc": "def should_not_appear(): pass",
+            },
+        )
         (tmp_path / ".driftignore").write_text("*.pyc\n")
         scanner = DriftScanner(tmp_path)
         report = scanner.scan()
@@ -496,10 +494,13 @@ class TestDriftignorePatterns:
 
     def test_negation_pattern(self, tmp_path: Path) -> None:
         """!pattern re-includes a previously ignored file."""
-        self._make_project(tmp_path, {
-            "src/main.py": "def foo(): pass",
-            "src/keep.py": "def bar(): pass",
-        })
+        self._make_project(
+            tmp_path,
+            {
+                "src/main.py": "def foo(): pass",
+                "src/keep.py": "def bar(): pass",
+            },
+        )
         (tmp_path / ".driftignore").write_text("*.py\n!src/keep.py\n")
         scanner = DriftScanner(tmp_path)
         report = scanner.scan()
@@ -509,11 +510,14 @@ class TestDriftignorePatterns:
 
     def test_recursive_directory_wildcard(self, tmp_path: Path) -> None:
         """**/ matches directories at any depth."""
-        self._make_project(tmp_path, {
-            "src/core/main.py": "def foo(): pass",
-            "src/core/utils/helper.py": "def bar(): pass",
-            "src/core/utils/deep/nested.py": "def baz(): pass",
-        })
+        self._make_project(
+            tmp_path,
+            {
+                "src/core/main.py": "def foo(): pass",
+                "src/core/utils/helper.py": "def bar(): pass",
+                "src/core/utils/deep/nested.py": "def baz(): pass",
+            },
+        )
         (tmp_path / ".driftignore").write_text("**/utils/**/*.py\n")
         scanner = DriftScanner(tmp_path)
         report = scanner.scan()
@@ -524,11 +528,14 @@ class TestDriftignorePatterns:
 
     def test_directory_only_pattern(self, tmp_path: Path) -> None:
         """A pattern ending with / matches the directory and all its contents."""
-        self._make_project(tmp_path, {
-            "src/main.py": "def foo(): pass",
-            "src/legacy/deprecated.py": "def old(): pass",
-            "src/legacy/utils/helper.py": "def help(): pass",
-        })
+        self._make_project(
+            tmp_path,
+            {
+                "src/main.py": "def foo(): pass",
+                "src/legacy/deprecated.py": "def old(): pass",
+                "src/legacy/utils/helper.py": "def help(): pass",
+            },
+        )
         (tmp_path / ".driftignore").write_text("legacy/\n")
         scanner = DriftScanner(tmp_path)
         report = scanner.scan()
@@ -541,11 +548,16 @@ class TestDriftignorePatterns:
         """Lines starting with # are comments; empty lines are skipped."""
         # *.py matches .py files at any depth (gitignore behavior)
         # Comments (#) and empty lines should be skipped
-        self._make_project(tmp_path, {
-            "main.py": "def foo(): pass",
-            "src/helper.py": "def bar(): pass",
-        })
-        (tmp_path / ".driftignore").write_text("# This is a comment\n\n*.py\n  # another comment\n")
+        self._make_project(
+            tmp_path,
+            {
+                "main.py": "def foo(): pass",
+                "src/helper.py": "def bar(): pass",
+            },
+        )
+        (tmp_path / ".driftignore").write_text(
+            "# This is a comment\n\n*.py\n  # another comment\n"
+        )
         scanner = DriftScanner(tmp_path)
         report = scanner.scan()
         names = {f.name for f in report.facts}
@@ -555,10 +567,13 @@ class TestDriftignorePatterns:
 
     def test_order_matters_later_overrides_earlier(self, tmp_path: Path) -> None:
         """Later patterns override earlier ones."""
-        self._make_project(tmp_path, {
-            "src/main.py": "def foo(): pass",
-            "src/special.py": "def bar(): pass",
-        })
+        self._make_project(
+            tmp_path,
+            {
+                "src/main.py": "def foo(): pass",
+                "src/special.py": "def bar(): pass",
+            },
+        )
         # First ignore all .py, then allow special.py
         (tmp_path / ".driftignore").write_text("*.py\n!special.py\n")
         scanner = DriftScanner(tmp_path)
@@ -569,10 +584,13 @@ class TestDriftignorePatterns:
 
     def test_double_star_at_start(self, tmp_path: Path) -> None:
         """/**/ at start matches any intermediate directories."""
-        self._make_project(tmp_path, {
-            "src/core/main.py": "def foo(): pass",
-            "src/core/utils/helper.py": "def bar(): pass",
-        })
+        self._make_project(
+            tmp_path,
+            {
+                "src/core/main.py": "def foo(): pass",
+                "src/core/utils/helper.py": "def bar(): pass",
+            },
+        )
         (tmp_path / ".driftignore").write_text("**/utils/*.py\n")
         scanner = DriftScanner(tmp_path)
         report = scanner.scan()
@@ -593,16 +611,19 @@ class TestParallelScanning:
 
     def test_parallel_produces_same_facts_as_serial(self, tmp_path: Path) -> None:
         """Parallel scan must produce identical facts as serial scan."""
-        self._make_project(tmp_path, {
-            "a.py": "def func_a(x: int) -> None: pass",
-            "b.py": "def func_b(y: str) -> None: pass",
-            "c.py": "def func_c(z: float) -> None: pass",
-            "docs.md": (
-                "# Docs\n\n```python\ndef func_a(x: int) -> None\n```\n"
-                "```python\ndef func_b(y: str) -> None\n```\n"
-                "```python\ndef func_c(z: float) -> None\n```\n"
-            ),
-        })
+        self._make_project(
+            tmp_path,
+            {
+                "a.py": "def func_a(x: int) -> None: pass",
+                "b.py": "def func_b(y: str) -> None: pass",
+                "c.py": "def func_c(z: float) -> None: pass",
+                "docs.md": (
+                    "# Docs\n\n```python\ndef func_a(x: int) -> None\n```\n"
+                    "```python\ndef func_b(y: str) -> None\n```\n"
+                    "```python\ndef func_c(z: float) -> None\n```\n"
+                ),
+            },
+        )
 
         serial_scanner = DriftScanner(tmp_path, parallel=False)
         serial_report = serial_scanner.scan()
@@ -623,8 +644,12 @@ class TestParallelScanning:
         assert serial_claims == parallel_claims
 
         # Drift items must be identical
-        serial_drift = sorted((d.category, d.fact.name) for d in serial_report.drift_items)
-        parallel_drift = sorted((d.category, d.fact.name) for d in parallel_report.drift_items)
+        serial_drift = sorted(
+            (d.category, d.fact.name) for d in serial_report.drift_items
+        )
+        parallel_drift = sorted(
+            (d.category, d.fact.name) for d in parallel_report.drift_items
+        )
         assert serial_drift == parallel_drift
 
     def test_parallel_scan_multiple_python_files(self, tmp_path: Path) -> None:
@@ -660,10 +685,13 @@ class TestParallelScanning:
 
     def test_serial_scan_still_works(self, tmp_path: Path) -> None:
         """Serial (parallel=False) scan still works correctly."""
-        self._make_project(tmp_path, {
-            "example.py": "def my_func(a: int, b: str = 'x') -> bool:\n    pass\n",
-            "docs.md": "# Docs\n\n```python\ndef my_func(a: int, b: str = 'x') -> bool\n```\n",
-        })
+        self._make_project(
+            tmp_path,
+            {
+                "example.py": "def my_func(a: int, b: str = 'x') -> bool:\n    pass\n",
+                "docs.md": "# Docs\n\n```python\ndef my_func(a: int, b: str = 'x') -> bool\n```\n",
+            },
+        )
         scanner = DriftScanner(tmp_path, parallel=False)
         report = scanner.scan()
 

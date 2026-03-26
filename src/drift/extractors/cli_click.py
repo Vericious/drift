@@ -2,16 +2,17 @@
 
 Detects CLI flags and arguments defined via click decorators in Python source code.
 """
-from drift.extractors.registry import register
+
 import ast
 from pathlib import Path
-from typing import Any, Optional, cast
+from typing import Any
 
 from drift.extractors.base import Extractor
+from drift.extractors.registry import register
 from drift.models import CodeFact, FactKind, Parameter
 
 
-def _get_func_name(node: ast.expr) -> Optional[str]:
+def _get_func_name(node: ast.expr) -> str | None:
     """Get the dotted name from an Attribute or Name node."""
     if isinstance(node, ast.Name):
         return node.id
@@ -31,7 +32,9 @@ def _get_constant_value(node: ast.expr) -> Any:
     return None
 
 
-def _parse_click_decorator(decorator: ast.expr) -> Optional[tuple[str, dict[str, Any], list[Any]]]:
+def _parse_click_decorator(
+    decorator: ast.expr,
+) -> tuple[str, dict[str, Any], list[Any]] | None:
     """Parse a click decorator and return (decorator_type, kwargs_dict, args_list).
 
     Handles:
@@ -64,7 +67,9 @@ def _parse_click_decorator(decorator: ast.expr) -> Optional[tuple[str, dict[str,
     return dec_type, kwargs, args
 
 
-def _extract_option_info(dec_type: str, kwargs: dict[str, Any], args: list[Any]) -> Optional[dict[str, Any]]:
+def _extract_option_info(
+    dec_type: str, kwargs: dict[str, Any], args: list[Any]
+) -> dict[str, Any] | None:
     """Extract option/argument metadata from a click decorator's parsed info."""
     if dec_type not in ("option", "argument"):
         return None
@@ -100,13 +105,21 @@ def _extract_option_info(dec_type: str, kwargs: dict[str, Any], args: list[Any])
                 result["short_flag"] = str(sv)
 
         # is_flag: is_flag=True or action=store_true/False
-        is_flag = isinstance(kwargs.get("is_flag"), ast.Constant) and kwargs["is_flag"].value is True
+        is_flag = (
+            isinstance(kwargs.get("is_flag"), ast.Constant)
+            and kwargs["is_flag"].value is True
+        )
         action = kwargs.get("action")
-        if isinstance(action, ast.Constant) and action.value in ("store_true", "store_false"):
+        if isinstance(action, ast.Constant) and action.value in (
+            "store_true",
+            "store_false",
+        ):
             is_flag = True
 
         result["is_flag"] = is_flag or (
-            result["name"] and result["name"].startswith("-") and not result["name"].startswith("--")
+            result["name"]
+            and result["name"].startswith("-")
+            and not result["name"].startswith("--")
         )
 
         # type
@@ -228,23 +241,29 @@ class ClickExtractor(Extractor):
                 info = _extract_option_info(dec_type, kwargs, args)
 
                 if info and info.get("name"):
-                    fact = self._build_codefact(info, path, decorator.lineno or node.lineno)
+                    fact = self._build_codefact(
+                        info, path, decorator.lineno or node.lineno
+                    )
                     facts.append(fact)
 
         return facts
 
-    def _build_codefact(self, info: dict[str, Any], source_file: Path, line_number: int) -> CodeFact:
+    def _build_codefact(
+        self, info: dict[str, Any], source_file: Path, line_number: int
+    ) -> CodeFact:
         """Build a CodeFact from extracted option/argument metadata."""
         name = info["name"]
 
         params = []
         if info.get("type"):
-            params.append(Parameter(
-                name=name,
-                type_annotation=info["type"],
-                default=info.get("default"),
-                kind="keyword",
-            ))
+            params.append(
+                Parameter(
+                    name=name,
+                    type_annotation=info["type"],
+                    default=info.get("default"),
+                    kind="keyword",
+                )
+            )
 
         return CodeFact(
             name=name,

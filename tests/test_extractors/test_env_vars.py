@@ -1,10 +1,8 @@
 """Tests for env_vars module."""
+
 from pathlib import Path
 
-import pytest
-
 from drift.extractors.env_vars import EnvVarExtractor
-
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_env_vars.py"
 

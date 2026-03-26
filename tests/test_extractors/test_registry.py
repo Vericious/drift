@@ -1,8 +1,6 @@
 """Tests for the extractor registry."""
-import pytest
 
-from drift.extractors.registry import get_extractors, register
-from drift.extractors.base import Extractor
+from drift.extractors.registry import get_extractors
 
 
 class TestExtractorRegistry:

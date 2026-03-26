@@ -3,8 +3,9 @@
 Parses openapi.yaml / swagger.yaml files. Extracts API_ENDPOINT facts
 from OpenAPI 3.x and Swagger 2.0 specifications.
 """
+
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -12,12 +13,15 @@ from drift.extractors.base import Extractor
 from drift.extractors.registry import register
 from drift.models import CodeFact, FactKind
 
-
 # HTTP methods tracked in OpenAPI specs
-HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete", "head", "options", "trace"})
+HTTP_METHODS = frozenset(
+    {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
+)
 
 
-def _extract_parameters(params: list[dict[str, Any]], source: str) -> list[dict[str, Any]]:
+def _extract_parameters(
+    params: list[dict[str, Any]], source: str
+) -> list[dict[str, Any]]:
     """Extract a clean list of parameter descriptors from a parameters list.
 
     Args:
@@ -32,13 +36,15 @@ def _extract_parameters(params: list[dict[str, Any]], source: str) -> list[dict[
     for p in params:
         if not isinstance(p, dict):
             continue
-        result.append({
-            "name": p.get("name", ""),
-            "in": p.get("in", ""),
-            "description": p.get("description", ""),
-            "required": p.get("required", False),
-            "schema": p.get("schema", {}),
-        })
+        result.append(
+            {
+                "name": p.get("name", ""),
+                "in": p.get("in", ""),
+                "description": p.get("description", ""),
+                "required": p.get("required", False),
+                "schema": p.get("schema", {}),
+            }
+        )
     return result
 
 
@@ -48,6 +54,7 @@ def _extract_path_params(path: str) -> list[str]:
     E.g., "/users/{user_id}/posts/{post_id}" -> ["user_id", "post_id"]
     """
     import re
+
     return re.findall(r"\{([^}]+)\}", path)
 
 
@@ -162,12 +169,14 @@ class OpenAPIExtractor(Extractor):
                     "openapi_version": openapi_version or spec.get("swagger", ""),
                 }
 
-                facts.append(CodeFact(
-                    name=fact_name,
-                    kind=FactKind.API_ENDPOINT,
-                    source_file=file_path,
-                    line_number=1,
-                    metadata=metadata,
-                ))
+                facts.append(
+                    CodeFact(
+                        name=fact_name,
+                        kind=FactKind.API_ENDPOINT,
+                        source_file=file_path,
+                        line_number=1,
+                        metadata=metadata,
+                    )
+                )
 
         return facts

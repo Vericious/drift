@@ -2,6 +2,7 @@
 
 Loads config from .drift.toml files.
 """
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -73,7 +74,9 @@ def load_config(path: Path | None = None) -> DriftConfig:
 
     fail_on = data.get("fail_on", "error")
     if fail_on not in ("error", "warning", "info", "none"):
-        raise ValueError(f"fail_on must be 'error', 'warning', 'info', or 'none' in {path}")
+        raise ValueError(
+            f"fail_on must be 'error', 'warning', 'info', or 'none' in {path}"
+        )
 
     return DriftConfig(
         ignore_patterns=ignore_patterns,

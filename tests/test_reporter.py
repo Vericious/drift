@@ -1,4 +1,5 @@
 """Tests for drift.reporter."""
+
 from __future__ import annotations
 
 import json
@@ -18,10 +19,10 @@ from drift.models import (
 )
 from drift.reporter import DriftReporter
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def fact_parse_config():
@@ -42,7 +43,7 @@ def fact_parse_config():
 def claim_parse_config():
     """A DocClaim claiming parse_config without the strict param."""
     return DocClaim(
-        raw_text='parse_config(config: dict) -> dict',
+        raw_text="parse_config(config: dict) -> dict",
         kind=ClaimKind.FUNCTION_SIGNATURE,
         doc_file=Path("README.md"),
         line_number=15,
@@ -72,7 +73,7 @@ def fact_do_something():
 def claim_do_something():
     """A DocClaim claiming do_something with flag defaulting to True."""
     return DocClaim(
-        raw_text='do_something(flag: bool = True)',
+        raw_text="do_something(flag: bool = True)",
         kind=ClaimKind.FUNCTION_SIGNATURE,
         doc_file=Path("README.md"),
         line_number=15,
@@ -84,7 +85,9 @@ def claim_do_something():
 
 
 @pytest.fixture
-def populated_report(fact_parse_config, claim_parse_config, fact_do_something, claim_do_something):
+def populated_report(
+    fact_parse_config, claim_parse_config, fact_do_something, claim_do_something
+):
     """A DriftReport with 2 errors and 1 warning."""
     items = [
         # Error: missing param
@@ -143,6 +146,7 @@ def empty_report():
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestReportJson:
     """Tests for report_json()."""
@@ -352,7 +356,9 @@ class TestDocClaimToDict:
 # JSON Schema validation
 # ---------------------------------------------------------------------------
 
-SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "drift-report.schema.json"
+SCHEMA_PATH = (
+    Path(__file__).resolve().parent.parent / "schemas" / "drift-report.schema.json"
+)
 
 
 class TestJsonSchema:
@@ -361,6 +367,7 @@ class TestJsonSchema:
     @pytest.fixture
     def schema(self):
         import jsonschema  # noqa: F811
+
         raw = json.loads(SCHEMA_PATH.read_text())
         jsonschema.Draft202012Validator.check_schema(raw)  # schema itself is valid
         return raw
@@ -368,6 +375,7 @@ class TestJsonSchema:
     @pytest.fixture
     def validator(self, schema):
         import jsonschema
+
         return jsonschema.Draft202012Validator(schema)
 
     def test_schema_file_exists(self):
@@ -387,7 +395,9 @@ class TestJsonSchema:
             kind=FactKind.FUNCTION,
             source_file=Path("app.py"),
             line_number=10,
-            parameters=[Parameter(name="host", type_annotation="str", default='"0.0.0.0"')],
+            parameters=[
+                Parameter(name="host", type_annotation="str", default='"0.0.0.0"')
+            ],
             return_type="None",
         )
         claim = DocClaim(
@@ -446,6 +456,7 @@ class TestJsonSchema:
 # ---------------------------------------------------------------------------
 # SARIF output tests
 # ---------------------------------------------------------------------------
+
 
 class TestReportSarif:
     """Tests for report_sarif()."""

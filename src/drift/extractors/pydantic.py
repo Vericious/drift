@@ -2,16 +2,17 @@
 
 Detects Pydantic BaseSettings and BaseModel field definitions via AST analysis.
 """
+
 import ast
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from drift.extractors.base import Extractor
 from drift.extractors.registry import register
 from drift.models import CodeFact, FactKind, Parameter
 
 
-def _get_func_name(node: ast.expr) -> Optional[str]:
+def _get_func_name(node: ast.expr) -> str | None:
     """Get the dotted name from an Attribute or Name node."""
     if isinstance(node, ast.Name):
         return node.id
@@ -39,7 +40,9 @@ def _is_pydantic_base(node: ast.expr, pydantic_names: tuple[str, ...]) -> bool:
     return False
 
 
-def _extract_field_info(annotation: ast.expr, value: ast.expr | None) -> dict[str, Any] | None:
+def _extract_field_info(
+    annotation: ast.expr, value: ast.expr | None
+) -> dict[str, Any] | None:
     """Extract field metadata from an annotation and optional default value.
 
     Handles:
@@ -71,16 +74,34 @@ def _extract_field_info(annotation: ast.expr, value: ast.expr | None) -> dict[st
                 val = kw.value
 
                 if key == "default":
-                    result["default"] = repr(_get_constant_value(val)) if isinstance(val, ast.Constant) else val.id if isinstance(val, ast.Name) else None
+                    result["default"] = (
+                        repr(_get_constant_value(val))
+                        if isinstance(val, ast.Constant)
+                        else val.id
+                        if isinstance(val, ast.Name)
+                        else None
+                    )
 
                 elif key == "env":
-                    result["env_var"] = _get_constant_value(val) if isinstance(val, ast.Constant) else None
+                    result["env_var"] = (
+                        _get_constant_value(val)
+                        if isinstance(val, ast.Constant)
+                        else None
+                    )
 
                 elif key == "alias":
-                    result["alias"] = _get_constant_value(val) if isinstance(val, ast.Constant) else None
+                    result["alias"] = (
+                        _get_constant_value(val)
+                        if isinstance(val, ast.Constant)
+                        else None
+                    )
 
                 elif key == "description":
-                    result["description"] = _get_constant_value(val) if isinstance(val, ast.Constant) else None
+                    result["description"] = (
+                        _get_constant_value(val)
+                        if isinstance(val, ast.Constant)
+                        else None
+                    )
 
             # First positional arg might be the default (Field(False, ...))
             if result["default"] is None and value.args:
@@ -90,7 +111,11 @@ def _extract_field_info(annotation: ast.expr, value: ast.expr | None) -> dict[st
                 elif isinstance(first_arg, ast.Name):
                     result["default"] = first_arg.id
 
-        elif func_name and (func_name.endswith(".validator") or func_name.endswith(".root_validator") or func_name in ("validator", "root_validator")):
+        elif func_name and (
+            func_name.endswith(".validator")
+            or func_name.endswith(".root_validator")
+            or func_name in ("validator", "root_validator")
+        ):
             # Skip validators
             return None
 
@@ -104,7 +129,7 @@ def _extract_field_info(annotation: ast.expr, value: ast.expr | None) -> dict[st
     return result
 
 
-def _get_type_from_annotation(annotation: ast.expr) -> Optional[str]:
+def _get_type_from_annotation(annotation: ast.expr) -> str | None:
     """Extract type name from an annotation."""
     if isinstance(annotation, ast.Name):
         return annotation.id
@@ -165,8 +190,7 @@ class PydanticExtractor(Extractor):
 
             # Check if class inherits from Pydantic base
             if not any(
-                _is_pydantic_base(base, self.PYDANTIC_BASES)
-                for base in node.bases
+                _is_pydantic_base(base, self.PYDANTIC_BASES) for base in node.bases
             ):
                 continue
 
@@ -212,12 +236,14 @@ class PydanticExtractor(Extractor):
 
         params = []
         if field_type:
-            params.append(Parameter(
-                name=field_name,
-                type_annotation=field_type,
-                default=field_info.get("default"),
-                kind="keyword",
-            ))
+            params.append(
+                Parameter(
+                    name=field_name,
+                    type_annotation=field_type,
+                    default=field_info.get("default"),
+                    kind="keyword",
+                )
+            )
 
         return CodeFact(
             name=fact_name,

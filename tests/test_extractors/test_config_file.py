@@ -1,10 +1,8 @@
 """Tests for config_file extractor."""
+
 from pathlib import Path
 
-import pytest
-
 from drift.extractors.config_file import ConfigFileExtractor
-
 
 YAML_FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_config.yaml"
 TOML_FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_config.toml"
@@ -87,6 +85,7 @@ class TestConfigFileExtractor:
     def test_empty_yaml_file_returns_empty(self):
         """Empty YAML file returns empty list."""
         import tempfile
+
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
             f.write("")
             tmp = Path(f.name)

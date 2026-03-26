@@ -1,9 +1,17 @@
 """Tests for Drift data models."""
-import pytest
+
 from pathlib import Path
+
 from drift.models import (
-    CodeFact, DocClaim, DriftItem, DriftReport, Parameter,
-    FactKind, ClaimKind, Severity, DriftCategory
+    ClaimKind,
+    CodeFact,
+    DocClaim,
+    DriftCategory,
+    DriftItem,
+    DriftReport,
+    FactKind,
+    Parameter,
+    Severity,
 )
 
 
@@ -15,7 +23,9 @@ class TestParameter:
         assert p.default is None
 
     def test_create_full(self):
-        p = Parameter(name="strict", type_annotation="bool", default="False", kind="keyword")
+        p = Parameter(
+            name="strict", type_annotation="bool", default="False", kind="keyword"
+        )
         assert p.name == "strict"
         assert p.type_annotation == "bool"
         assert p.default == "False"
@@ -52,7 +62,9 @@ class TestCodeFact:
         assert len(f.parameters) == 2
         assert f.return_type == "dict"
         assert "@cache" in f.decorators
-        assert f.signature_str() == "parse_config(path: str, strict: bool = False) -> dict"
+        assert (
+            f.signature_str() == "parse_config(path: str, strict: bool = False) -> dict"
+        )
 
     def test_signature_str_no_params(self):
         f = CodeFact(

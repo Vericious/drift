@@ -1,7 +1,9 @@
 """Sample FastAPI application for testing the FastAPIRoutesExtractor."""
-from fastapi import FastAPI, APIRouter, Query, Path, Body, HTTPException, status
-from pydantic import BaseModel
+
 from typing import Annotated
+
+from fastapi import APIRouter, FastAPI, Path, Query, status
+from pydantic import BaseModel
 
 app = FastAPI(title="Sample API", version="1.0.0")
 router = APIRouter(prefix="/api/v1", tags=["items"])
@@ -9,6 +11,7 @@ users_router = APIRouter(prefix="/users", tags=["users"])
 
 
 # ─── FastAPI HTTP method shortcuts ───────────────────────────────────────────
+
 
 @app.get("/")
 def root():
@@ -22,7 +25,9 @@ def list_items():
     return []
 
 
-@app.post("/items", status_code=status.HTTP_201_CREATED, response_model=dict, tags=["items"])
+@app.post(
+    "/items", status_code=status.HTTP_201_CREATED, response_model=dict, tags=["items"]
+)
 def create_item(name: str, price: float):
     """Create a new item."""
     return {"name": name, "price": price}
@@ -54,6 +59,7 @@ def patch_item_price(item_id: int, price: float):
 
 # ─── APIRouter routes ────────────────────────────────────────────────────────
 
+
 @router.get("/posts", response_model=list[dict])
 def list_posts(skip: int = 0, limit: int = 10):
     """List posts with pagination."""
@@ -80,6 +86,7 @@ def delete_post(post_id: int):
 
 # ─── Users router ────────────────────────────────────────────────────────────
 
+
 @users_router.get("/", response_model=list[dict])
 def list_users():
     """List all users."""
@@ -100,19 +107,25 @@ def create_user(name: str, email: str):
 
 # ─── Annotated style parameters ──────────────────────────────────────────────
 
+
 @router.get("/search", response_model=list[dict])
-def search_items(q: Annotated[str, Query(min_length=1)], limit: Annotated[int, Query(le=100)] = 10):
+def search_items(
+    q: Annotated[str, Query(min_length=1)], limit: Annotated[int, Query(le=100)] = 10
+):
     """Search items with typed query params."""
     return []
 
 
 @router.get("/items/{item_id}/detail", response_model=dict)
-def get_item_detail(item_id: Annotated[int, Path(gt=0)], include_meta: Annotated[bool, Query()] = False):
+def get_item_detail(
+    item_id: Annotated[int, Path(gt=0)], include_meta: Annotated[bool, Query()] = False
+):
     """Get item detail with typed path and query params."""
     return {"item_id": item_id, "include_meta": include_meta}
 
 
 # ─── api_route style ────────────────────────────────────────────────────────
+
 
 @app.api_route("/ping", methods=["GET"], tags=["health"])
 def ping():
@@ -144,6 +157,7 @@ def purge_cache():
 
 
 # ─── Item model for body params ─────────────────────────────────────────────
+
 
 class Item(BaseModel):
     name: str

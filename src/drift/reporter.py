@@ -2,20 +2,14 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
 from rich.text import Text
 
 from drift.models import (
-    ClaimKind,
     DocClaim,
     DriftItem,
     DriftReport,
-    FactKind,
-    Parameter,
     Severity,
 )
 
@@ -50,7 +44,7 @@ class DriftReporter:
 
         # Header
         self.console.print()
-        self.console.print(f"[bold cyan]Drift Scan Report[/bold cyan]")
+        self.console.print("[bold cyan]Drift Scan Report[/bold cyan]")
         self.console.print(f"[cyan]{'=' * 50}[/cyan]")
         self.console.print(f"  [dim]Path:[/dim] {scanned}")
         self.console.print(f"  Summary: {report.summary()}")
@@ -108,7 +102,6 @@ class DriftReporter:
             loc = "unknown"
 
         name = (item.fact.name if item.fact else item.claim.name if item.claim else "?")
-        from rich.text import Text
         t = Text.from_markup(
             f"  [bold {color}]{loc}[/bold {color}] {name}: {item.category}"
         )

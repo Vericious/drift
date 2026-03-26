@@ -1,10 +1,8 @@
 """Tests for fastapi_routes module."""
+
 from pathlib import Path
 
-import pytest
-
 from drift.extractors.fastapi_routes import FastAPIRoutesExtractor
-
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_fastapi.py"
 
@@ -139,11 +137,7 @@ class TestFastAPIRoutesExtractor:
         """Multiple APIRouters contribute distinct routes."""
         extractor = FastAPIRoutesExtractor()
         facts = extractor.extract(FIXTURE)
-        routers = {
-            f.metadata.get("router")
-            for f in facts
-            if f.metadata.get("router")
-        }
+        routers = {f.metadata.get("router") for f in facts if f.metadata.get("router")}
         assert len(routers) >= 2
 
     def test_source_file_and_line_number_set(self):
@@ -169,7 +163,9 @@ class TestFastAPIRoutesExtractor:
         """DELETE /items/{item_id} has status_code 204."""
         extractor = FastAPIRoutesExtractor()
         facts = extractor.extract(FIXTURE)
-        delete_item = next((f for f in facts if f.name == "DELETE /items/{item_id}"), None)
+        delete_item = next(
+            (f for f in facts if f.name == "DELETE /items/{item_id}"), None
+        )
         assert delete_item is not None
         assert delete_item.metadata.get("status_code") == "204"
 

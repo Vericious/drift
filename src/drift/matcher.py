@@ -1,18 +1,17 @@
 """
 Signature Matcher — compares CodeFact objects against DocClaim objects to produce DriftItem objects.
 """
+
 import difflib
 from pathlib import Path
-from typing import Optional
 
 from drift.models import (
-    CodeFact,
     ClaimKind,
+    CodeFact,
     DocClaim,
     DriftItem,
     DriftReport,
     FactKind,
-    Parameter,
     Severity,
 )
 
@@ -20,11 +19,14 @@ from drift.models import (
 class SignatureMatcher:
     """Match code facts against doc claims and produce drift items."""
 
-    def _fuzzy_name_match(self, name1: str, name2: str, threshold: float = 0.7) -> tuple[bool, float]:
+    def _fuzzy_name_match(
+        self, name1: str, name2: str, threshold: float = 0.7
+    ) -> tuple[bool, float]:
         """Return (matched, confidence) using difflib.SequenceMatcher.
 
         Compares normalized names (split on underscores/camelCase).
         """
+
         # Normalize: split on underscores and camelCase boundaries
         def normalize(s: str) -> str:
             s = s.replace("_", " ").replace("-", " ")
@@ -50,7 +52,7 @@ class SignatureMatcher:
 
     def _cli_flag_matches(self, fact: CodeFact, claim: DocClaim) -> bool:
         """Return True if a CLI_FLAG fact matches a CLI_FLAG_REF claim.
-        
+
         CLI flags match by exact name (e.g., '--verbose' matches '--verbose')
         or by short flag (e.g., claim '-f' matches fact '--format' with short_flag='-f').
         No parameter comparison needed — the flag's type/default are in the fact's
@@ -62,7 +64,11 @@ class SignatureMatcher:
         if fact.name == claim.name:
             return True
         # Short flag match: claim name is the fact's short flag
-        if claim.name is not None and claim.name.startswith("-") and fact.metadata.get("short_flag") == claim.name:
+        if (
+            claim.name is not None
+            and claim.name.startswith("-")
+            and fact.metadata.get("short_flag") == claim.name
+        ):
             return True
         return False
 
@@ -104,7 +110,10 @@ class SignatureMatcher:
                 if cli_fact is None and claim.name.startswith("-"):
                     # Try short flag lookup: find a CLI_FLAG fact whose short_flag matches
                     for f in facts:
-                        if f.kind == FactKind.CLI_FLAG and f.metadata.get("short_flag") == claim.name:
+                        if (
+                            f.kind == FactKind.CLI_FLAG
+                            and f.metadata.get("short_flag") == claim.name
+                        ):
                             cli_fact = f
                             break
                 if cli_fact is not None and self._cli_flag_matches(cli_fact, claim):
@@ -124,12 +133,14 @@ class SignatureMatcher:
             if fact is None:
                 # Step 1: Try fuzzy name matching — highest confidence wins
                 # This runs BEFORE renamed to ensure fuzzy_renamed takes precedence
-                fuzzy_match: Optional[tuple[CodeFact, float]] = None
+                fuzzy_match: tuple[CodeFact, float] | None = None
                 if claim.kind not in (ClaimKind.CLI_FLAG_REF, ClaimKind.CLI_USAGE):
                     for f in facts:
                         if f.name in matched_fact_names or f.kind == FactKind.CLI_FLAG:
                             continue
-                        is_match, confidence = self._fuzzy_name_match(f.name, claim.name)
+                        is_match, confidence = self._fuzzy_name_match(
+                            f.name, claim.name
+                        )
                         if is_match and self._same_signature_structure(f, claim):
                             if fuzzy_match is None or confidence > fuzzy_match[1]:
                                 fuzzy_match = (f, confidence)
@@ -143,9 +154,15 @@ class SignatureMatcher:
                             claim=claim,
                             severity=Severity.WARNING,
                             category="fuzzy_renamed",
-                            message=f"'{claim.name}' (docs) may match '{fuzzy_fact.name}' (code) — {confidence}% confidence",
+                            message=(
+                            f"'{claim.name}' (docs) may match "
+                            f"'{fuzzy_fact.name}' (code) — {confidence}% confidence"
+                        ),
                             suggestion=f"Consider renaming '{fuzzy_fact.name}' to '{claim.name}' or update docs",
-                            metadata={"match_method": "fuzzy", "confidence": confidence},
+                            metadata={
+                                "match_method": "fuzzy",
+                                "confidence": confidence,
+                            },
                         )
                     )
                     continue
@@ -154,13 +171,18 @@ class SignatureMatcher:
                 # but signatures match (only for single candidate to avoid ambiguity).
                 # If fuzzy name matching was attempted but found nothing (names too
                 # different even for renamed), fall through to documented_but_missing.
-                if claim.kind not in (ClaimKind.CLI_FLAG_REF, ClaimKind.CONFIG_REF, ClaimKind.CLI_USAGE):
+                if claim.kind not in (
+                    ClaimKind.CLI_FLAG_REF,
+                    ClaimKind.CONFIG_REF,
+                    ClaimKind.CLI_USAGE,
+                ):
                     # Check whether any fact name shares meaningful character overlap
                     # with the claim name — if not, skip renamed and go to documented_but_missing.
-                    MIN_NAME_OVERLAP_RATIO = 0.35
-                    renamed_candidate: Optional[CodeFact] = None
+                    MIN_NAME_OVERLAP_RATIO = 0.35  # noqa: N806
+                    renamed_candidate: CodeFact | None = None
                     sig_matches = [
-                        f for f in facts
+                        f
+                        for f in facts
                         if f.name not in matched_fact_names
                         and f.kind != FactKind.CLI_FLAG
                         and self._same_signature_structure(f, claim)
@@ -192,7 +214,10 @@ class SignatureMatcher:
                 # which may be implemented via argparse without a named function.
                 # Also skip --help and --version for CLI_FLAG_REF claims since these
                 # are implicit in argparse and not explicitly defined in add_argument().
-                if claim.kind == ClaimKind.CLI_FLAG_REF and claim.name in ("--help", "--version"):
+                if claim.kind == ClaimKind.CLI_FLAG_REF and claim.name in (
+                    "--help",
+                    "--version",
+                ):
                     # Skip — implicit argparse flags that aren't explicitly defined
                     continue
                 if claim.kind != ClaimKind.CLI_USAGE:
@@ -263,7 +288,10 @@ class SignatureMatcher:
                                 claim=claim,
                                 severity=Severity.WARNING,
                                 category="wrong_default",
-                                message=f"Parameter '{param_name}' default differs: {c_param.default!r} (docs) vs {f_param.default!r} (code)",
+                                message=(
+                                f"Parameter '{param_name}' default differs: "
+                                f"{c_param.default!r} (docs) vs {f_param.default!r} (code)"
+                            ),
                                 suggestion=f"Update docs for '{param_name}' to default={f_param.default!r}",
                             )
                         )
@@ -274,7 +302,10 @@ class SignatureMatcher:
                                 claim=claim,
                                 severity=Severity.WARNING,
                                 category="wrong_type",
-                                message=f"Parameter '{param_name}' type differs: {c_param.type_annotation!r} (docs) vs {f_param.type_annotation!r} (code)",
+                                message=(
+                                f"Parameter '{param_name}' type differs: "
+                                f"{c_param.type_annotation!r} (docs) vs {f_param.type_annotation!r} (code)"
+                            ),
                                 suggestion=f"Update docs for '{param_name}' type to {f_param.type_annotation!r}",
                             )
                         )
@@ -292,13 +323,15 @@ class SignatureMatcher:
                     )
                 )
 
-
-
         # Undocumented — fact exists but no matching claim
         for fact in facts:
             if fact.name not in matched_fact_names:
                 # CLI flags are more serious: undocumented flags are errors, not warnings
-                severity = Severity.ERROR if fact.kind == FactKind.CLI_FLAG else Severity.WARNING
+                severity = (
+                    Severity.ERROR
+                    if fact.kind == FactKind.CLI_FLAG
+                    else Severity.WARNING
+                )
                 drift_items.append(
                     DriftItem(
                         fact=fact,
@@ -313,12 +346,16 @@ class SignatureMatcher:
         return drift_items
 
 
-def build_report(facts: list[CodeFact], claims: list[DocClaim], scanned_path: str = ".") -> DriftReport:
+def build_report(
+    facts: list[CodeFact], claims: list[DocClaim], scanned_path: str = "."
+) -> DriftReport:
     """Build a complete DriftReport from facts and claims."""
     matcher = SignatureMatcher()
     drift_items = matcher.match(facts, claims)
     return DriftReport(
-        scanned_path=scanned_path if isinstance(scanned_path, Path) else Path(scanned_path),
+        scanned_path=scanned_path
+        if isinstance(scanned_path, Path)
+        else Path(scanned_path),
         facts=facts,
         claims=claims,
         drift_items=drift_items,

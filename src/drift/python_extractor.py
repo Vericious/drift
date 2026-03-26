@@ -1,7 +1,7 @@
 """Python code extractor using AST."""
+
 import ast
 from pathlib import Path
-from typing import Union
 
 from drift.models import CodeFact, FactKind, Parameter
 
@@ -42,9 +42,7 @@ class PythonExtractor:
         qualified_name = node.name
         if module:
             qualified_name = f"{module}.{qualified_name}"
-        return self._build_func_codefact(
-            node, qualified_name, FactKind.FUNCTION, path
-        )
+        return self._build_func_codefact(node, qualified_name, FactKind.FUNCTION, path)
 
     def _extract_method(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef, class_name: str, path: Path
@@ -121,7 +119,7 @@ class PythonExtractor:
         )
 
     def _extract_parameters(
-        self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
     ) -> list[Parameter]:
         """Extract parameters from a function or method node."""
         parameters: list[Parameter] = []
@@ -167,7 +165,9 @@ class PythonExtractor:
                 except Exception:
                     pass
             parameters.append(
-                Parameter(name=args.vararg.arg, type_annotation=annotation, kind="varargs")
+                Parameter(
+                    name=args.vararg.arg, type_annotation=annotation, kind="varargs"
+                )
             )
 
         # Keyword-only args
@@ -187,7 +187,12 @@ class PythonExtractor:
                     pass
 
             parameters.append(
-                Parameter(name=arg.arg, type_annotation=annotation, default=default, kind="keyword")
+                Parameter(
+                    name=arg.arg,
+                    type_annotation=annotation,
+                    default=default,
+                    kind="keyword",
+                )
             )
 
         # **kwargs
@@ -215,7 +220,7 @@ class PythonExtractor:
             # Find common base like 'src' or the project root
             for i, part in enumerate(module_parts):
                 if part in ("src", "tests", "drift"):
-                    module_parts = module_parts[i + 1:]
+                    module_parts = module_parts[i + 1 :]
                     break
             # Remove __init__ marker if present
             if module_parts and module_parts[-1] == "__init__":

@@ -1,10 +1,8 @@
 """Tests for flask_routes module."""
+
 from pathlib import Path
 
-import pytest
-
 from drift.extractors.flask_routes import FlaskRoutesExtractor
-
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_flask.py"
 
@@ -145,9 +143,7 @@ class TestFlaskRoutesExtractor:
         facts = extractor.extract(FIXTURE)
         # At least 3 different blueprints
         blueprints = {
-            f.metadata.get("blueprint")
-            for f in facts
-            if f.metadata.get("blueprint")
+            f.metadata.get("blueprint") for f in facts if f.metadata.get("blueprint")
         }
         assert len(blueprints) >= 3
 

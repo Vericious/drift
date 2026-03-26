@@ -4,16 +4,16 @@ Extracts CONFIG_KEY facts from @dataclass decorated classes.
 Handles: field names, type annotations, defaults, default_factory.
 Skips: ClassVar, InitVar.
 """
+
 import ast
 from pathlib import Path
-from typing import Optional
 
 from drift.extractors.base import Extractor
 from drift.extractors.registry import register
 from drift.models import CodeFact, FactKind
 
 
-def _get_annotation_name(node: ast.expr) -> Optional[str]:
+def _get_annotation_name(node: ast.expr) -> str | None:
     """Get a type annotation as a string."""
     if isinstance(node, ast.Name):
         return node.id
@@ -41,7 +41,7 @@ def _get_annotation_name(node: ast.expr) -> Optional[str]:
     return None
 
 
-def _get_default_value(node: ast.expr | None) -> Optional[str]:
+def _get_default_value(node: ast.expr | None) -> str | None:
     """Get the default value as a string repr."""
     if node is None:
         return None
@@ -54,7 +54,7 @@ def _get_default_value(node: ast.expr | None) -> Optional[str]:
         return f"[{', '.join(e for e in elts if e)}]"
     elif isinstance(node, ast.Dict):
         pairs = []
-        for k, v in zip(node.keys, node.values):
+        for k, v in zip(node.keys, node.values, strict=True):
             k_str = _get_default_value(k)
             v_str = _get_default_value(v)
             if k_str and v_str:
@@ -119,7 +119,9 @@ class DataclassFieldsExtractor(Extractor):
                 if self._is_classvar_or_initvar(item.annotation):
                     continue
 
-                field_name = item.target.id if isinstance(item.target, ast.Name) else None
+                field_name = (
+                    item.target.id if isinstance(item.target, ast.Name) else None
+                )
                 if field_name is None:
                     continue
 
@@ -127,8 +129,11 @@ class DataclassFieldsExtractor(Extractor):
                 default_val = None
                 if item.value:
                     # Handle field(default=X) or field(default_factory=Y) calls
-                    if isinstance(item.value, ast.Call) and isinstance(item.value.func, ast.Name) \
-                       and item.value.func.id == "field":
+                    if (
+                        isinstance(item.value, ast.Call)
+                        and isinstance(item.value.func, ast.Name)
+                        and item.value.func.id == "field"
+                    ):
                         for kw in item.value.keywords:
                             if kw.arg in ("default", "default_factory"):
                                 default_val = _get_default_value(kw.value)
@@ -143,13 +148,15 @@ class DataclassFieldsExtractor(Extractor):
                 }
 
                 fact_name = f"{class_name}.{field_name}"
-                facts.append(CodeFact(
-                    name=fact_name,
-                    kind=FactKind.CONFIG_KEY,
-                    source_file=path,
-                    line_number=item.lineno or 0,
-                    metadata=metadata,
-                ))
+                facts.append(
+                    CodeFact(
+                        name=fact_name,
+                        kind=FactKind.CONFIG_KEY,
+                        source_file=path,
+                        line_number=item.lineno or 0,
+                        metadata=metadata,
+                    )
+                )
 
         return facts
 
@@ -164,7 +171,7 @@ class DataclassFieldsExtractor(Extractor):
             return func_name == "dataclass"
         return False
 
-    def _get_func_name(self, node: ast.expr) -> Optional[str]:
+    def _get_func_name(self, node: ast.expr) -> str | None:
         """Get the dotted name from an Attribute or Name node."""
         if isinstance(node, ast.Name):
             return node.id
