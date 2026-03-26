@@ -87,6 +87,29 @@ CHANGELOG.md
 docs/*.md
 ```
 
+## Self-check
+
+Drift v0.2.0 was validated by running `drift scan .` on itself (2026-03-25).
+
+**Result: 44 errors, 214 warnings**
+
+The detected drift is primarily false positives from:
+
+- **Test fixtures**: Test helper functions and pytest fixtures are not meant to be documented
+- **Private methods**: Internal `_` prefixed methods and `__init__`, `__repr__` etc. are excluded from documentation expectations
+- **Markdown code blocks**: Example code in documentation like `func(a, b, c)` gets picked up as claims for non-existent functions
+- **PLAN.md examples**: Example signatures used in planning docs
+
+The meaningful errors (real drift requiring attention):
+
+| Category | Count | Notes |
+|----------|-------|-------|
+| `scan` missing params in docs | 3 | CLI `scan()` function parameters not documented |
+| `DriftReport.has_drift` missing `self` | 1 | Method's `self` param not documented |
+| `load_config` return type missing | 1 | Return type annotation missing in docstring |
+
+These are acceptable for v0.2.0 — internal APIs and CLI interfaces don't require the same documentation rigor as public library APIs.
+
 ## Development
 
 ```bash

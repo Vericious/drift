@@ -4,6 +4,7 @@ from pathlib import Path
 import click
 
 from drift import __version__
+from drift.config import load_config
 from drift.scanner import DriftScanner
 from drift.reporter import DriftReporter
 
@@ -18,12 +19,26 @@ def main() -> None:
 @main.command()
 @click.argument("path", type=click.Path(exists=True), default=".")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
-def scan(path: str, output_json: bool) -> None:
+@click.option("--config", "config_path", type=click.Path(exists=False), default=None,
+              help="Path to config file (default: .drift.toml in CWD)")
+def scan(path: str, output_json: bool, config_path: str | None) -> None:
     """Scan a project for documentation drift."""
+    # Load config
+    config_file = Path(config_path) if config_path else None
+    try:
+        config = load_config(config_file)
+    except FileNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+
+    # CLI --json flag overrides config
+    output_format = "json" if output_json else config.output_format
+
     scanner = DriftScanner(Path(path))
     report = scanner.scan()
     reporter = DriftReporter(report)
-    if output_json:
+    if output_format == "json":
         click.echo(reporter.report_json())
     else:
         reporter.report_console()

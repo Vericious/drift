@@ -1,0 +1,77 @@
+"""Configuration loading for Drift.
+
+Loads config from .drift.toml files.
+"""
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Literal
+
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib  # type: ignore[no-redef]
+
+
+@dataclass
+class DriftConfig:
+    """Configuration for a drift scan."""
+
+    ignore_patterns: list[str] = field(default_factory=list)
+    threshold: float = 0.0
+    output_format: Literal["text", "json"] = "text"
+
+
+def load_config(path: Path | None = None) -> DriftConfig:
+    """Load drift configuration from a TOML file.
+
+    Args:
+        path: Explicit path to a config file. If None, searches CWD for .drift.toml.
+
+    Returns:
+        DriftConfig with loaded values or defaults if file is missing/invalid.
+
+    Raises:
+        FileNotFoundError: If an explicit path is given but doesn't exist.
+        ValueError: If the TOML file is malformed.
+    """
+    if path is None:
+        # Search CWD for .drift.toml
+        candidate = Path.cwd() / ".drift.toml"
+        if candidate.exists():
+            path = candidate
+        else:
+            # No config file found, return defaults
+            return DriftConfig()
+
+    if not path.exists():
+        if path == Path.cwd() / ".drift.toml":
+            # Search didn't find it, return defaults
+            return DriftConfig()
+        raise FileNotFoundError(f"Config file not found: {path}")
+
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise ValueError(f"Invalid TOML in {path}: {e}") from e
+
+    # Extract known keys with defaults
+    ignore_patterns = data.get("ignore_patterns", [])
+    if not isinstance(ignore_patterns, list):
+        raise ValueError(f"ignore_patterns must be a list in {path}")
+
+    threshold = data.get("threshold", 0.0)
+    if not isinstance(threshold, (int, float)):
+        raise ValueError(f"threshold must be a number in {path}")
+    threshold = float(threshold)
+    if not (0.0 <= threshold <= 1.0):
+        raise ValueError(f"threshold must be between 0.0 and 1.0 in {path}")
+
+    output_format = data.get("output_format", "text")
+    if output_format not in ("text", "json"):
+        raise ValueError(f"output_format must be 'text' or 'json' in {path}")
+
+    return DriftConfig(
+        ignore_patterns=ignore_patterns,
+        threshold=threshold,
+        output_format=output_format,
+    )

@@ -4,6 +4,7 @@ from pathlib import Path
 from drift.models import CodeFact, DocClaim, DriftReport
 from drift.python_extractor import PythonExtractor
 from drift.extractors.markdown import MarkdownExtractor
+from drift.extractors.docstring import DocstringExtractor
 from drift.matcher import SignatureMatcher
 
 
@@ -14,6 +15,7 @@ class DriftScanner:
         self.path = path
         self.py_extractor = PythonExtractor()
         self.md_extractor = MarkdownExtractor()
+        self.docstring_extractor = DocstringExtractor()
         self.matcher = SignatureMatcher()
         self._ignore_patterns: list[str] = []
         self._load_driftignore()
@@ -69,6 +71,14 @@ class DriftScanner:
                 all_facts.extend(facts)
             except Exception as e:
                 errors.append(f"Error reading {py_file}: {e}")
+
+        # Extract docstring claims from Python files
+        for py_file in py_files:
+            try:
+                claims = self.docstring_extractor.extract(py_file)
+                all_claims.extend(claims)
+            except Exception as e:
+                errors.append(f"Error reading docstrings in {py_file}: {e}")
 
         # Extract from Markdown files
         for md_file in md_files:
