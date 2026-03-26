@@ -2,6 +2,30 @@
 
 ## 2026-03-26
 
+### SYS-012 — Create CONTRIBUTING.md for drift project
+
+**Task:** Add CONTRIBUTING.md with development guidelines.
+
+**What was done:**
+- Created CONTRIBUTING.md with sections: Development Setup, Running Tests, Adding a New Extractor, Code Style, Commit Messages, Project Structure, Extractor Reference
+
+---
+
+### DRIFT-024 — Add --output/-o Flag for Report File
+
+**Task:** Add --output / -o option to drift scan to write report to a file.
+
+**What was done:**
+- Added `--output / -o` option to scan command in cli.py
+- Writes report to file in addition to console output
+- For text output, captures console output without Rich markup
+- Fixes reporter `_print_item` bug where literal `[/bold red]` text was being output
+- Added 4 CLI tests covering: JSON output to file, text output to file, console still shows, plain text without markup
+
+**Tests:** `tests/test_cli.py` — 4 new tests (all passing)
+
+---
+
 ### DRIFT-036 — .driftignore Gitignore-Style Pattern Improvements
 
 **Task:** Improve .driftignore to support gitignore-style patterns.
