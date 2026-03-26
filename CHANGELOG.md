@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.4.1 (2026-03-26)
+
+### Documentation
+- **mkdocs site scaffold**: Added `mkdocs.yml` (Material theme) and `docs/` directory with `index.md`, `extractors.md`, `configuration.md`, and `cli.md`. Added `mkdocs` and `mkdocs-material` to dev dependencies.
+
 ## v0.4.0 (2026-03-26)
 
 ### New Features
