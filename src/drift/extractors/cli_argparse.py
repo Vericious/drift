@@ -5,6 +5,7 @@ Detects CLI flags and arguments defined via argparse in Python source code.
 
 import ast
 from pathlib import Path
+from typing import Any
 
 from drift.extractors.base import Extractor
 from drift.extractors.registry import register
@@ -87,7 +88,7 @@ class ArgparseExtractor(Extractor):
 
         return facts
 
-    def _extract_arg_info(self, call: ast.Call) -> dict | None:  # type: ignore[type-arg]
+    def _extract_arg_info(self, call: ast.Call) -> dict[str, Any] | None:
         """Extract all argument metadata from an add_argument() call.
 
         Handles:
@@ -96,7 +97,7 @@ class ArgparseExtractor(Extractor):
           parser.add_argument('--name', type=int, required=True)
           subparser.add_argument('pos', ...)
         """
-        result = {
+        result: dict[str, Any] = {
             "name": None,
             "short_flag": None,
             "type": None,
@@ -114,7 +115,7 @@ class ArgparseExtractor(Extractor):
         if args:
             first_val = _get_constant_value(args[0])
             if first_val is not None:
-                result["name"] = str(first_val)  # type: ignore[assignment]
+                result["name"] = str(first_val)
 
         if len(args) > 1:
             second_val = _get_constant_value(args[1])
@@ -123,7 +124,7 @@ class ArgparseExtractor(Extractor):
                 and isinstance(second_val, str)
                 and second_val.startswith("-")
             ):
-                result["short_flag"] = str(second_val)  # type: ignore[assignment]
+                result["short_flag"] = str(second_val)
 
         # Keyword args
         for kw in call.keywords:
@@ -132,11 +133,11 @@ class ArgparseExtractor(Extractor):
 
             if key == "type":
                 if isinstance(val, ast.Name):
-                    result["type"] = val.id  # type: ignore[assignment]
+                    result["type"] = val.id
                 elif isinstance(val, ast.Attribute):
-                    result["type"] = _get_func_name(val)  # type: ignore[assignment]
+                    result["type"] = _get_func_name(val)
                 elif isinstance(val, ast.Constant):
-                    result["type"] = type(val.value).__name__  # type: ignore[assignment]
+                    result["type"] = type(val.value).__name__
 
             elif key == "default":
                 result["default"] = (
@@ -145,12 +146,12 @@ class ArgparseExtractor(Extractor):
                     else val.id
                     if isinstance(val, ast.Name)
                     else None
-                )  # type: ignore[assignment]
+                )
 
             elif key == "help":
                 result["help"] = (
                     _get_constant_value(val) if isinstance(val, ast.Constant) else None
-                )  # type: ignore[assignment]
+                )
 
             elif key == "required":
                 if isinstance(val, ast.Constant):
@@ -158,7 +159,7 @@ class ArgparseExtractor(Extractor):
 
             elif key == "action":
                 if isinstance(val, ast.Constant):
-                    result["action"] = val.value  # type: ignore[assignment]
+                    result["action"] = val.value
 
             elif key == "choices":
                 if isinstance(val, ast.List):
@@ -167,21 +168,21 @@ class ArgparseExtractor(Extractor):
                         v = _get_constant_value(elt)
                         if v is not None:
                             choices.append(v)
-                    result["choices"] = choices  # type: ignore[assignment]
+                    result["choices"] = choices
 
             elif key == "nargs":
-                result["nargs"] = _get_constant_value(val)  # type: ignore[assignment]
+                result["nargs"] = _get_constant_value(val)
 
         return result
 
     def _build_codefact(
         self,
         name: str,
-        metadata: dict,
+        metadata: dict[str, Any],
         source_file: Path,
         line_number: int,
         is_flag: bool,
-    ) -> CodeFact:  # type: ignore[type-arg]
+    ) -> CodeFact:
         """Build a CodeFact from extracted argument metadata."""
         # Normalize: use long flag name if available
         display_name = name

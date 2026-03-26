@@ -10,6 +10,9 @@
 ### Documentation
 - **mkdocs site scaffold**: Added `mkdocs.yml` (Material theme) and `docs/` directory with `index.md`, `extractors.md`, `configuration.md`, and `cli.md`. Added `mkdocs` and `mkdocs-material` to dev dependencies.
 
+### Type Checking
+- **DRIFT-037 — mypy strict mode**: Added `types-PyYAML` to dev dependencies and fixed all mypy errors in `cli_argparse.py`. Changed `result` dict to use `dict[str, Any]` type, added proper type annotations to `_extract_arg_info` and `_build_codefact` methods, and removed all unnecessary `type: ignore` comments. All 485 tests pass with mypy strict mode enabled.
+
 ## v0.4.0 (2026-03-26)
 
 ### New Features
