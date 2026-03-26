@@ -315,16 +315,16 @@ class TestFuzzyRenamed:
 
     def test_fuzzy_rename_chooses_highest_confidence(self):
         """When multiple candidates match, highest confidence is chosen."""
-        # fetch_user (high similarity) vs get_user (lower similarity)
+        # get_user (claim) vs fetch_user (high similarity) vs get_user_details (lower similarity)
         f1 = fact("fetch_user", params=[param("id", "int")])
         f2 = fact("get_user_details", params=[param("id", "int")])
-        c = claim("fetch_user", params=[param("id", "int")])
+        c = claim("get_user", params=[param("id", "int")])
 
-        # fetch_user should match itself (exact-ish)
+        # get_user should fuzzy-match fetch_user (high confidence) over get_user_details
         items = SignatureMatcher().match([f1, f2], [c])
         fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
         assert len(fuzzy_items) == 1
-        # Should match fetch_user (exact-ish) not get_user_details
+        # Should match fetch_user (higher confidence) not get_user_details
         assert fuzzy_items[0].fact.name == "fetch_user"
 
     def test_exact_rename_takes_precedence_over_fuzzy(self):

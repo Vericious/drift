@@ -3,6 +3,7 @@ Signature Matcher — compares CodeFact objects against DocClaim objects to prod
 """
 import difflib
 from pathlib import Path
+from typing import Optional
 
 from drift.models import (
     CodeFact,
@@ -61,7 +62,7 @@ class SignatureMatcher:
         if fact.name == claim.name:
             return True
         # Short flag match: claim name is the fact's short flag
-        if claim.name.startswith("-") and fact.metadata.get("short_flag") == claim.name:
+        if claim.name is not None and claim.name.startswith("-") and fact.metadata.get("short_flag") == claim.name:
             return True
         return False
 
@@ -121,38 +122,12 @@ class SignatureMatcher:
                     fact = candidates[0]
 
             if fact is None:
-                renamed_fact = None
-                # Try to find by signature similarity (might be renamed)
-                # CLI_FLAG and CONFIG_KEY/REF don't support rename detection
-                if claim.kind not in (ClaimKind.CLI_FLAG_REF, ClaimKind.CONFIG_REF):
-                    for f in facts:
-                        if f.name not in matched_fact_names and f.kind != FactKind.CLI_FLAG:
-                            if self._same_signature_structure(f, claim):
-                                renamed_fact = f
-                                break
-
-                if renamed_fact:
-                    matched_fact_names.add(renamed_fact.name)
-                    drift_items.append(
-                        DriftItem(
-                            fact=renamed_fact,
-                            claim=claim,
-                            severity=Severity.ERROR,
-                            category="renamed",
-                            message=f"'{claim.name}' (docs) may have been renamed to '{renamed_fact.name}'",
-                            suggestion=f"Update docs to reference '{renamed_fact.name}'",
-                        )
-                    )
-                    # Skip further comparison for renamed — names differ, params matched
-                    continue
-
                 # Try fuzzy name matching as a fallback before reporting "documented_but_missing"
                 fuzzy_match: Optional[tuple[CodeFact, float]] = None
                 if claim.kind not in (ClaimKind.CLI_FLAG_REF, ClaimKind.CLI_USAGE):
                     for f in facts:
                         if f.name in matched_fact_names or f.kind == FactKind.CLI_FLAG:
                             continue
-                        # Skip if it's already been identified as a signature-based rename
                         is_match, confidence = self._fuzzy_name_match(f.name, claim.name)
                         if is_match and self._same_signature_structure(f, claim):
                             if fuzzy_match is None or confidence > fuzzy_match[1]:

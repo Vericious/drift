@@ -83,7 +83,7 @@ class CodeFact:
         ret = f" -> {self.return_type}" if self.return_type else ""
         return f"{self.name}({params}){ret}"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dict with Path objects converted to strings."""
         return {
             "name": self.name,
@@ -119,7 +119,7 @@ class DocClaim:
     return_type: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dict with Path objects converted to strings."""
         return {
             "raw_text": self.raw_text,
@@ -150,6 +150,7 @@ class DriftItem:
     category: str = ""              # DriftCategory value
     message: str = ""               # human-readable description
     suggestion: str | None = None   # what the doc should probably say
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
