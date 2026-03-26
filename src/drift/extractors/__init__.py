@@ -9,6 +9,9 @@ from drift.extractors.cli_click import ClickExtractor
 from drift.extractors.cli_typer import TyperExtractor
 from drift.extractors.pydantic import PydanticExtractor
 from drift.extractors.config_file import ConfigFileExtractor
+from drift.extractors.flask_routes import FlaskRoutesExtractor
+from drift.extractors.fastapi_routes import FastAPIRoutesExtractor
+from drift.extractors.env_vars import EnvVarExtractor
 
 __all__ = [
     "MarkdownExtractor",
@@ -18,5 +21,8 @@ __all__ = [
     "TyperExtractor",
     "PydanticExtractor",
     "ConfigFileExtractor",
+    "FlaskRoutesExtractor",
+    "FastAPIRoutesExtractor",
+    "EnvVarExtractor",
     "get_extractors",
 ]

@@ -60,6 +60,10 @@ class SignatureMatcher:
             if claim.name is None:
                 continue
 
+            # Skip suppressed claims (via <!-- drift:ignore --> in markdown)
+            if claim.metadata.get("suppressed"):
+                continue
+
             # Special case: CLI_FLAG facts match CLI_FLAG_REF claims by exact name
             # (no parameter comparison needed for CLI flags).
             # Also handle short flag lookup: if claim is `-f` and fact is `--format`

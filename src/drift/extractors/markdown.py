@@ -86,17 +86,23 @@ class MarkdownExtractor:
         in_code_block = False
         code_block_content = []
         code_block_start_line = 0
+        pending_suppression: dict | None = None
 
         for i, line in enumerate(lines):
             if line.strip().startswith('```'):
                 if in_code_block:
                     # End of code block - parse it
                     block_text = '\n'.join(code_block_content)
-                    parsed = self._parse_code_block_signature(block_text, code_block_start_line + 1, path)
+                    parsed = self._parse_code_block_signature(
+                        block_text, code_block_start_line + 1, path, pending_suppression
+                    )
                     claims.extend(parsed)
                     code_block_content = []
                     in_code_block = False
+                    pending_suppression = None
                 else:
+                    # Start of code block - check for suppression comments in preceding lines
+                    pending_suppression = self._check_suppression_before(lines, i)
                     # Start of code block
                     in_code_block = True
                     code_block_start_line = i
@@ -105,7 +111,40 @@ class MarkdownExtractor:
 
         return claims
 
-    def _parse_code_block_signature(self, block_text: str, start_line: int, path: Path) -> list[DocClaim]:
+    def _check_suppression_before(self, lines: list[str], code_block_start: int) -> dict | None:
+        """Check lines before a code block for drift:ignore suppression comments.
+
+        Returns a dict with suppression info or None if no suppression.
+        Supports:
+          <!-- drift:ignore -->      → suppress all in next block
+          <!-- drift:ignore name -->  → suppress only 'name' in next block
+        """
+        suppression: dict | None = None
+        # Look at the 5 lines before the code block
+        for j in range(code_block_start - 1, max(0, code_block_start - 6), -1):
+            line = lines[j].strip()
+            if '<!--' in line and '-->' in line and 'drift:ignore' in line:
+                # Extract target if any
+                import re
+                m = re.search(r'drift:ignore\s*(.*?)-->', line)
+                if m:
+                    target = m.group(1).strip()
+                    if target:
+                        suppression = {"suppress_for": target}
+                    else:
+                        suppression = {"suppress_all": True}
+                else:
+                    suppression = {"suppress_all": True}
+                break
+        return suppression
+
+    def _parse_code_block_signature(
+        self,
+        block_text: str,
+        start_line: int,
+        path: Path,
+        suppression: dict | None = None,
+    ) -> list[DocClaim]:
         """Parse a code block for function signatures."""
         claims = []
 
@@ -117,6 +156,17 @@ class MarkdownExtractor:
 
             parameters = self._parse_parameters(params_str)
 
+            metadata: dict = {}
+            is_suppressed = False
+            if suppression:
+                if suppression.get("suppress_all"):
+                    is_suppressed = True
+                elif suppression.get("suppress_for") == func_name:
+                    is_suppressed = True
+                metadata["suppressed"] = is_suppressed
+                if is_suppressed:
+                    metadata["suppress_reason"] = "drift:ignore"
+
             claim = DocClaim(
                 raw_text=match.group(0),
                 kind=ClaimKind.FUNCTION_SIGNATURE,
@@ -125,6 +175,7 @@ class MarkdownExtractor:
                 name=func_name,
                 parameters=parameters,
                 return_type=return_type.strip() if return_type else None,
+                metadata=metadata,
             )
             claims.append(claim)
 

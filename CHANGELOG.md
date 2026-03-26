@@ -2,6 +2,70 @@
 
 ## 2026-03-26
 
+### DRIFT-026 — Flask Route Extractor
+
+**Task:** Create `src/drift/extractors/flask_routes.py` — extract API endpoint facts from Flask apps using AST parsing.
+
+**What was done:**
+- Created `src/drift/extractors/flask_routes.py` implementing the `Extractor` base class
+- Handles `@app.route`, `@blueprint.route` (with `methods=[...]` list)
+- Handles Flask 2.0+ shortcut decorators: `@app.get`, `@app.post`, `@bp.get`, `@bp.post`, etc.
+- Two-pass AST: first collects `Blueprint(name, ..., url_prefix=...)` info, then resolves full paths for route decorators
+- Fact name format: `"METHOD /path"` (e.g., `GET /api/v1/posts`, `POST /users`)
+- Metadata includes: `methods` (list), `endpoint` (path), `blueprint` (internal Blueprint name), `function_name`
+- `FactKind.API_ENDPOINT` already existed in models — no changes needed there
+- Registered extractor in `src/drift/extractors/__init__.py` and `src/drift/extractors/registry.py`
+
+**Fixture:** `tests/fixtures/sample_flask.py` — Flask app with multiple route styles, 3 Blueprints (`api`, `auth`, `utility`), Flask 2.0+ shortcuts
+
+**Tests:** `tests/test_extractors/test_flask_routes.py` — 16 tests covering: `can_handle`, fact kinds, name format, app routes, methods list, Flask 2.0+ shortcuts, Blueprint routes, Blueprint shortcuts, metadata fields, multiple blueprints, source file/line number
+
+**Result:** All 231 tests pass
+
+---
+
+### DRIFT-027 — FastAPI Route Extractor
+
+**Task:** Create `src/drift/extractors/fastapi_routes.py` — extract API endpoint facts from FastAPI apps using AST parsing.
+
+**What was done:**
+- Created `src/drift/extractors/fastapi_routes.py` implementing the `Extractor` base class
+- Handles `@app.get/post/put/delete/patch`, `@router.get`, etc.
+- Handles `@app.api_route("/path", methods=[...])` for multi-method endpoints
+- Two-pass AST: first collects `APIRouter(prefix=...)` prefixes, then resolves full paths for route decorators
+- Extracts `response_model`, `status_code` (including `status.HTTP_201_CREATED` attribute form), and `tags` from decorator kwargs
+- Extracts function parameters (name, type annotation, default) from the route function signature
+- Fact name format: `"METHOD /path"` (e.g., `GET /api/v1/posts`, `POST /items`)
+- Metadata: `methods`, `endpoint`, `router`, `status_code`, `response_model`, `tags`, `function_name`
+- Registered extractor in `src/drift/extractors/__init__.py` and `src/drift/extractors/registry.py`
+
+**Fixture:** `tests/fixtures/sample_fastapi.py` — FastAPI app with multiple routers, HTTP methods, status codes, response models, tags, and Annotated-style parameters
+
+**Tests:** `tests/test_extractors/test_fastapi_routes.py` — 19 tests covering all requirements
+- All 250 tests in the project pass
+
+---
+
+### DRIFT-028 — Environment Variable Extractor
+
+**Task:** Create `src/drift/extractors/env_vars.py` — extract env var usage as CONFIG_KEY facts using AST.
+
+**What was done:**
+- Created `src/drift/extractors/env_vars.py` implementing the `Extractor` base class
+- Detects `os.environ["VAR"]` (required=True), `os.environ.get("VAR")` (required=False), and `os.getenv("VAR")` (required=False)
+- Handles `os.environ.get("VAR", default)` and `os.getenv("VAR", "default")` with default value extraction
+- Handles `os.environ["VAR"]` (Subscript) and `.get()` / `os.getenv()` (Call) AST node patterns
+- Deduplicates same var name in same file
+- Produces CONFIG_KEY facts with name=var_name, metadata: env_var, required, default, source
+- Registered extractor in `src/drift/extractors/__init__.py` and `src/drift/extractors/registry.py`
+
+**Fixture:** `tests/fixtures/sample_env_vars.py` — 12 env var references covering all patterns
+
+**Tests:** `tests/test_extractors/test_env_vars.py` — 14 tests covering all requirements
+- All 264 tests in the project pass
+
+---
+
 ### DRIFT-021 — Scanner Graceful Error Recovery
 
 **Task:** Make scanner resilient to malformed files that crash extractors.

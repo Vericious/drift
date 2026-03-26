@@ -38,3 +38,6 @@ def _discover_extractors() -> None:
     from drift.extractors import cli_typer  # noqa: F401
     from drift.extractors import pydantic  # noqa: F401
     from drift.extractors import config_file  # noqa: F401
+    from drift.extractors import flask_routes  # noqa: F401
+    from drift.extractors import fastapi_routes  # noqa: F401
+    from drift.extractors import env_vars  # noqa: F401

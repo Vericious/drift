@@ -320,3 +320,73 @@ def with_args(*args, **kwargs):
         assert any(c.name == 'func_b' for c in claims2)
         assert not any(c.name == 'func_b' for c in claims1)
         assert not any(c.name == 'func_a' for c in claims2)
+
+
+class TestDriftIgnoreSuppression:
+    """Tests for drift:ignore suppression comments in markdown."""
+
+    def test_drift_ignore_suppresses_next_code_block(self, tmp_path: Path) -> None:
+        """<!-- drift:ignore --> before a code block suppresses all its claims."""
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API\n\n"
+            "## func1\n\n"
+            "<!-- drift:ignore -->\n\n"
+            "```python\n"
+            "def func1(x: int) -> str\n"
+            "```\n\n"
+            "## func2\n\n"
+            "```python\n"
+            "def func2(y: int) -> str\n"
+            "```\n"
+        )
+        extractor = MarkdownExtractor()
+        claims = extractor.extract(md_file)
+
+        names = {c.name for c in claims}
+        assert "func1" in names  # claim still extracted (metadata suppressed)
+        func1_claim = next(c for c in claims if c.name == "func1")
+        assert func1_claim.metadata.get("suppressed") is True
+
+        func2_claim = next(c for c in claims if c.name == "func2")
+        assert func2_claim.metadata.get("suppressed") is not True
+
+    def test_targeted_ignore_only_suppresses_matching_function(self, tmp_path: Path) -> None:
+        """<!-- drift:ignore func_name --> only suppresses that function."""
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API\n\n"
+            "## func1\n\n"
+            "<!-- drift:ignore func1 -->\n\n"
+            "```python\n"
+            "def func1(x: int) -> str\n"
+            "```\n\n"
+            "## func2\n\n"
+            "```python\n"
+            "def func2(y: int) -> str\n"
+            "```\n"
+        )
+        extractor = MarkdownExtractor()
+        claims = extractor.extract(md_file)
+
+        func1_claim = next(c for c in claims if c.name == "func1")
+        assert func1_claim.metadata.get("suppressed") is True
+
+        func2_claim = next(c for c in claims if c.name == "func2")
+        assert func2_claim.metadata.get("suppressed") is not True
+
+    def test_without_ignore_comments_normal_behavior(self, tmp_path: Path) -> None:
+        """Without drift:ignore, claims are not suppressed."""
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API\n\n"
+            "## func1\n\n"
+            "```python\n"
+            "def func1(x: int) -> str\n"
+            "```\n"
+        )
+        extractor = MarkdownExtractor()
+        claims = extractor.extract(md_file)
+
+        func1_claim = next(c for c in claims if c.name == "func1")
+        assert func1_claim.metadata.get("suppressed") is not True
