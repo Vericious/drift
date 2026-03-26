@@ -297,7 +297,7 @@ class DriftReporter:
                 elif item.claim:
                     loc = f"{item.claim.doc_file}:{item.claim.line_number}"
                 name = (item.fact.name if item.fact else
-                        (item.claim.name if item.claim else "?"))
+                        (item.claim.name if item.claim else None)) or "?"
                 rows.append(
                     f"<tr>"
                     f"<td>{_escape(loc)}</td>"

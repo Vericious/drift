@@ -4,7 +4,7 @@ Detects CLI flags and arguments defined via Typer decorators in Python source co
 """
 import ast
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from drift.extractors.base import Extractor
 from drift.extractors.registry import register
@@ -29,7 +29,7 @@ def _get_constant_value(node: ast.expr) -> Any:
     return None
 
 
-def _extract_option_info(call: ast.Call) -> Optional[dict]:
+def _extract_option_info(call: ast.Call) -> Optional[dict[str, Any]]:
     """Extract metadata from a typer.Option() or typer.Argument() call.
 
     Handles:
@@ -41,7 +41,7 @@ def _extract_option_info(call: ast.Call) -> Optional[dict]:
     if not func_name or func_name not in ("typer.Option", "typer.Argument"):
         return None
 
-    result = {
+    result: dict[str, Any] = {
         "name": None,
         "short_flag": None,
         "type": None,
@@ -130,7 +130,7 @@ class TyperExtractor(Extractor):
         """Return True if this is a Python file."""
         return path.suffix.lower() == ".py"
 
-    def extract(self, path: Path) -> list:
+    def extract(self, path: Path) -> list[CodeFact]:
         """Extract CLI flag CodeFacts from a Python file using Typer."""
         facts: list[CodeFact] = []
 
@@ -169,7 +169,7 @@ class TyperExtractor(Extractor):
 
         return facts
 
-    def _is_typer_command(self, node: ast.FunctionDef) -> bool:
+    def _is_typer_command(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         """Return True if function has a typer command decorator."""
         for decorator in node.decorator_list:
             if isinstance(decorator, ast.Call):
@@ -178,7 +178,7 @@ class TyperExtractor(Extractor):
                     return True
         return False
 
-    def _extract_param_info(self, arg: ast.arg, defaults_map: dict) -> Optional[dict]:
+    def _extract_param_info(self, arg: ast.arg, defaults_map: dict[str, Any]) -> Optional[dict[str, Any]]:
         """Extract option/argument info for a function parameter.
 
         Handles two patterns:
@@ -224,7 +224,7 @@ class TyperExtractor(Extractor):
 
         return None
 
-    def _build_codefact(self, info: dict, source_file: Path, line_number: int) -> CodeFact:
+    def _build_codefact(self, info: dict[str, Any], source_file: Path, line_number: int) -> CodeFact:
         """Build a CodeFact from extracted option/argument metadata."""
         name = info["name"]
         is_flag = info.get("is_flag", True)

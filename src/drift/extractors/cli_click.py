@@ -5,7 +5,7 @@ Detects CLI flags and arguments defined via click decorators in Python source co
 from drift.extractors.registry import register
 import ast
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from drift.extractors.base import Extractor
 from drift.models import CodeFact, FactKind, Parameter
@@ -31,7 +31,7 @@ def _get_constant_value(node: ast.expr) -> Any:
     return None
 
 
-def _parse_click_decorator(decorator: ast.expr) -> Optional[tuple]:
+def _parse_click_decorator(decorator: ast.expr) -> Optional[tuple[str, dict[str, Any], list[Any]]]:
     """Parse a click decorator and return (decorator_type, kwargs_dict, args_list).
 
     Handles:
@@ -53,9 +53,10 @@ def _parse_click_decorator(decorator: ast.expr) -> Optional[tuple]:
     dec_type = parts[-1]
 
     # Extract keyword arguments from the decorator call
-    kwargs: dict = {}
+    kwargs: dict[str, Any] = {}
     for kw in decorator.keywords:
-        kwargs[kw.arg] = kw.value
+        if kw.arg is not None:
+            kwargs[kw.arg] = kw.value
 
     # Extract positional args
     args = [_get_constant_value(a) for a in decorator.args]
@@ -63,12 +64,12 @@ def _parse_click_decorator(decorator: ast.expr) -> Optional[tuple]:
     return dec_type, kwargs, args
 
 
-def _extract_option_info(dec_type: str, kwargs: dict, args: list) -> Optional[dict]:
+def _extract_option_info(dec_type: str, kwargs: dict[str, Any], args: list[Any]) -> Optional[dict[str, Any]]:
     """Extract option/argument metadata from a click decorator's parsed info."""
     if dec_type not in ("option", "argument"):
         return None
 
-    result = {
+    result: dict[str, Any] = {
         "name": None,
         "short_flag": None,
         "type": None,
@@ -199,7 +200,7 @@ class ClickExtractor(Extractor):
         """Return True if this is a Python file."""
         return path.suffix.lower() == ".py"
 
-    def extract(self, path: Path) -> list:
+    def extract(self, path: Path) -> list[CodeFact]:
         """Extract CLI flag CodeFacts from a Python file using click."""
         facts: list[CodeFact] = []
 
@@ -232,7 +233,7 @@ class ClickExtractor(Extractor):
 
         return facts
 
-    def _build_codefact(self, info: dict, source_file: Path, line_number: int) -> CodeFact:
+    def _build_codefact(self, info: dict[str, Any], source_file: Path, line_number: int) -> CodeFact:
         """Build a CodeFact from extracted option/argument metadata."""
         name = info["name"]
 
