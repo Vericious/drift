@@ -113,6 +113,12 @@
           "enum": ["error", "warning", "info"]
         },
         "category": { "type": "string" },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Confidence score (0.0-1.0) that this drift item is real."
+        },
         "message": { "type": "string" },
         "suggestion": { "type": ["string", "null"] },
         "fact": { "$ref": "#/$defs/CodeFact" },

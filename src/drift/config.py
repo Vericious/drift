@@ -21,6 +21,8 @@ class DriftConfig:
     threshold: float = 0.0
     output_format: Literal["text", "json"] = "text"
     fail_on: Literal["error", "warning", "info", "none"] = "error"
+    extractors_enabled: list[str] | None = None  # None = all enabled
+    extractors_disabled: list[str] = field(default_factory=list)
 
 
 def load_config(path: Path | None = None) -> DriftConfig:
@@ -78,9 +80,31 @@ def load_config(path: Path | None = None) -> DriftConfig:
             f"fail_on must be 'error', 'warning', 'info', or 'none' in {path}"
         )
 
+    # Parse [extractors] section
+    extractors_enabled: list[str] | None = None
+    extractors_disabled: list[str] = []
+    extractors_section = data.get("extractors", {})
+    if isinstance(extractors_section, dict):
+        if "enabled" in extractors_section:
+            enabled_val = extractors_section["enabled"]
+            if isinstance(enabled_val, list):
+                extractors_enabled = enabled_val
+            elif enabled_val != "all":
+                raise ValueError(
+                    f"extractors.enabled must be a list or 'all' in {path}"
+                )
+        if "disabled" in extractors_section:
+            disabled_val = extractors_section["disabled"]
+            if isinstance(disabled_val, list):
+                extractors_disabled = disabled_val
+            else:
+                raise ValueError(f"extractors.disabled must be a list in {path}")
+
     return DriftConfig(
         ignore_patterns=ignore_patterns,
         threshold=threshold,
         output_format=output_format,
         fail_on=fail_on,
+        extractors_enabled=extractors_enabled,
+        extractors_disabled=extractors_disabled,
     )

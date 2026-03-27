@@ -122,6 +122,17 @@ def main() -> None:
     default=None,
     help="Scan only files changed vs a git ref (e.g., 'main', 'HEAD~3').",
 )
+@click.option(
+    "--extractor",
+    "extractors",
+    multiple=True,
+    help="Run only the specified extractor(s). Can be passed multiple times. Overrides config.",
+)
+@click.option(
+    "--watch",
+    is_flag=True,
+    help="Watch for file changes and re-run scan automatically. Ctrl+C to exit.",
+)
 def scan(
     paths: tuple[str, ...],
     output_json: bool,
@@ -141,6 +152,8 @@ def scan(
     clear_cache: bool,
     baseline: bool,
     diff_ref: str | None,
+    extractors: tuple[str, ...],
+    watch: bool,
 ) -> None:
     """Scan one or more paths for documentation drift."""
     import time
@@ -181,6 +194,49 @@ def scan(
     # CLI --fail-on overrides config
     fail_on_level = fail_on if fail_on is not None else config.fail_on
 
+    # Watch mode: poll for file changes and re-run continuously
+    if watch:
+        import time
+        if not paths:
+            paths = (".")
+        scan_path = Path(paths[0])
+        click.secho("Watching for changes... (Ctrl+C to exit)", fg="cyan", err=True)
+        last_mtimes: dict[Path, float] = {}
+        while True:
+            try:
+                watch_files = _get_watch_files(scan_path)
+                current_mtimes = _file_mtimes(watch_files)
+                if current_mtimes != last_mtimes:
+                    last_mtimes = current_mtimes
+                    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                    click.echo(f"\n--- Scan at {timestamp} ---")
+                    _run_watch_scan(
+                        scan_path=scan_path,
+                        output_json=output_json,
+                        output_sarif=output_sarif,
+                        output_html=output_html,
+                        output_diff=output_diff,
+                        output_file=output_file,
+                        config_path=config_path,
+                        strict=strict,
+                        severity=severity,
+                        verbose=verbose,
+                        fail_on=fail_on,
+                        min_confidence=min_confidence,
+                        parallel=parallel,
+                        include_js=include_js,
+                        no_cache=no_cache,
+                        clear_cache=clear_cache,
+                        baseline=baseline,
+                        diff_ref=diff_ref,
+                        extractors=extractors,
+                    )
+                time.sleep(2)
+            except KeyboardInterrupt:
+                click.echo("\nStopped watching.")
+                break
+        return
+
     # Scan each path and merge reports (with optional --diff filtering per path)
     all_reports = []
     for path in paths:
@@ -214,6 +270,14 @@ def scan(
                     err=True,
                 )
 
+        # Per-extractor config: --extractor CLI flag overrides config file
+        if extractors:
+            extractors_enabled = list(extractors)
+            extractors_disabled: list[str] | None = None
+        else:
+            extractors_enabled = config.extractors_enabled
+            extractors_disabled = config.extractors_disabled if config.extractors_disabled else None
+
         scanner = DriftScanner(
             scan_path,
             strict=strict,
@@ -222,6 +286,8 @@ def scan(
             no_cache=no_cache,
             clear_cache=clear_cache,
             changed_files=changed_files,
+            extractors_enabled=extractors_enabled,
+            extractors_disabled=extractors_disabled,
         )
         report = scanner.scan()
         all_reports.append(report)
@@ -354,14 +420,31 @@ output_format = "text"
 # "info" = fail on any drift item
 # "none" = always exit 0 (CI info-only mode)
 fail_on = "error"
+
+# [extractors] — enable/disable specific extractors
+# Use 'extractors.enabled' to list which ones to run (["all"] = all enabled)
+# Or use 'extractors.disabled' to list which ones to skip
+# Example: enabled = ["all"]                     # run all extractors (default)
+# Example: enabled = ["flask_routes", "pydantic"]  # only run these
+# Example: disabled = ["openapi", "graphql"]    # skip these
+[extractors]
+# enabled = ["all"]
+# disabled = []
 """
     config_path.write_text(default_config)
     click.echo(f"Created {config_path} with sensible defaults.")
 
 
 @main.command("list-extractors")
-def list_extractors() -> None:
-    """List all loaded extractors (built-in + plugins).
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=False),
+    default=None,
+    help="Path to config file (default: .drift.toml in CWD).",
+)
+def list_extractors(config_path: str | None) -> None:
+    """List all loaded extractors (built-in + plugins) with enabled/disabled status.
 
     Shows every registered Extractor class including those discovered
     via the drift.extractors entry_point group.
@@ -369,6 +452,16 @@ def list_extractors() -> None:
     from drift.extractors.registry import get_extractors
 
     extractors = get_extractors()
+
+    # Load config to get extractor enable/disable list
+    config_file = Path(config_path) if config_path else None
+    try:
+        config = load_config(config_file)
+    except (FileNotFoundError, ValueError):
+        config = None
+
+    enabled_list = config.extractors_enabled if config else None
+    disabled_list = config.extractors_disabled if config else []
 
     from rich.console import Console
     from rich.table import Table
@@ -378,6 +471,7 @@ def list_extractors() -> None:
     table.add_column("Name", style="bold")
     table.add_column("Source", style="dim")
     table.add_column("Handles")
+    table.add_column("Status", style="bold")
 
     # Categorize built-in vs plugin
     builtins = {
@@ -401,9 +495,24 @@ def list_extractors() -> None:
         name = cls.__name__
         source = "built-in" if name in builtins else "plugin"
         handles = getattr(cls, "_handles", None) or "*"
-        table.add_row(name, source, str(getattr(cls, "handles_pattern", handles)))
+
+        # Determine status
+        if disabled_list and name in disabled_list:
+            status = "[red]disabled[/red]"
+        elif enabled_list is not None and name not in enabled_list:
+            status = "[red]disabled[/red]"
+        else:
+            status = "[green]enabled[/green]"
+
+        table.add_row(name, source, str(getattr(cls, "handles_pattern", handles)), status)
 
     console.print(table)
+
+    if config and (config.extractors_enabled or config.extractors_disabled):
+        console.print(
+            f"\n[dim]Loaded from {config_file or '.drift.toml'}: "
+            f"enabled={config.extractors_enabled}, disabled={config.extractors_disabled}[/dim]"
+        )
     console.print(f"\n[dim]{len(extractors)} extractor(s) loaded[/dim]")
 
 
@@ -785,6 +894,165 @@ def _should_fail_on_severity(items: list[DriftItem], fail_on: str) -> bool:
     order = {"error": 0, "warning": 1, "info": 2}
     fail_level = order.get(fail_on, 3)
     return any(order.get(item.severity.value, 3) <= fail_level for item in items)
+
+
+def _get_watch_files(scan_path: Path) -> list[Path]:
+    """Get all watchable files (py, md, rst, toml, yaml) under scan_path."""
+    if scan_path.is_file():
+        return [scan_path]
+    exclude_dirs = {
+        ".git",
+        "__pycache__",
+        ".venv",
+        "node_modules",
+        ".tox",
+        ".pytest_cache",
+        ".mypy_cache",
+    }
+    files: list[Path] = []
+    for pattern in ["*.py", "*.md", "*.rst", "*.toml", "*.yaml", "*.yml"]:
+        for f in scan_path.rglob(pattern):
+            if not any(part in exclude_dirs for part in f.parts):
+                files.append(f)
+    return files
+
+
+def _file_mtimes(paths: list[Path]) -> dict[Path, float]:
+    """Return mtime for each file, or 0 if file doesn't exist."""
+    result: dict[Path, float] = {}
+    for p in paths:
+        try:
+            result[p] = p.stat().st_mtime
+        except OSError:
+            result[p] = 0
+    return result
+
+
+def _run_watch_scan(
+    scan_path: Path,
+    output_json: bool,
+    output_sarif: bool,
+    output_html: bool,
+    output_diff: bool,
+    output_file: str | None,
+    config_path: str | None,
+    strict: bool,
+    severity: str,
+    verbose: bool,
+    fail_on: str | None,
+    min_confidence: float | None,
+    parallel: bool,
+    include_js: bool,
+    no_cache: bool,
+    clear_cache: bool,
+    baseline: bool,
+    diff_ref: str | None,
+    extractors: tuple[str, ...],
+) -> None:
+    """Run a single scan pass, reusing the core logic from the scan command."""
+    import time
+
+    start = time.monotonic()
+
+    config_file = Path(config_path) if config_path else None
+    try:
+        config = load_config(config_file)
+    except FileNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+
+    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff] if f)
+    if flag_count > 1:
+        raise click.ClickException("--json, --sarif, --html, and --diff-output cannot be used together.")
+    if output_json:
+        output_format = "json"
+    elif output_sarif:
+        output_format = "sarif"
+    elif output_html:
+        output_format = "html"
+    elif output_diff:
+        output_format = "diff"
+    else:
+        output_format = config.output_format
+
+    fail_on_level = fail_on if fail_on is not None else config.fail_on
+
+    changed_files: list[Path] | None = None
+    if diff_ref is not None:
+        if is_git_repo(scan_path):
+            if not ref_exists(diff_ref, scan_path):
+                click.secho(f"WARNING: git ref '{diff_ref}' not found.", fg="yellow", err=True)
+            else:
+                changed_files = get_changed_files(diff_ref, scan_path)
+
+    if extractors:
+        extractors_enabled = list(extractors)
+        extractors_disabled: list[str] | None = None
+    else:
+        extractors_enabled = config.extractors_enabled
+        extractors_disabled = config.extractors_disabled if config.extractors_disabled else None
+
+    scanner = DriftScanner(
+        scan_path,
+        strict=strict,
+        parallel=parallel,
+        include_js=include_js,
+        no_cache=no_cache,
+        clear_cache=clear_cache,
+        changed_files=changed_files,
+        extractors_enabled=extractors_enabled,
+        extractors_disabled=extractors_disabled,
+    )
+    report = scanner.scan()
+
+    if baseline:
+        loaded = load_baseline(scan_path)
+        if loaded is None:
+            raise click.ClickException("No baseline found. Run 'drift baseline' first.")
+        created_at, baseline_items = loaded
+        report.drift_items = filter_new_drift(report.drift_items, baseline_items)
+
+    elapsed = time.monotonic() - start
+
+    if severity != "all":
+        report.drift_items = _filter_by_severity(report.drift_items, severity)
+
+    if min_confidence is not None:
+        report.drift_items = [
+            item for item in report.drift_items if item.confidence >= min_confidence
+        ]
+
+    reporter = DriftReporter(report, verbose=verbose)
+
+    if output_format == "json":
+        output_content = reporter.report_json(verbose=verbose, elapsed=elapsed)
+    elif output_format == "sarif":
+        output_content = reporter.report_sarif(verbose=verbose, elapsed=elapsed)
+    elif output_format == "html":
+        output_content = reporter.report_html(verbose=verbose, elapsed=elapsed)
+    elif output_format == "diff":
+        output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed)
+    else:
+        import io
+        from rich.console import Console
+        text_buffer = io.StringIO()
+        text_console = Console(file=text_buffer, force_terminal=False)
+        original_console = reporter.console
+        reporter.console = text_console
+        reporter.report_console(verbose=verbose, elapsed=elapsed)
+        reporter.console = original_console
+        output_content = text_buffer.getvalue()
+
+    click.echo(output_content)
+
+    if output_file:
+        output_path = Path(output_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(output_content)
+
+    if fail_on_level != "none" and _should_fail_on_severity(report.drift_items, fail_on_level):
+        raise SystemExit(1)
 
 
 def _merge_reports(reports: list[DriftReport]) -> DriftReport:
