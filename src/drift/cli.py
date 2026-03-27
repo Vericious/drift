@@ -8,7 +8,7 @@ from drift import __version__
 from drift.baseline import filter_new_drift, load_baseline, save_baseline
 from drift.config import load_config
 from drift.git_utils import get_changed_files, is_git_repo, ref_exists
-from drift.models import DriftItem
+from drift.models import CodeFact, DocClaim, DriftItem, DriftReport
 from drift.reporter import DriftReporter
 from drift.scanner import DriftScanner
 
@@ -21,7 +21,7 @@ def main() -> None:
 
 
 @main.command()
-@click.argument("path", type=click.Path(exists=True), default=".")
+@click.argument("paths", nargs=-1, type=click.Path(exists=True))
 @click.option(
     "--json",
     "output_json",
@@ -83,6 +83,12 @@ def main() -> None:
     help="Exit code 1 on any drift item at or above this severity (overrides config).",
 )
 @click.option(
+    "--min-confidence",
+    type=float,
+    default=None,
+    help="Only show drift items with confidence >= this value (0.0-1.0).",
+)
+@click.option(
     "--parallel",
     "-p",
     "parallel",
@@ -117,7 +123,7 @@ def main() -> None:
     help="Scan only files changed vs a git ref (e.g., 'main', 'HEAD~3').",
 )
 def scan(
-    path: str,
+    paths: tuple[str, ...],
     output_json: bool,
     output_sarif: bool,
     output_html: bool,
@@ -128,6 +134,7 @@ def scan(
     severity: str,
     verbose: bool,
     fail_on: str | None,
+    min_confidence: float | None,
     parallel: bool,
     include_js: bool,
     no_cache: bool,
@@ -135,8 +142,12 @@ def scan(
     baseline: bool,
     diff_ref: str | None,
 ) -> None:
-    """Scan a project for documentation drift."""
+    """Scan one or more paths for documentation drift."""
     import time
+
+    # Default to current directory if no paths given
+    if not paths:
+        paths = (".")
 
     start = time.monotonic()
 
@@ -170,50 +181,58 @@ def scan(
     # CLI --fail-on overrides config
     fail_on_level = fail_on if fail_on is not None else config.fail_on
 
-    # Handle --diff flag
-    changed_files: list[Path] | None = None
-    if diff_ref is not None:
+    # Scan each path and merge reports (with optional --diff filtering per path)
+    all_reports = []
+    for path in paths:
         scan_path = Path(path)
-        if is_git_repo(scan_path):
-            if not ref_exists(diff_ref, scan_path):
-                click.secho(
-                    f"WARNING: git ref '{diff_ref}' not found. Running full scan.",
-                    fg="yellow",
-                    err=True,
-                )
-            else:
-                changed_files = get_changed_files(diff_ref, scan_path)
-                if changed_files is None:
+
+        # Handle --diff flag per path
+        changed_files: list[Path] | None = None
+        if diff_ref is not None:
+            if is_git_repo(scan_path):
+                if not ref_exists(diff_ref, scan_path):
                     click.secho(
-                        f"WARNING: Could not get changed files for ref '{diff_ref}'. "
-                        "Running full scan.",
+                        f"WARNING: git ref '{diff_ref}' not found. Running full scan for {path}.",
                         fg="yellow",
                         err=True,
                     )
                 else:
-                    click.echo(f"Scanning {len(changed_files)} file(s) changed vs {diff_ref}")
-        else:
-            click.secho(
-                "WARNING: Not in a git repo. --diff flag ignored, running full scan.",
-                fg="yellow",
-                err=True,
-            )
+                    changed_files = get_changed_files(diff_ref, scan_path)
+                    if changed_files is None:
+                        click.secho(
+                            f"WARNING: Could not get changed files for ref '{diff_ref}'. "
+                            f"Running full scan for {path}.",
+                            fg="yellow",
+                            err=True,
+                        )
+                    else:
+                        click.echo(f"Scanning {len(changed_files)} file(s) changed vs {diff_ref} in {path}")
+            else:
+                click.secho(
+                    f"WARNING: {path} is not in a git repo. --diff flag ignored, running full scan.",
+                    fg="yellow",
+                    err=True,
+                )
 
-    scanner = DriftScanner(
-        Path(path),
-        strict=strict,
-        parallel=parallel,
-        include_js=include_js,
-        no_cache=no_cache,
-        clear_cache=clear_cache,
-        changed_files=changed_files,
-    )
-    report = scanner.scan()
+        scanner = DriftScanner(
+            scan_path,
+            strict=strict,
+            parallel=parallel,
+            include_js=include_js,
+            no_cache=no_cache,
+            clear_cache=clear_cache,
+            changed_files=changed_files,
+        )
+        report = scanner.scan()
+        all_reports.append(report)
+
+    # Merge reports
+    report = _merge_reports(all_reports)
 
     # Filter against baseline if --baseline is set
     baseline_info: str | None = None
     if baseline:
-        loaded = load_baseline(Path(path))
+        loaded = load_baseline(Path(paths[0]))
         if loaded is None:
             raise click.ClickException(
                 "No baseline found. Run 'drift baseline' first to create one."
@@ -229,6 +248,19 @@ def scan(
     if severity != "all":
         severity_min = severity
         report.drift_items = _filter_by_severity(report.drift_items, severity_min)
+
+    # Apply confidence filter
+    if min_confidence is not None:
+        original_count = len(report.drift_items)
+        report.drift_items = [
+            item for item in report.drift_items if item.confidence >= min_confidence
+        ]
+        if verbose and original_count != len(report.drift_items):
+            click.echo(
+                f"  [dim]Confidence filter:[/dim] "
+                f"{len(report.drift_items)}/{original_count} items shown "
+                f"(min={min_confidence})"
+            )
 
     reporter = DriftReporter(report, verbose=verbose)
 
@@ -753,3 +785,52 @@ def _should_fail_on_severity(items: list[DriftItem], fail_on: str) -> bool:
     order = {"error": 0, "warning": 1, "info": 2}
     fail_level = order.get(fail_on, 3)
     return any(order.get(item.severity.value, 3) <= fail_level for item in items)
+
+
+def _merge_reports(reports: list[DriftReport]) -> DriftReport:
+    """Merge multiple DriftReports into one.
+
+    Facts, claims, and drift_items are concatenated.
+    Drift items are deduplicated by (fact.source_file, fact.name, claim.name, category).
+    """
+    if not reports:
+        return DriftReport(scanned_path=Path("."))
+    if len(reports) == 1:
+        return reports[0]
+
+    # Collect all facts, claims, drift items, and errors
+    all_facts: list[CodeFact] = []
+    all_claims: list[DocClaim] = []
+    raw_drift_items: list[DriftItem] = []
+    all_errors: list[str] = []
+    total_files_skipped = 0
+
+    for report in reports:
+        all_facts.extend(report.facts)
+        all_claims.extend(report.claims)
+        raw_drift_items.extend(report.drift_items)
+        all_errors.extend(report.errors)
+        total_files_skipped += report.files_skipped
+
+    # Deduplicate drift items
+    seen_items: set[tuple[str, str, str, str]] = set()
+    deduped_drift_items: list[DriftItem] = []
+    for item in raw_drift_items:
+        key = (
+            str(item.fact.source_file) if item.fact else "",
+            item.fact.name if item.fact else "",
+            item.claim.name if item.claim else "",
+            item.category,
+        )
+        if key not in seen_items:
+            seen_items.add(key)
+            deduped_drift_items.append(item)
+
+    return DriftReport(
+        scanned_path=Path("."),
+        facts=all_facts,
+        claims=all_claims,
+        drift_items=deduped_drift_items,
+        errors=all_errors,
+        files_skipped=total_files_skipped,
+    )
