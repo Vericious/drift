@@ -7,6 +7,7 @@ import click
 from drift import __version__
 from drift.baseline import filter_new_drift, load_baseline, save_baseline
 from drift.config import load_config
+from drift.git_utils import get_changed_files, is_git_repo, ref_exists
 from drift.models import DriftItem
 from drift.reporter import DriftReporter
 from drift.scanner import DriftScanner
@@ -102,6 +103,13 @@ def main() -> None:
     is_flag=True,
     help="Filter results against .drift/baseline.json — only show NEW drift items.",
 )
+@click.option(
+    "--diff",
+    "diff_ref",
+    type=str,
+    default=None,
+    help="Scan only files changed vs a git ref (e.g., 'main', 'HEAD~3').",
+)
 def scan(
     path: str,
     output_json: bool,
@@ -118,6 +126,7 @@ def scan(
     no_cache: bool,
     clear_cache: bool,
     baseline: bool,
+    diff_ref: str | None,
 ) -> None:
     """Scan a project for documentation drift."""
     import time
@@ -152,7 +161,44 @@ def scan(
     # CLI --fail-on overrides config
     fail_on_level = fail_on if fail_on is not None else config.fail_on
 
-    scanner = DriftScanner(Path(path), strict=strict, parallel=parallel, include_js=include_js, no_cache=no_cache, clear_cache=clear_cache)
+    # Handle --diff flag
+    changed_files: list[Path] | None = None
+    if diff_ref is not None:
+        scan_path = Path(path)
+        if is_git_repo(scan_path):
+            if not ref_exists(diff_ref, scan_path):
+                click.secho(
+                    f"WARNING: git ref '{diff_ref}' not found. Running full scan.",
+                    fg="yellow",
+                    err=True,
+                )
+            else:
+                changed_files = get_changed_files(diff_ref, scan_path)
+                if changed_files is None:
+                    click.secho(
+                        f"WARNING: Could not get changed files for ref '{diff_ref}'. "
+                        "Running full scan.",
+                        fg="yellow",
+                        err=True,
+                    )
+                else:
+                    click.echo(f"Scanning {len(changed_files)} file(s) changed vs {diff_ref}")
+        else:
+            click.secho(
+                "WARNING: Not in a git repo. --diff flag ignored, running full scan.",
+                fg="yellow",
+                err=True,
+            )
+
+    scanner = DriftScanner(
+        Path(path),
+        strict=strict,
+        parallel=parallel,
+        include_js=include_js,
+        no_cache=no_cache,
+        clear_cache=clear_cache,
+        changed_files=changed_files,
+    )
     report = scanner.scan()
 
     # Filter against baseline if --baseline is set

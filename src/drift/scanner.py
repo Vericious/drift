@@ -28,6 +28,7 @@ class DriftScanner:
         include_js: bool = False,
         no_cache: bool = False,
         clear_cache: bool = False,
+        changed_files: list[Path] | None = None,
     ) -> None:
         self.path = path
         self.strict = strict
@@ -37,6 +38,7 @@ class DriftScanner:
         # and caching would cause issues when serial+parallel are run on same path in tests
         self.no_cache = no_cache or parallel
         self.clear_cache = clear_cache
+        self.changed_files = changed_files  # If set, only scan these files
         self.py_extractor = PythonExtractor()
         self.md_extractor = MarkdownExtractor()
         self.config_extractor = ConfigFileExtractor()
@@ -330,6 +332,14 @@ class DriftScanner:
         md_files = [f for f in md_files if not self._is_ignored(f)]
         config_files = [f for f in config_files if not self._is_ignored(f)]
         js_files = [f for f in js_files if not self._is_ignored(f)]
+
+        # Filter to only changed files if --diff was specified
+        if self.changed_files is not None:
+            changed_set = {f.resolve() for f in self.changed_files}
+            py_files = [f for f in py_files if f.resolve() in changed_set]
+            md_files = [f for f in md_files if f.resolve() in changed_set]
+            config_files = [f for f in config_files if f.resolve() in changed_set]
+            js_files = [f for f in js_files if f.resolve() in changed_set]
 
         # Filter via file hash cache — skip unchanged files
         py_files = self._filter_cached(py_files)

@@ -3,6 +3,7 @@
 ## v0.4.1 (2026-03-27)
 
 ### New Features
+- **Git diff scanning (DRIFT-092)**: Added `drift scan --diff <ref>` flag to scan only files changed vs a git ref (branch, tag, commit). New `src/drift/git_utils.py` with `get_changed_files()`, `is_git_repo()`, `ref_exists()`. Falls back to full scan with warning if not in git repo or ref is invalid.
 - **Baseline command (DRIFT-091)**: Added `drift baseline` command to snapshot current drift state to `.drift/baseline.json`. Added `drift scan --baseline` flag to filter results against saved baseline, showing only NEW drift items. New `src/drift/baseline.py` module handles baseline save/load/compare. Supports `--update` flag to overwrite existing baseline.
 - **JSDoc extractor (DRIFT-081)**: Added `JSDocExtractor` in `src/drift/extractor_js.py` for extracting documentation claims from `.js`, `.ts`, `.jsx`, `.tsx` files. Supports `@param`, `@returns`, `@type`, `@throws`, `@see`, and `@name` JSDoc annotations. Produces `DocClaim` objects with `ClaimKind.PARAMETER_DESCRIPTION`, `RETURN_DESCRIPTION`, and `FUNCTION_SIGNATURE`. Regex-based extraction from JSDoc comment blocks.
 - **`--include-js` CLI flag**: Added `--include-js` flag to `drift scan` command. When enabled, the scanner discovers and processes `.js`/`.ts`/`.jsx`/`.tsx` files using the `JSDocExtractor`. Both serial and parallel scanning supported.
