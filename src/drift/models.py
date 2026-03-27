@@ -22,6 +22,7 @@ class FactKind(Enum):
     CONFIG_KEY = "config_key"
     DECORATOR = "decorator"
     DEPRECATED = "deprecated"
+    TABLE_SCHEMA = "table_schema"
 
 
 class ClaimKind(Enum):

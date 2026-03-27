@@ -3,7 +3,6 @@
 Provides auto-registration of Extractor subclasses via the @register decorator.
 """
 
-
 from drift.extractors.base import Extractor
 
 # Global registry of extractor classes
@@ -60,6 +59,7 @@ def _discover_extractors() -> None:
         pydantic,  # noqa: F401
         rst_docs,  # noqa: F401
         terraform,  # noqa: F401
+        sqlalchemy,  # noqa: F401
     )
     from drift import extractor_js  # noqa: F401
     from drift.extractors import typescript  # noqa: F401
