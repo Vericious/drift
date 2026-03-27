@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.5.0-dev
+
+### New Features
+- **Protocol and ABC extractor (DRIFT-098)**: New `src/drift/extractors/protocols.py` extractor for `typing.Protocol` and `abc.ABC` classes. Extracts Protocol method stubs (signature only), `@abstractmethod` from ABC classes, and `@runtime_checkable` metadata. Produces `PROTOCOL_METHOD` and `ABSTRACT_METHOD` CodeFacts. 10 new tests pass.
+- **GraphQL schema extractor (DRIFT-097)**: New extractor for GraphQL schema definitions. Parses `.graphql` and `.gql` files to extract type definitions, query/mutation/subscription definitions, field arguments, and interfaces.
+- **Support multiple scan paths (DRIFT-100)**: `drift scan` now accepts multiple paths as arguments, scanning each in sequence and merging results into a single report.
+
+### Improvements
+- **`--diff-output` flag (DRIFT-094)**: Added unified diff view for drift output.
+- **`--diff` flag (DRIFT-092)**: Added git diff scanning — only check files changed vs a git ref.
+
 ## v0.4.1 (2026-03-27)
 
 ### New Features

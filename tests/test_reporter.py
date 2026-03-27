@@ -655,4 +655,4 @@ class TestReportHtml:
         """HTML footer mentions Drift version."""
         reporter = DriftReporter(populated_report)
         output = reporter.report_html()
-        assert "Drift v0.4.0" in output
+        assert "Drift v0.5.0-dev" in output
