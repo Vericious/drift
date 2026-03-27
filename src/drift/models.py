@@ -21,6 +21,7 @@ class FactKind(Enum):
     API_ENDPOINT = "api_endpoint"
     CONFIG_KEY = "config_key"
     DECORATOR = "decorator"
+    DEPRECATED = "deprecated"
 
 
 class ClaimKind(Enum):

@@ -6,6 +6,7 @@ from drift.extractors.cli_typer import TyperExtractor
 from drift.extractors.config_file import ConfigFileExtractor
 from drift.extractors.dataclass_fields import DataclassFieldsExtractor
 from drift.extractors.decorators import DecoratorExtractor
+from drift.extractors.deprecated import DeprecatedExtractor
 from drift.extractors.django_urls import DjangoURLsExtractor
 from drift.extractors.docstring import DocstringExtractor
 from drift.extractors.env_vars import EnvVarExtractor
@@ -34,6 +35,7 @@ __all__ = [
     "EnvVarExtractor",
     "DataclassFieldsExtractor",
     "DecoratorExtractor",
+    "DeprecatedExtractor",
     "JSDocExtractor",
     "get_extractors",
 ]
