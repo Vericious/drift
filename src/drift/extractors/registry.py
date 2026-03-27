@@ -47,6 +47,7 @@ def _discover_extractors() -> None:
         cli_typer,  # noqa: F401
         config_file,  # noqa: F401
         dataclass_fields,  # noqa: F401
+        django_urls,  # noqa: F401
         docstring,  # noqa: F401
         env_vars,  # noqa: F401
         fastapi_routes,  # noqa: F401
