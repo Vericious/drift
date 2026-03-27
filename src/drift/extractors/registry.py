@@ -47,6 +47,8 @@ def _discover_extractors() -> None:
         cli_typer,  # noqa: F401
         config_file,  # noqa: F401
         dataclass_fields,  # noqa: F401
+        decorators,  # noqa: F401
+        deprecated,  # noqa: F401
         docstring,  # noqa: F401
         env_vars,  # noqa: F401
         fastapi_routes,  # noqa: F401
@@ -54,7 +56,6 @@ def _discover_extractors() -> None:
         graphql,  # noqa: F401
         markdown,  # noqa: F401
         openapi,  # noqa: F401
-        protocols,  # noqa: F401
         pydantic,  # noqa: F401
         rst_docs,  # noqa: F401
     )
