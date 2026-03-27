@@ -41,6 +41,12 @@ def main() -> None:
     help="Output as self-contained HTML (mutually exclusive with --json and --sarif)",
 )
 @click.option(
+    "--diff-output",
+    "output_diff",
+    is_flag=True,
+    help="Output diff-style unified diff showing exact changes needed (mutually exclusive with --json, --sarif, --html)",
+)
+@click.option(
     "--output",
     "-o",
     "output_file",
@@ -115,6 +121,7 @@ def scan(
     output_json: bool,
     output_sarif: bool,
     output_html: bool,
+    output_diff: bool,
     output_file: str | None,
     config_path: str | None,
     strict: bool,
@@ -142,12 +149,12 @@ def scan(
     except ValueError as e:
         raise click.ClickException(str(e)) from e
 
-    # CLI --json, --sarif, or --html flag overrides config
-    # --json, --sarif, and --html are mutually exclusive
-    flag_count = sum(1 for f in [output_json, output_sarif, output_html] if f)
+    # CLI --json, --sarif, --html, or --diff-output flag overrides config
+    # These flags are mutually exclusive
+    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff] if f)
     if flag_count > 1:
         raise click.ClickException(
-            "--json, --sarif, and --html cannot be used together."
+            "--json, --sarif, --html, and --diff-output cannot be used together."
         )
     if output_json:
         output_format = "json"
@@ -155,6 +162,8 @@ def scan(
         output_format = "sarif"
     elif output_html:
         output_format = "html"
+    elif output_diff:
+        output_format = "diff"
     else:
         output_format = config.output_format
 
@@ -232,6 +241,9 @@ def scan(
         click.echo(output_content)
     elif output_format == "html":
         output_content = reporter.report_html(verbose=verbose, elapsed=elapsed)
+        click.echo(output_content)
+    elif output_format == "diff":
+        output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed)
         click.echo(output_content)
     else:
         # For text output, capture to file without Rich formatting

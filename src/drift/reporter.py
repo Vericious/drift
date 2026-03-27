@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.text import Text
 
 from drift.models import (
+    ClaimKind,
     DocClaim,
     DriftItem,
     DriftReport,
@@ -367,6 +368,208 @@ h2 {{ margin-top: 1.5rem; }}
 </body>
 </html>"""
         return html
+
+
+        return html
+
+    # -------------------------------------------------------------------------
+    # Diff-style output
+    # -------------------------------------------------------------------------
+
+    def report_diff(self, verbose: bool = False, elapsed: float = 0.0) -> str:
+        """Return diff-style output showing exact changes needed.
+
+        Format:
+          --- docs/<file>
+          +++ code/<file>
+          @@ -old,+new @@
+          <content>
+        """
+        report = self.report
+        output_parts: list[str] = []
+
+        if not report.drift_items:
+            return "No drift to display.\n"
+
+        output_parts.append("[bold cyan]Drift — Diff View[/bold cyan]")
+        output_parts.append(f"[cyan]{'=' * 50}[/cyan]")
+
+        errors = [d for d in report.drift_items if d.severity == Severity.ERROR]
+        warnings = [d for d in report.drift_items if d.severity == Severity.WARNING]
+        infos = [d for d in report.drift_items if d.severity == Severity.INFO]
+
+        for group_name, items in [
+            ("Errors", errors),
+            ("Warnings", warnings),
+            ("Info", infos),
+        ]:
+            if not items:
+                continue
+            output_parts.append(f"\n[bold {group_name} ({len(items)})[/bold {group_name}]")
+
+            for item in items:
+                diff_output = self._item_diff(item)
+                if diff_output:
+                    output_parts.append(diff_output)
+                    output_parts.append("")
+
+        return "\n".join(output_parts)
+
+    def _item_diff(self, item: DriftItem) -> str:
+        """Generate diff-style output for a single drift item."""
+        lines: list[str] = []
+
+        if item.category == "documented_but_missing":
+            lines = self._diff_documented_but_missing(item)
+        elif item.category == "fuzzy_renamed":
+            lines = self._diff_renamed(item)
+        elif item.category == "undocumented":
+            lines = self._diff_undocumented(item)
+        elif item.category == "code_without_docs":
+            lines = self._diff_undocumented(item)
+        elif item.category == "parameter_mismatch":
+            lines = self._diff_parameter_mismatch(item)
+        else:
+            lines = self._diff_generic(item)
+
+        return "\n".join(lines)
+
+    def _diff_documented_but_missing(self, item: DriftItem) -> list[str]:
+        """Diff for documented_but_missing: show claim vs 'not found in code'."""
+        lines: list[str] = []
+
+        claim = item.claim
+        fact = item.fact
+
+        claim_file = str(claim.doc_file) if claim else "docs"
+        claim_name = claim.name if claim else "?"
+        fact_file = str(fact.source_file) if fact else "code"
+        fact_name = fact.name if fact else claim_name
+
+        lines.append(f"--- {claim_file}")
+        lines.append(f"+++ {fact_file} (not found)")
+        lines.append(f"@@ -1,0 +1,? @@ [documented_but_missing] {claim_name}")
+
+        # Show what the docs say
+        if claim:
+            sig = self._claim_signature_str(claim)
+            lines.append(f"- {sig}")
+            if claim.raw_text:
+                for doc_line in claim.raw_text.split("\n"):
+                    lines.append(f"- {doc_line}")
+
+        # Show what the code actually has (nothing = missing)
+        lines.append(f"+ (function not found in code)")
+        lines.append(f"+ ")
+        lines.append(f"+ # MISSING: {fact_name} is documented but does not exist in code")
+        lines.append(f"+ # Add the implementation or remove from docs")
+
+        if item.suggestion:
+            lines.append(f"+ # Suggestion: {item.suggestion}")
+
+        return lines
+
+    def _diff_renamed(self, item: DriftItem) -> list[str]:
+        """Diff for fuzzy_renamed: show old name vs new name."""
+        lines: list[str] = []
+
+        claim = item.claim
+        fact = item.fact
+
+        claim_file = str(claim.doc_file) if claim else "docs"
+        fact_file = str(fact.source_file) if fact else "code"
+        claim_name = claim.name if claim else "?"
+        fact_name = fact.name if fact else "?"
+
+        old_sig = f"def {claim_name}("
+        new_sig = f"def {fact_name}("
+
+        lines.append(f"--- {claim_file} (old name)")
+        lines.append(f"+++ {fact_file} (new name)")
+        lines.append(f"@@ -1 +1 @@ [fuzzy_renamed] {claim_name} -> {fact_name}")
+        lines.append(f"- {old_sig}...")
+        lines.append(f"+ {new_sig}...")
+
+        if item.suggestion:
+            lines.append(f"+ # Suggestion: {item.suggestion}")
+
+        return lines
+
+    def _diff_undocumented(self, item: DriftItem) -> list[str]:
+        """Diff for undocumented: show suggested doc snippet."""
+        lines: list[str] = []
+
+        fact = item.fact
+        fact_file = str(fact.source_file) if fact else "code"
+        fact_name = fact.name if fact else "?"
+        fact_sig = fact.signature_str() if fact else f"{fact_name}()"
+
+        lines.append(f"--- {fact_file} (undocumented)")
+        lines.append(f"+++ {fact_file} (suggested doc)")
+        lines.append(f"@@ -0,0 +1,? @@ [undocumented] {fact_name}")
+        lines.append(f"+ # Documentation to add:")
+        lines.append(f"+ def {fact_sig}:")
+        if fact and fact.docstring:
+            for doc_line in fact.docstring.split("\n"):
+                lines.append(f"+    {doc_line}")
+        else:
+            lines.append(f"+    [describe what this does]")
+
+        if item.suggestion:
+            lines.append(f"+ # Suggestion: {item.suggestion}")
+
+        return lines
+
+    def _diff_parameter_mismatch(self, item: DriftItem) -> list[str]:
+        """Diff for parameter_mismatch: show expected vs actual params."""
+        lines: list[str] = []
+
+        claim = item.claim
+        fact = item.fact
+
+        claim_file = str(claim.doc_file) if claim else "docs"
+        fact_file = str(fact.source_file) if fact else "code"
+        claim_name = claim.name if claim else "?"
+        fact_name = fact.name if fact else claim_name
+
+        lines.append(f"--- {claim_file} (docs)")
+        lines.append(f"+++ {fact_file} (code)")
+        lines.append(f"@@ -1 +1 @@ [parameter_mismatch] {fact_name}")
+
+        # Show what docs claim
+        if claim:
+            sig = self._claim_signature_str(claim)
+            lines.append(f"- {sig}")
+        # Show what code has
+        if fact:
+            sig = fact.signature_str()
+            lines.append(f"+ {sig}")
+
+        if item.suggestion:
+            lines.append(f"+ # Suggestion: {item.suggestion}")
+
+        return lines
+
+    def _diff_generic(self, item: DriftItem) -> list[str]:
+        """Generic diff for other categories."""
+        lines: list[str] = []
+
+        claim = item.claim
+        fact = item.fact
+
+        claim_file = str(claim.doc_file) if claim else "docs"
+        fact_file = str(fact.source_file) if fact else "code"
+
+        lines.append(f"--- {claim_file}")
+        lines.append(f"+++ {fact_file}")
+        lines.append(f"@@ ... @@ [{item.category}]")
+
+        if item.message:
+            lines.append(f"    {item.message}")
+        if item.suggestion:
+            lines.append(f"    Suggestion: {item.suggestion}")
+
+        return lines
 
 
 def _escape(s: str) -> str:
