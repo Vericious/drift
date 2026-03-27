@@ -5,6 +5,7 @@ from pathlib import Path
 import click
 
 from drift import __version__
+from drift.baseline import filter_new_drift, load_baseline, save_baseline
 from drift.config import load_config
 from drift.models import DriftItem
 from drift.reporter import DriftReporter
@@ -96,6 +97,11 @@ def main() -> None:
     is_flag=True,
     help="Clear the incremental scan cache before scanning.",
 )
+@click.option(
+    "--baseline",
+    is_flag=True,
+    help="Filter results against .drift/baseline.json — only show NEW drift items.",
+)
 def scan(
     path: str,
     output_json: bool,
@@ -111,6 +117,7 @@ def scan(
     include_js: bool,
     no_cache: bool,
     clear_cache: bool,
+    baseline: bool,
 ) -> None:
     """Scan a project for documentation drift."""
     import time
@@ -147,6 +154,19 @@ def scan(
 
     scanner = DriftScanner(Path(path), strict=strict, parallel=parallel, include_js=include_js, no_cache=no_cache, clear_cache=clear_cache)
     report = scanner.scan()
+
+    # Filter against baseline if --baseline is set
+    baseline_info: str | None = None
+    if baseline:
+        loaded = load_baseline(Path(path))
+        if loaded is None:
+            raise click.ClickException(
+                "No baseline found. Run 'drift baseline' first to create one."
+            )
+        created_at, baseline_items = loaded
+        original_count = len(report.drift_items)
+        report.drift_items = filter_new_drift(report.drift_items, baseline_items)
+        baseline_info = f" (filtered: {len(report.drift_items)} new / {original_count} total vs baseline from {created_at[:10]})"
 
     elapsed = time.monotonic() - start
 
@@ -614,6 +634,46 @@ def fix(path: str, dry_run: bool, config_path: str | None) -> None:
         fg="yellow",
     )
     raise SystemExit(1)
+
+
+@main.command()
+@click.argument("path", type=click.Path(exists=True), default=".")
+@click.option(
+    "--update",
+    "-U",
+    is_flag=True,
+    help="Overwrite the existing baseline file.",
+)
+def baseline(path: str, update: bool) -> None:
+    """Save the current drift state as a baseline snapshot.
+
+    Creates .drift/baseline.json with the current drift items.
+    Use 'drift scan --baseline' to compare against this snapshot
+    and only report NEW drift items not in the baseline.
+
+    Run again with --update to refresh the baseline.
+    """
+    from drift.config import load_config
+
+    scan_path = Path(path)
+
+    # Load config (silently ignore if not found)
+    try:
+        load_config()
+    except (FileNotFoundError, ValueError):
+        pass
+
+    scanner = DriftScanner(scan_path, strict=False)
+    report = scanner.scan()
+
+    baseline_path = save_baseline(report, scan_path)
+
+    if update:
+        click.echo(f"Updated baseline: {baseline_path}")
+    else:
+        click.echo(f"Created baseline: {baseline_path}")
+    click.echo(f"  {len(report.drift_items)} drift item(s) snapshot")
+    click.echo(f"  Run 'drift scan --baseline' to compare against this snapshot.")
 
 
 def _filter_by_severity(items: list[DriftItem], min_severity: str) -> list[DriftItem]:
