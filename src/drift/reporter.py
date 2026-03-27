@@ -198,6 +198,7 @@ class DriftReporter:
                 "ruleId": rule_id,
                 "level": level,
                 "message": {"text": item.message or f"[{item.category}]"},
+                "properties": {"confidence": item.confidence},
             }
             if locations:
                 result["locations"] = locations
@@ -245,6 +246,7 @@ class DriftReporter:
             entry: dict[str, object] = {
                 "severity": item.severity.value,
                 "category": item.category,
+                "confidence": item.confidence,
                 "message": item.message,
                 "suggestion": item.suggestion,
                 "fact": item.fact.to_dict() if item.fact else None,
@@ -285,7 +287,7 @@ class DriftReporter:
 
         def item_rows(items: list[DriftItem]) -> str:
             if not items:
-                return "<tr><td colspan='4'>None</td></tr>"
+                return "<tr><td colspan='5'>None</td></tr>"
             rows = []
             for item in items:
                 loc = ""
@@ -301,6 +303,7 @@ class DriftReporter:
                     f"<td>{_escape(name)}</td>"
                     f"<td><span class='cat'>{_escape(item.category)}</span></td>"
                     f"<td>{_escape(item.message or '')}</td>"
+                    f"<td>{item.confidence:.0%}</td>"
                     f"</tr>"
                 )
             return "\n".join(rows)
@@ -312,19 +315,19 @@ class DriftReporter:
             if errors:
                 body += f"<h2 class='error-header'>❌ Errors ({len(errors)})</h2>\n"
                 body += "<table class='drift-table'>\n"
-                body += "<thead><tr><th>Location</th><th>Name</th><th>Category</th><th>Message</th></tr></thead>\n<tbody>\n"
+                body += "<thead><tr><th>Location</th><th>Name</th><th>Category</th><th>Message</th><th>Confidence</th></tr></thead>\n<tbody>\n"
                 body += item_rows(errors)
                 body += "\n</tbody></table>\n"
             if warnings:
                 body += f"<h2 class='warning-header'>⚠️ Warnings ({len(warnings)})</h2>\n"
                 body += "<table class='drift-table'>\n"
-                body += "<thead><tr><th>Location</th><th>Name</th><th>Category</th><th>Message</th></tr></thead>\n<tbody>\n"
+                body += "<thead><tr><th>Location</th><th>Name</th><th>Category</th><th>Message</th><th>Confidence</th></tr></thead>\n<tbody>\n"
                 body += item_rows(warnings)
                 body += "\n</tbody></table>\n"
             if infos:
                 body += f"<h2 class='info-header'>ℹ️ Info ({len(infos)})</h2>\n"
                 body += "<table class='drift-table'>\n"
-                body += "<thead><tr><th>Location</th><th>Name</th><th>Category</th><th>Message</th></tr></thead>\n<tbody>\n"
+                body += "<thead><tr><th>Location</th><th>Name</th><th>Category</th><th>Message</th><th>Confidence</th></tr></thead>\n<tbody>\n"
                 body += item_rows(infos)
                 body += "\n</tbody></table>\n"
 

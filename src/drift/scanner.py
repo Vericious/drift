@@ -29,6 +29,8 @@ class DriftScanner:
         no_cache: bool = False,
         clear_cache: bool = False,
         changed_files: list[Path] | None = None,
+        extractors_enabled: list[str] | None = None,
+        extractors_disabled: list[str] | None = None,
     ) -> None:
         self.path = path
         self.strict = strict
@@ -39,6 +41,9 @@ class DriftScanner:
         self.no_cache = no_cache or parallel
         self.clear_cache = clear_cache
         self.changed_files = changed_files  # If set, only scan these files
+        # Per-extractor enable/disable: None/[] = run all; list = only run these
+        self._extractors_enabled = extractors_enabled
+        self._extractors_disabled = extractors_disabled or []
         self.py_extractor = PythonExtractor()
         self.md_extractor = MarkdownExtractor()
         self.config_extractor = ConfigFileExtractor()
@@ -248,6 +253,12 @@ class DriftScanner:
 
         # Registered extractors
         for extractor_cls in get_extractors():
+            # Per-extractor enable/disable filter
+            ext_name = extractor_cls.__name__
+            if self._extractors_disabled and ext_name in self._extractors_disabled:
+                continue
+            if self._extractors_enabled and ext_name not in self._extractors_enabled:
+                continue
             try:
                 extracted = extractor_cls().extract(py_file)
             except Exception as e:

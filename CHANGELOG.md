@@ -478,3 +478,36 @@
 
 **Tests:** `tests/test_extractors/test_cli_typer.py` — 15 tests covering all requirements
 - All 186 tests in the project pass
+
+---
+
+### DRIFT-095 + DRIFT-096 + DRIFT-042 — Confidence Scoring, Per-Extractor Config, Watch Mode
+
+**Tasks:** Review rejected/escalated tasks, fix them, ship
+
+**DRIFT-095 — Confidence Scoring:**
+- Added `confidence: float = 1.0` field to `DriftItem` model
+- Exact matches (parameter mismatches): `confidence = 1.0`
+- `fuzzy_renamed`: `confidence = fuzzy_ratio / 100` (already computed in matcher)
+- `renamed`: `confidence = name_ratio` (character overlap ratio)
+- `documented_but_missing` / `undocumented`: `confidence = 0.0`
+- `--min-confidence` flag already existed in CLI; now actually functional
+- `confidence` included in JSON, SARIF, and HTML output formats
+- JSON schema (`schemas/drift-report.schema.json`) updated with `confidence` field
+
+**DRIFT-096 — Per-Extractor Enable/Disable:**
+- `[extractors]` section in `.drift.toml` with `enabled` and `disabled` keys
+- `--extractor` CLI flag (can be passed multiple times) overrides config
+- `DriftScanner` filters registered extractors before running
+- `drift list-extractors` shows enabled/disabled status per extractor
+- `drift init` generated config includes commented `[extractors]` example
+
+**DRIFT-042 — Watch Mode:**
+- `--watch` flag on `drift scan` for continuous monitoring
+- Simple polling every 2 seconds (no watchdog dependency)
+- Watches `.py`, `.md`, `.rst`, `.toml`, `.yaml` files
+- Re-runs full scan on any file change, shows timestamp
+- `Ctrl+C` to exit
+
+**Tests:** `tests/test_confidence.py` (9 tests), `tests/test_extractor_config.py` (7 tests), `tests/test_watch.py` (8 tests)
+- 596 tests pass (was 548 before this commit)

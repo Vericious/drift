@@ -159,6 +159,7 @@ class SignatureMatcher:
                             f"'{fuzzy_fact.name}' (code) — {confidence}% confidence"
                         ),
                             suggestion=f"Consider renaming '{fuzzy_fact.name}' to '{claim.name}' or update docs",
+                            confidence=confidence / 100.0,
                             metadata={
                                 "match_method": "fuzzy",
                                 "confidence": confidence,
@@ -205,6 +206,7 @@ class SignatureMatcher:
                                 category="renamed",
                                 message=f"'{claim.name}' (docs) may have been renamed to '{renamed_candidate.name}'",
                                 suggestion=f"Update docs to reference '{renamed_candidate.name}'",
+                                confidence=name_ratio,
                             )
                         )
                         continue
@@ -229,6 +231,7 @@ class SignatureMatcher:
                             category="documented_but_missing",
                             message=f"'{claim.name}' is documented but not found in code",
                             suggestion=f"Add implementation for '{claim.name}' or update docs",
+                            confidence=0.0,
                         )
                     )
                 continue
@@ -265,6 +268,7 @@ class SignatureMatcher:
                             category="missing_param",
                             message=f"Parameter '{param_name}' in {fact.name} is not documented",
                             suggestion=f"Add '{param_name}' to docs for {fact.name}",
+                            confidence=1.0,
                         )
                     )
                 elif f_param is None:
@@ -277,6 +281,7 @@ class SignatureMatcher:
                             category="extra_param",
                             message=f"Parameter '{param_name}' is documented for {fact.name} but not in code",
                             suggestion=f"Remove '{param_name}' from docs or update implementation",
+                            confidence=1.0,
                         )
                     )
                 else:
@@ -293,6 +298,7 @@ class SignatureMatcher:
                                 f"{c_param.default!r} (docs) vs {f_param.default!r} (code)"
                             ),
                                 suggestion=f"Update docs for '{param_name}' to default={f_param.default!r}",
+                                confidence=1.0,
                             )
                         )
                     if f_param.type_annotation != c_param.type_annotation:
@@ -307,6 +313,7 @@ class SignatureMatcher:
                                 f"{c_param.type_annotation!r} (docs) vs {f_param.type_annotation!r} (code)"
                             ),
                                 suggestion=f"Update docs for '{param_name}' type to {f_param.type_annotation!r}",
+                                confidence=1.0,
                             )
                         )
 
@@ -320,6 +327,7 @@ class SignatureMatcher:
                         category="wrong_return_type",
                         message=f"Return type differs: {claim.return_type!r} (docs) vs {fact.return_type!r} (code)",
                         suggestion=f"Update return type to {fact.return_type!r}",
+                        confidence=1.0,
                     )
                 )
 
@@ -340,6 +348,7 @@ class SignatureMatcher:
                         category="undocumented",
                         message=f"'{fact.name}' exists in code but is not documented",
                         suggestion=f"Add documentation for {fact.name}",
+                        confidence=0.0,
                     )
                 )
 

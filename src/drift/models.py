@@ -158,6 +158,7 @@ class DriftItem:
     category: str = ""  # DriftCategory value
     message: str = ""  # human-readable description
     suggestion: str | None = None  # what the doc should probably say
+    confidence: float = 1.0  # 0.0–1.0 confidence that this drift item is real
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
