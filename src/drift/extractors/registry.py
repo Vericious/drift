@@ -54,6 +54,7 @@ def _discover_extractors() -> None:
         graphql,  # noqa: F401
         markdown,  # noqa: F401
         openapi,  # noqa: F401
+        protocols,  # noqa: F401
         pydantic,  # noqa: F401
         rst_docs,  # noqa: F401
     )
