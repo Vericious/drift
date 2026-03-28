@@ -403,8 +403,8 @@ h2 {{ margin-top: 1.5rem; }}
         if not report.drift_items:
             return "No drift to display.\n"
 
-        output_parts.append("[bold cyan]Drift — Diff View[/bold cyan]")
-        output_parts.append(f"[cyan]{'=' * 50}[/cyan]")
+        output_parts.append("Drift — Diff View")
+        output_parts.append(f"{'=' * 50}")
 
         errors = [d for d in report.drift_items if d.severity == Severity.ERROR]
         warnings = [d for d in report.drift_items if d.severity == Severity.WARNING]
@@ -417,7 +417,7 @@ h2 {{ margin-top: 1.5rem; }}
         ]:
             if not items:
                 continue
-            output_parts.append(f"\n[bold {group_name} ({len(items)})[/bold {group_name}]")
+            output_parts.append(f"\n{group_name} ({len(items)})")
 
             for item in items:
                 diff_output = self._item_diff(item)

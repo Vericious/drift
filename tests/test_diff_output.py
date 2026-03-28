@@ -184,3 +184,84 @@ class TestDiffOutputFormat:
         # Should contain unified diff format headers
         assert "---" in diff_output
         assert "+++" in diff_output
+
+
+class TestDiffOutputCleanFormat:
+    """Tests for clean unified diff output without Rich markup."""
+
+    def test_no_markup_tags(self):
+        """Output should not contain Rich markup tags like [red] or [bold]."""
+        item = make_drift_item(
+            category="documented_but_missing",
+            claim_name="test_func",
+            fact_name="test_func",
+        )
+        report = DriftReport(
+            scanned_path=Path("."),
+            drift_items=[item],
+        )
+        reporter = DriftReporter(report)
+        diff_output = reporter.report_diff()
+
+        # No Rich markup tags
+        assert "[bold" not in diff_output
+        assert "[cyan" not in diff_output
+        assert "[red" not in diff_output
+        assert "[green" not in diff_output
+        assert "[yellow" not in diff_output
+        # Clean brackets only in diff format
+        assert "--- " in diff_output
+        assert "+++ " in diff_output
+
+    def test_format_headers_correct(self):
+        """Headers follow unified diff format: --- file:LINE +++ file:LINE."""
+        item = make_drift_item(
+            category="documented_but_missing",
+            claim_name="my_func",
+            fact_name="my_func",
+        )
+        report = DriftReport(
+            scanned_path=Path("."),
+            drift_items=[item],
+        )
+        reporter = DriftReporter(report)
+        diff_output = reporter.report_diff()
+
+        # Headers should be clean
+        lines = diff_output.split("\n")
+        header_lines = [l for l in lines if l.startswith("---") or l.startswith("+++")]
+        for header in header_lines:
+            # Should not contain Rich markup
+            assert "[" not in header
+            assert "]" not in header or "@@" in header
+            # Should have proper format
+            assert header.startswith("--- ") or header.startswith("+++ ")
+
+    def test_multiple_items_separate_blocks(self):
+        """Multiple drift items produce separate diff blocks."""
+        item1 = make_drift_item(
+            category="documented_but_missing",
+            claim_name="func_a",
+            fact_name="func_a",
+            doc_file="docs/a.md",
+            code_file="src/a.py",
+        )
+        item2 = make_drift_item(
+            category="undocumented",
+            claim_name="func_b",
+            fact_name="func_b",
+            doc_file="docs/b.md",
+            code_file="src/b.py",
+        )
+        item2.claim = None  # undocumented = no claim
+        report = DriftReport(
+            scanned_path=Path("."),
+            drift_items=[item1, item2],
+        )
+        reporter = DriftReporter(report)
+        diff_output = reporter.report_diff()
+
+        # Should have two separate blocks (two sets of ---/+++/@@)
+        assert diff_output.count("---") >= 2
+        assert diff_output.count("+++") >= 2
+        assert diff_output.count("@@") >= 2
