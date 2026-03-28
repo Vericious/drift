@@ -438,3 +438,445 @@ def test_report_github_pr_uses_github_output_detection(tmp_path, monkeypatch):
     assert success is True
     assert reporter.pr_number == 42
     assert reporter.repo == "my-org/my-repo"
+
+
+# ---------------------------------------------------------------------------
+# E2E Tests: full scan -> report flow with mock GitHub API
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubPRE2E:
+    """End-to-end integration tests exercising scan -> GitHub PR report flow.
+
+    These tests create real source files, run DriftScanner to produce a report,
+    then verify that GitHubPRReporter correctly posts/updates a PR comment with
+    content derived from the actual scan results.
+    """
+
+    @responses.activate
+    def test_e2e_scan_report_posts_new_comment_with_drift(self, tmp_path):
+        """Full scan->report flow: drift found, posts new PR comment."""
+        # Create a Python source file with a function
+        src_file = tmp_path / "processor.py"
+        src_file.write_text(
+            "def process_data(input_data: dict, strict: bool = False) -> dict:\n"
+            "    '''Process input data.'''\n"
+            "    return input_data\n"
+        )
+
+        # Create a markdown file that documents the function but MISSING the `strict` param
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# API\n\n"
+            "## process_data\n\n"
+            "```python\n"
+            "def process_data(input_data: dict) -> dict\n"
+            "```\n"
+        )
+
+        # Run actual drift scan
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # Verify drift was detected
+        assert len(report.drift_items) >= 1
+        error_items = [d for d in report.drift_items if d.severity == Severity.ERROR]
+        assert len(error_items) >= 1
+
+        # Set up mock GitHub API - no existing comment
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/my-org/my-repo/issues/42/comments",
+            json=[],
+            status=200,
+        )
+        responses.add(
+            responses.POST,
+            "https://api.github.com/repos/my-org/my-repo/issues/42/comments",
+            json={"id": 999},
+            status=201,
+        )
+
+        # Report to GitHub PR
+        reporter = GitHubPRReporter(
+            report,
+            token="fake-token",
+            pr_number=42,
+            repo="my-org/my-repo",
+        )
+        success = reporter.report_github_pr()
+
+        assert success is True
+        assert len(responses.calls) == 2
+        assert responses.calls[1].request.method == "POST"
+
+        # Verify the posted comment body contains scan-derived content
+        import json
+
+        posted_body = json.loads(responses.calls[1].request.body)["body"]
+        assert COMMENT_MARKER in posted_body
+        assert "process_data" in posted_body
+        assert "🔴" in posted_body or "error" in posted_body.lower()
+
+    @responses.activate
+    def test_e2e_scan_report_updates_existing_comment(self, tmp_path):
+        """Full scan->report flow: existing drift comment is updated (upsert)."""
+        # Create a Python file with a function missing a parameter
+        src_file = tmp_path / "api.py"
+        src_file.write_text(
+            "def fetch_user(user_id: int, include_roles: bool = True) -> dict:\n"
+            "    '''Fetch a user record.'''\n"
+            "    return {}\n"
+        )
+
+        # Create markdown that documents fetch_user WITHOUT include_roles
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# API\n\n"
+            "```python\n"
+            "def fetch_user(user_id: int) -> dict\n"
+            "```\n"
+        )
+
+        # Run actual drift scan
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # Set up mock GitHub API - existing drift comment found
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/my-org/my-repo/issues/99/comments",
+            json=[
+                {"id": 200, "body": f"{COMMENT_MARKER}\n## Drift Report\nold content"}
+            ],
+            status=200,
+        )
+        responses.add(
+            responses.PATCH,
+            "https://api.github.com/repos/my-org/my-repo/issues/comments/200",
+            json={"id": 200},
+            status=200,
+        )
+
+        # Report to GitHub PR
+        reporter = GitHubPRReporter(
+            report,
+            token="fake-token",
+            pr_number=99,
+            repo="my-org/my-repo",
+        )
+        success = reporter.report_github_pr()
+
+        assert success is True
+        assert len(responses.calls) == 2
+        assert responses.calls[1].request.method == "PATCH"
+
+        # Verify PATCH URL contains the existing comment ID
+        assert "200" in responses.calls[1].request.url
+
+    def test_e2e_handles_missing_github_token(self, tmp_path):
+        """Gracefully skips when GITHUB_TOKEN is not set."""
+        src_file = tmp_path / "foo.py"
+        src_file.write_text("def bar(x: int) -> str:\n    return str(x)\n")
+        md_file = tmp_path / "README.md"
+        md_file.write_text("```python\ndef bar(x: int) -> str\n```\n")
+
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # No token provided
+        reporter = GitHubPRReporter(
+            report,
+            token=None,
+            pr_number=42,
+            repo="my-org/my-repo",
+        )
+        success = reporter.report_github_pr()
+
+        assert success is False
+
+    def test_e2e_handles_missing_pr_number(self, tmp_path):
+        """Gracefully skips when PR number is not available."""
+        src_file = tmp_path / "foo.py"
+        src_file.write_text("def bar(x: int) -> str:\n    return str(x)\n")
+        md_file = tmp_path / "README.md"
+        md_file.write_text("```python\ndef bar(x: int) -> str\n```\n")
+
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # PR number not set
+        reporter = GitHubPRReporter(
+            report,
+            token="fake-token",
+            pr_number=None,
+            repo="my-org/my-repo",
+        )
+        success = reporter.report_github_pr()
+
+        assert success is False
+
+    def test_e2e_handles_missing_repo(self, tmp_path):
+        """Gracefully skips when repo is not available."""
+        src_file = tmp_path / "foo.py"
+        src_file.write_text("def bar(x: int) -> str:\n    return str(x)\n")
+        md_file = tmp_path / "README.md"
+        md_file.write_text("```python\ndef bar(x: int) -> str\n```\n")
+
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # Repo not set
+        reporter = GitHubPRReporter(
+            report,
+            token="fake-token",
+            pr_number=42,
+            repo=None,
+        )
+        success = reporter.report_github_pr()
+
+        assert success is False
+
+    @responses.activate
+    def test_e2e_no_drift_posts_healthy_comment(self, tmp_path):
+        """When no drift is found, posts a comment indicating clean state."""
+        # Create a Python file and correctly documented markdown
+        src_file = tmp_path / "utils.py"
+        src_file.write_text(
+            "def greet(name: str) -> str:\n"
+            "    '''Return a greeting.'''\n"
+            "    return f'Hello, {name}'\n"
+        )
+
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# Utils\n\n"
+            "## greet\n\n"
+            "```python\n"
+            "def greet(name: str) -> str\n"
+            "```\n"
+        )
+
+        # Run actual drift scan
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # Verify no drift
+        assert len(report.drift_items) == 0
+
+        # Set up mock GitHub API
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/my-org/my-repo/issues/1/comments",
+            json=[],
+            status=200,
+        )
+        responses.add(
+            responses.POST,
+            "https://api.github.com/repos/my-org/my-repo/issues/1/comments",
+            json={"id": 1},
+            status=201,
+        )
+
+        # Report to GitHub PR
+        reporter = GitHubPRReporter(
+            report,
+            token="fake-token",
+            pr_number=1,
+            repo="my-org/my-repo",
+        )
+        success = reporter.report_github_pr()
+
+        assert success is True
+
+        # Verify posted comment body
+        import json
+
+        posted_body = json.loads(responses.calls[1].request.body)["body"]
+        assert COMMENT_MARKER in posted_body
+        assert "📋 Drift Report" in posted_body
+        # Should show 0 errors/warnings/info
+        assert "0 🔴" in posted_body or "0 error" in posted_body.lower()
+
+    @responses.activate
+    def test_e2e_multiple_drift_items_rendered_correctly(self, tmp_path):
+        """Comment body correctly renders multiple drift items of different severities."""
+        # Create Python file with multiple functions having issues
+        src_file = tmp_path / "api.py"
+        src_file.write_text(
+            "def get_user(user_id: int, include_profile: bool = True) -> dict:\n"
+            "    '''Get user.'''\n"
+            "    return {}\n\n"
+            "def update_user(user_id: int, data: dict) -> None:\n"
+            "    '''Update user.'''\n"
+            "    pass\n\n"
+            "def delete_user(user_id: int) -> bool:\n"
+            "    '''Delete user.'''\n"
+            "    return True\n"
+        )
+
+        # Markdown with mismatched signatures:
+        # - get_user: documented but missing include_profile (ERROR)
+        # - update_user: documented but missing data (ERROR)
+        # - delete_user: correctly documented (no drift for this one)
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# API\n\n"
+            "```python\n"
+            "def get_user(user_id: int) -> dict\n"
+            "def update_user(user_id: int) -> None\n"
+            "def delete_user(user_id: int) -> bool\n"
+            "```\n"
+        )
+
+        # Run actual drift scan
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # Set up mock GitHub API
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/my-org/my-repo/issues/7/comments",
+            json=[],
+            status=200,
+        )
+        responses.add(
+            responses.POST,
+            "https://api.github.com/repos/my-org/my-repo/issues/7/comments",
+            json={"id": 7},
+            status=201,
+        )
+
+        # Report to GitHub PR
+        reporter = GitHubPRReporter(
+            report,
+            token="fake-token",
+            pr_number=7,
+            repo="my-org/my-repo",
+        )
+        success = reporter.report_github_pr()
+
+        assert success is True
+
+        import json
+
+        posted_body = json.loads(responses.calls[1].request.body)["body"]
+        assert COMMENT_MARKER in posted_body
+        assert "get_user" in posted_body
+        assert "update_user" in posted_body
+        # Should have multiple error entries
+        assert posted_body.count("🔴") >= 2
+
+    @responses.activate
+    def test_e2e_api_failure_on_post_returns_false(self, tmp_path):
+        """When GitHub API fails, report_github_pr returns False gracefully."""
+        src_file = tmp_path / "foo.py"
+        src_file.write_text(
+            "def bar(x: int) -> str:\n"
+            "    '''A function.'''\n"
+            "    return str(x)\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# Docs\n"
+            "```python\n"
+            "def bar(x: int, extra: str) -> str\n"
+            "```\n"
+        )
+
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # Mock API to return server error
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/my-org/my-repo/issues/5/comments",
+            json=[],
+            status=200,
+        )
+        responses.add(
+            responses.POST,
+            "https://api.github.com/repos/my-org/my-repo/issues/5/comments",
+            json={"message": "Server Error"},
+            status=500,
+        )
+
+        reporter = GitHubPRReporter(
+            report,
+            token="fake-token",
+            pr_number=5,
+            repo="my-org/my-repo",
+        )
+        success = reporter.report_github_pr()
+
+        assert success is False
+
+    @responses.activate
+    def test_e2e_github_output_detection_with_real_scan(self, tmp_path, monkeypatch):
+        """GITHUB_OUTPUT detection works with actual scan results."""
+        # Create a Python file with an undocumented function
+        src_file = tmp_path / "helper.py"
+        src_file.write_text(
+            "def helper(a: int, b: str = 'hi') -> bool:\n"
+            "    '''A helper.'''\n"
+            "    return True\n"
+        )
+
+        # Markdown correctly documents it (no drift)
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# Helper\n\n"
+            "```python\n"
+            "def helper(a: int, b: str = 'hi') -> bool\n"
+            "```\n"
+        )
+
+        # Set up GITHUB_OUTPUT file
+        github_output = tmp_path / "github_output.txt"
+        github_output.write_text("pr_number=10\nrepo=my-org/my-repo\n")
+        monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+        monkeypatch.setenv("GITHUB_TOKEN", "env-token")
+
+        # Run actual drift scan
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # Mock API
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/my-org/my-repo/issues/10/comments",
+            json=[],
+            status=200,
+        )
+        responses.add(
+            responses.POST,
+            "https://api.github.com/repos/my-org/my-repo/issues/10/comments",
+            json={"id": 10},
+            status=201,
+        )
+
+        # Report using auto-detection
+        reporter = GitHubPRReporter(report)
+        success = reporter.report_github_pr()
+
+        assert success is True
+        assert reporter.pr_number == 10
+        assert reporter.repo == "my-org/my-repo"
