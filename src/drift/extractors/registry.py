@@ -62,6 +62,7 @@ def _discover_extractors() -> None:
         terraform,  # noqa: F401
         yaml_config,  # noqa: F401
         dockerfile,  # noqa: F401
+        makefile,  # noqa: F401
     )
     from drift import extractor_js  # noqa: F401
     from drift.extractors import typescript  # noqa: F401
