@@ -142,3 +142,56 @@ def test_ref_exists(temp_project: Path) -> None:
     from drift.git_utils import ref_exists
 
     assert ref_exists("nonexistent-xyz", temp_project) is False
+
+
+def test_get_merge_base_returns_none_on_failure(tmp_path: Path) -> None:
+    """get_merge_base returns None when git command fails."""
+    from drift.git_utils import get_merge_base
+
+    # tmp_path is not a git repo, so should return None
+    result = get_merge_base("main", tmp_path)
+    assert result is None
+
+
+class TestDiffBranch:
+    """Tests for the --diff-branch CLI option."""
+
+    def test_diff_branch_resolves_merge_base(self, temp_project: Path) -> None:
+        """--diff-branch resolves branch to merge-base and uses it as diff ref."""
+        from drift.cli import scan
+        from click.testing import CliRunner
+
+        with patch("drift.cli.is_git_repo", return_value=True), \
+             patch("drift.cli.get_merge_base", return_value="abc1234567890abcdef"), \
+             patch("drift.cli.ref_exists", return_value=True), \
+             patch("drift.cli.get_changed_files", return_value=[temp_project / "example.py"]):
+            runner = CliRunner()
+            result = runner.invoke(scan, [str(temp_project), "--diff-branch", "main", "--fail-on", "none"])
+            assert result.exit_code == 0
+            assert "Using merge-base abc1234 as diff ref for branch 'main'" in result.output
+            assert "Scanning 1 file(s) changed vs abc1234567890abcdef" in result.output
+
+    def test_diff_branch_no_common_ancestor_error(self, temp_project: Path) -> None:
+        """--diff-branch exits with error when no common ancestor found."""
+        from drift.cli import scan
+        from click.testing import CliRunner
+
+        with patch("drift.cli.is_git_repo", return_value=True), \
+             patch("drift.cli.get_merge_base", return_value=None):
+            runner = CliRunner()
+            result = runner.invoke(scan, [str(temp_project), "--diff-branch", "unrelated-branch", "--fail-on", "none"])
+            assert result.exit_code != 0
+            assert "no common ancestor" in result.output.lower()
+
+    def test_diff_branch_not_git_repo(self, tmp_path: Path) -> None:
+        """--diff-branch warns when not in a git repo."""
+        from drift.cli import scan
+        from click.testing import CliRunner
+
+        test_file = tmp_path / "test.py"
+        test_file.write_text("def foo():\n    pass\n")
+
+        runner = CliRunner()
+        result = runner.invoke(scan, [str(tmp_path), "--diff-branch", "main", "--fail-on", "none"])
+        assert result.exit_code == 0
+        assert "not in a git repo" in result.output.lower()

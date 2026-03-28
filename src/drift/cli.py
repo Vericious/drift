@@ -7,7 +7,7 @@ import click
 from drift import __version__
 from drift.baseline import filter_new_drift, load_baseline, save_baseline
 from drift.config import load_config
-from drift.git_utils import get_changed_files, is_git_repo, ref_exists
+from drift.git_utils import get_changed_files, get_merge_base, is_git_repo, ref_exists
 from drift.models import CodeFact, DocClaim, DriftItem, DriftReport
 from drift.reporter import DriftReporter
 from drift.scanner import DriftScanner
@@ -123,6 +123,13 @@ def main() -> None:
     help="Scan only files changed vs a git ref (e.g., 'main', 'HEAD~3').",
 )
 @click.option(
+    "--diff-branch",
+    "diff_branch",
+    type=str,
+    default=None,
+    help="Scan files changed vs a branch's merge-base with HEAD (e.g., 'main').",
+)
+@click.option(
     "--extractor",
     "extractors",
     multiple=True,
@@ -152,6 +159,7 @@ def scan(
     clear_cache: bool,
     baseline: bool,
     diff_ref: str | None,
+    diff_branch: str | None,
     extractors: tuple[str, ...],
     watch: bool,
 ) -> None:
@@ -244,25 +252,50 @@ def scan(
 
         # Handle --diff flag per path
         changed_files: list[Path] | None = None
-        if diff_ref is not None:
+        diff_ref_to_use: str | None = diff_ref
+
+        # Resolve --diff-branch to merge-base commit
+        if diff_branch is not None:
             if is_git_repo(scan_path):
-                if not ref_exists(diff_ref, scan_path):
+                merge_base = get_merge_base(diff_branch, scan_path)
+                if merge_base is None:
                     click.secho(
-                        f"WARNING: git ref '{diff_ref}' not found. Running full scan for {path}.",
+                        f"ERROR: Could not find merge-base for branch '{diff_branch}'. "
+                        f"No common ancestor with HEAD.",
+                        fg="red",
+                        err=True,
+                    )
+                    raise click.ClickException(
+                        f"Branch '{diff_branch}' has no common ancestor with HEAD."
+                    )
+                diff_ref_to_use = merge_base
+                click.echo(f"Using merge-base {merge_base[:7]} as diff ref for branch '{diff_branch}'")
+            else:
+                click.secho(
+                    f"WARNING: {path} is not in a git repo. --diff-branch flag ignored.",
+                    fg="yellow",
+                    err=True,
+                )
+
+        if diff_ref_to_use is not None:
+            if is_git_repo(scan_path):
+                if not ref_exists(diff_ref_to_use, scan_path):
+                    click.secho(
+                        f"WARNING: git ref '{diff_ref_to_use}' not found. Running full scan for {path}.",
                         fg="yellow",
                         err=True,
                     )
                 else:
-                    changed_files = get_changed_files(diff_ref, scan_path)
+                    changed_files = get_changed_files(diff_ref_to_use, scan_path)
                     if changed_files is None:
                         click.secho(
-                            f"WARNING: Could not get changed files for ref '{diff_ref}'. "
+                            f"WARNING: Could not get changed files for ref '{diff_ref_to_use}'. "
                             f"Running full scan for {path}.",
                             fg="yellow",
                             err=True,
                         )
                     else:
-                        click.echo(f"Scanning {len(changed_files)} file(s) changed vs {diff_ref} in {path}")
+                        click.echo(f"Scanning {len(changed_files)} file(s) changed vs {diff_ref_to_use} in {path}")
             else:
                 click.secho(
                     f"WARNING: {path} is not in a git repo. --diff flag ignored, running full scan.",
