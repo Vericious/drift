@@ -354,3 +354,83 @@ class TestFuzzyRenamed:
         confidence = fuzzy_items[0].metadata.get("confidence")
         assert isinstance(confidence, float)
         assert 0 <= confidence <= 100
+
+
+class TestConfidenceSignals:
+    """Tests for ConfidenceSignals computation in matcher."""
+
+    def test_signals_fuzzy(self):
+        """fuzzy_renamed items have correct signals."""
+        from drift.models import ConfidenceSignals
+        from drift.matcher import SignatureMatcher
+
+        # fact: process_item has param x:int, claim: process_items has param x:str (type mismatch)
+        f = fact("process_item", params=[param("x", "int")])
+        c = claim("process_items", params=[param("x", "str")])
+
+        items = SignatureMatcher().match([f], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 1
+        item = fuzzy_items[0]
+
+        # Should have signals
+        assert item.signals is not None
+        assert isinstance(item.signals, ConfidenceSignals)
+        # name_similarity should be > 0 (SequenceMatcher ratio)
+        assert item.signals.name_similarity > 0.0
+        # param_overlap should be 1.0 (same param names: x)
+        assert item.signals.param_overlap == 1.0
+        # type_match should be 0.0 (int vs str)
+        assert item.signals.type_match == 0.0
+        # location_proximity should be computed
+        assert item.signals.location_proximity in (0.5, 1.0)
+        # score should be computed
+        assert 0.0 <= item.signals.score() <= 1.0
+
+    def test_signals_exact_drift(self):
+        """exact-with-drift items (param mismatch) have correct signals."""
+        from drift.models import ConfidenceSignals
+        from drift.matcher import SignatureMatcher
+
+        # fact and claim have same name but param type differs
+        f = fact("get_user", params=[param("x", "int")])
+        c = claim("get_user", params=[param("x", "str")])
+
+        items = SignatureMatcher().match([f], [c])
+        wrong_type_items = [i for i in items if i.category == "wrong_type"]
+        assert len(wrong_type_items) == 1
+        item = wrong_type_items[0]
+
+        # Should have signals
+        assert item.signals is not None
+        assert isinstance(item.signals, ConfidenceSignals)
+        # exact match: name_sim = 1.0, location_prox = 1.0 (same directory)
+        assert item.signals.name_similarity == 1.0
+        assert item.signals.location_proximity == 1.0
+        # score should be computed
+        assert 0.0 <= item.signals.score() <= 1.0
+
+    def test_signals_missing(self):
+        """documented_but_missing items have all-zero signals."""
+        from drift.models import ConfidenceSignals
+        from drift.matcher import SignatureMatcher
+
+        # claim exists but no matching fact
+        c = claim("nonexistent_func", params=[param("x", "int")])
+
+        items = SignatureMatcher().match([], [c])
+        missing_items = [i for i in items if i.category == "documented_but_missing"]
+        assert len(missing_items) == 1
+        item = missing_items[0]
+
+        # Should have signals
+        assert item.signals is not None
+        assert isinstance(item.signals, ConfidenceSignals)
+        # All signals should be 0.0
+        assert item.signals.name_similarity == 0.0
+        assert item.signals.param_overlap == 0.0
+        assert item.signals.type_match == 0.0
+        assert item.signals.location_proximity == 0.0
+        assert item.signals.context_match == 0.0
+        # score should be 0.0
+        assert item.signals.score() == 0.0

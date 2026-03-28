@@ -8,6 +8,7 @@ from pathlib import Path
 from drift.models import (
     ClaimKind,
     CodeFact,
+    ConfidenceSignals,
     DocClaim,
     DriftItem,
     DriftReport,
@@ -71,6 +72,85 @@ class SignatureMatcher:
         ):
             return True
         return False
+
+    def _jaccard(self, set1: set, set2: set) -> float:
+        """Compute Jaccard similarity between two sets."""
+        if not set1 and not set2:
+            return 0.0
+        intersection = len(set1 & set2)
+        union = len(set1 | set2)
+        return intersection / union if union > 0 else 0.0
+
+    def _compute_fuzzy_signals(
+        self, fact: CodeFact, claim: DocClaim, name_ratio: float
+    ) -> ConfidenceSignals:
+        """Compute signals for a fuzzy_renamed match."""
+        # Name similarity from SequenceMatcher ratio
+        name_sim = name_ratio
+
+        # Parameter overlap (Jaccard of parameter names)
+        fact_param_names = {p.name for p in fact.parameters}
+        claim_param_names = {p.name for p in claim.parameters}
+        param_overlap = self._jaccard(fact_param_names, claim_param_names)
+
+        # Type match fraction
+        if fact.parameters and claim.parameters:
+            fact_types = {p.name: p.type_annotation for p in fact.parameters}
+            claim_types = {p.name: p.type_annotation for p in claim.parameters}
+            common_names = set(fact_types) & set(claim_types)
+            if common_names:
+                type_matches = sum(
+                    1 for n in common_names if fact_types[n] == claim_types[n]
+                )
+                type_match = type_matches / len(common_names)
+            else:
+                type_match = 0.0
+        else:
+            type_match = 0.0
+
+        # Location proximity: 1.0 if same directory, 0.5 otherwise
+        fact_dir = fact.source_file.parent if fact.source_file else Path(".")
+        claim_dir = claim.doc_file.parent if claim.doc_file else Path(".")
+        location_prox = 1.0 if fact_dir == claim_dir else 0.5
+
+        signals = ConfidenceSignals(
+            name_similarity=name_sim,
+            param_overlap=param_overlap,
+            type_match=type_match,
+            location_proximity=location_prox,
+            context_match=0.0,
+        )
+        return signals
+
+    def _compute_exact_signals(self, fact: CodeFact, claim: DocClaim) -> ConfidenceSignals:
+        """Compute signals for exact-with-drift match (param/return type mismatches).
+
+        For exact name matches with minor drift, set high signals to reflect
+        the strong match confidence (original behavior: confidence=1.0).
+        """
+        # Location proximity: 1.0 if same directory, 0.5 otherwise
+        fact_dir = fact.source_file.parent if fact.source_file else Path(".")
+        claim_dir = claim.doc_file.parent if claim.doc_file else Path(".")
+        location_prox = 1.0 if fact_dir == claim_dir else 0.5
+
+        signals = ConfidenceSignals(
+            name_similarity=1.0,
+            param_overlap=1.0,
+            type_match=1.0,
+            location_proximity=location_prox,
+            context_match=1.0,
+        )
+        return signals
+
+    def _compute_missing_signals(self) -> ConfidenceSignals:
+        """Compute signals for documented_but_missing (no fact found)."""
+        return ConfidenceSignals(
+            name_similarity=0.0,
+            param_overlap=0.0,
+            type_match=0.0,
+            location_proximity=0.0,
+            context_match=0.0,
+        )
 
     def match(self, facts: list[CodeFact], claims: list[DocClaim]) -> list[DriftItem]:
         """Match facts against claims and return drift items."""
@@ -148,6 +228,10 @@ class SignatureMatcher:
                 if fuzzy_match:
                     fuzzy_fact, confidence = fuzzy_match
                     matched_fact_names.add(fuzzy_fact.name)
+                    signals = self._compute_fuzzy_signals(
+                        fuzzy_fact, claim, confidence / 100.0
+                    )
+                    computed_confidence = signals.score()
                     drift_items.append(
                         DriftItem(
                             fact=fuzzy_fact,
@@ -159,7 +243,8 @@ class SignatureMatcher:
                             f"'{fuzzy_fact.name}' (code) — {confidence}% confidence"
                         ),
                             suggestion=f"Consider renaming '{fuzzy_fact.name}' to '{claim.name}' or update docs",
-                            confidence=confidence / 100.0,
+                            confidence=computed_confidence,
+                            signals=signals,
                             metadata={
                                 "match_method": "fuzzy",
                                 "confidence": confidence,
@@ -223,6 +308,7 @@ class SignatureMatcher:
                     # Skip — implicit argparse flags that aren't explicitly defined
                     continue
                 if claim.kind != ClaimKind.CLI_USAGE:
+                    signals = self._compute_missing_signals()
                     drift_items.append(
                         DriftItem(
                             fact=None,
@@ -231,7 +317,8 @@ class SignatureMatcher:
                             category="documented_but_missing",
                             message=f"'{claim.name}' is documented but not found in code",
                             suggestion=f"Add implementation for '{claim.name}' or update docs",
-                            confidence=0.0,
+                            confidence=signals.score(),
+                            signals=signals,
                         )
                     )
                 continue
@@ -260,6 +347,7 @@ class SignatureMatcher:
 
                 if c_param is None:
                     # Missing param in docs — fact has it, claim doesn't
+                    signals = self._compute_exact_signals(fact, claim)
                     drift_items.append(
                         DriftItem(
                             fact=fact,
@@ -268,11 +356,13 @@ class SignatureMatcher:
                             category="missing_param",
                             message=f"Parameter '{param_name}' in {fact.name} is not documented",
                             suggestion=f"Add '{param_name}' to docs for {fact.name}",
-                            confidence=1.0,
+                            confidence=signals.score(),
+                            signals=signals,
                         )
                     )
                 elif f_param is None:
                     # Extra param in docs — claim has it but fact doesn't
+                    signals = self._compute_exact_signals(fact, claim)
                     drift_items.append(
                         DriftItem(
                             fact=fact,
@@ -281,12 +371,14 @@ class SignatureMatcher:
                             category="extra_param",
                             message=f"Parameter '{param_name}' is documented for {fact.name} but not in code",
                             suggestion=f"Remove '{param_name}' from docs or update implementation",
-                            confidence=1.0,
+                            confidence=signals.score(),
+                            signals=signals,
                         )
                     )
                 else:
                     # Both have the param — check defaults and types
                     if f_param.default != c_param.default:
+                        signals = self._compute_exact_signals(fact, claim)
                         drift_items.append(
                             DriftItem(
                                 fact=fact,
@@ -298,10 +390,12 @@ class SignatureMatcher:
                                 f"{c_param.default!r} (docs) vs {f_param.default!r} (code)"
                             ),
                                 suggestion=f"Update docs for '{param_name}' to default={f_param.default!r}",
-                                confidence=1.0,
+                                confidence=signals.score(),
+                                signals=signals,
                             )
                         )
                     if f_param.type_annotation != c_param.type_annotation:
+                        signals = self._compute_exact_signals(fact, claim)
                         drift_items.append(
                             DriftItem(
                                 fact=fact,
@@ -313,12 +407,14 @@ class SignatureMatcher:
                                 f"{c_param.type_annotation!r} (docs) vs {f_param.type_annotation!r} (code)"
                             ),
                                 suggestion=f"Update docs for '{param_name}' type to {f_param.type_annotation!r}",
-                                confidence=1.0,
+                                confidence=signals.score(),
+                                signals=signals,
                             )
                         )
 
             # Check return type
             if fact.return_type != claim.return_type:
+                signals = self._compute_exact_signals(fact, claim)
                 drift_items.append(
                     DriftItem(
                         fact=fact,
@@ -327,7 +423,8 @@ class SignatureMatcher:
                         category="wrong_return_type",
                         message=f"Return type differs: {claim.return_type!r} (docs) vs {fact.return_type!r} (code)",
                         suggestion=f"Update return type to {fact.return_type!r}",
-                        confidence=1.0,
+                        confidence=signals.score(),
+                        signals=signals,
                     )
                 )
 
