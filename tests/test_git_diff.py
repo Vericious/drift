@@ -142,3 +142,68 @@ def test_ref_exists(temp_project: Path) -> None:
     from drift.git_utils import ref_exists
 
     assert ref_exists("nonexistent-xyz", temp_project) is False
+
+
+def test_hunk_parsing_single_line(temp_project: Path) -> None:
+    """get_changed_lines parses a single-line hunk correctly."""
+    from drift.git_utils import get_changed_lines
+    import subprocess
+
+    # Initialize a git repo in temp_project
+    subprocess.run(["git", "init"], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=str(temp_project), capture_output=True)
+
+    # Modify a single line in example.py
+    py_file = temp_project / "example.py"
+    original = py_file.read_text()
+    py_file.write_text(original.replace("def undocumented_func", "def newly_added_func"))
+
+    subprocess.run(["git", "add", "."], cwd=str(temp_project), capture_output=True)
+
+    result = get_changed_lines("HEAD", temp_project)
+    assert result is not None
+    assert temp_project / "example.py" in result
+    assert 5 in result[temp_project / "example.py"]  # Line 5 was changed
+
+
+def test_hunk_parsing_multiline(temp_project: Path) -> None:
+    """get_changed_lines parses a multi-line hunk correctly."""
+    from drift.git_utils import get_changed_lines
+    import subprocess
+
+    # Initialize a git repo
+    subprocess.run(["git", "init"], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=str(temp_project), capture_output=True)
+
+    # Modify 3 consecutive lines in example.py (lines 4-6: the body of documented_func)
+    py_file = temp_project / "example.py"
+    lines = py_file.read_text().splitlines()
+    lines[3] = "    # modified line 4"
+    lines[4] = "    pass  # modified line 5"
+    lines[5] = "    return True  # new line 6"
+    py_file.write_text("\n".join(lines) + "\n")
+
+    subprocess.run(["git", "add", "."], cwd=str(temp_project), capture_output=True)
+
+    result = get_changed_lines("HEAD", temp_project)
+    assert result is not None
+    assert temp_project / "example.py" in result
+    changed = result[temp_project / "example.py"]
+    assert 4 in changed
+    assert 5 in changed
+    assert 6 in changed
+
+
+def test_git_failure_returns_none(temp_project: Path) -> None:
+    """get_changed_lines returns None when git command fails."""
+    from drift.git_utils import get_changed_lines
+
+    # temp_project is not a git repo — should return None
+    result = get_changed_lines("HEAD", temp_project)
+    assert result is None
