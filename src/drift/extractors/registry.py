@@ -58,8 +58,9 @@ def _discover_extractors() -> None:
         openapi,  # noqa: F401
         pydantic,  # noqa: F401
         rst_docs,  # noqa: F401
-        terraform,  # noqa: F401
         sqlalchemy,  # noqa: F401
+        terraform,  # noqa: F401
+        yaml_config,  # noqa: F401
     )
     from drift import extractor_js  # noqa: F401
     from drift.extractors import typescript  # noqa: F401
