@@ -1,0 +1,32 @@
+#!/bin/bash
+# Basic secret scan — blocks commits containing common credential patterns.
+# Install: cp .github/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+PATTERNS=(
+  'password\s*=\s*["\x27][^"\x27]{4,}'
+  'api[_-]?key\s*=\s*["\x27][^"\x27]{8,}'
+  'secret\s*=\s*["\x27][^"\x27]{8,}'
+  'token\s*=\s*["\x27][^"\x27]{8,}'
+  'BEGIN\s+(RSA|EC|OPENSSH)\s+PRIVATE\s+KEY'
+  'sk-[a-zA-Z0-9]{32,}'
+  'ghp_[a-zA-Z0-9]{36}'
+)
+
+STAGED=$(git diff --cached --name-only)
+FOUND=0
+
+for FILE in $STAGED; do
+  [ -f "$FILE" ] || continue
+  for PAT in "${PATTERNS[@]}"; do
+    if git diff --cached "$FILE" | grep -qiE "$PAT"; then
+      echo "ERROR: Possible secret detected in $FILE (pattern: $PAT)"
+      FOUND=1
+    fi
+  done
+done
+
+if [ "$FOUND" -eq 1 ]; then
+  echo "Commit blocked. Remove credentials before committing."
+  exit 1
+fi
+exit 0

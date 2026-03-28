@@ -1,65 +1,48 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
-
-# C extensions
-*.so
-
-# Distribution / packaging
+*.pyo
+*.pyd
 .Python
-build/
-develop-eggs/
+*.so
+*.egg
+*.egg-info/
 dist/
-downloads/
+build/
 eggs/
+wheels/
+sdist/
+develop-eggs/
 .eggs/
 lib/
 lib64/
 parts/
-sdist/
 var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# PyInstaller
 *.manifest
 *.spec
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env
 
-# Unit test / coverage reports
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
 htmlcov/
 .tox/
 .nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
 
-# Translations
-*.mo
-*.pot
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
 
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# IDEs
+# IDE
 .idea/
 .vscode/
 *.swp
@@ -70,5 +53,14 @@ venv.bak/
 .DS_Store
 Thumbs.db
 
-# Project specific
-.drift.toml
+# Secrets (never commit these)
+*.key
+*.pem
+*.secret
+.secrets/
+credentials*
+secrets.yml
+secrets.yaml
+
+# Build artifacts
+site/
