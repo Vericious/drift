@@ -62,6 +62,40 @@ def load_baseline(base_path: Path | None = None) -> tuple[str, list[dict]] | Non
         return None
 
 
+def filter_resolved_drift(
+    current_items: list[DriftItem],
+    baseline_items: list[dict],
+) -> list[dict]:
+    """Return baseline items that are NOT present in the current scan.
+
+    These are drift items that were in the baseline but have since been
+    resolved/fixed (e.g., code was documented, removed, etc.).
+
+    Comparison is done by (fact.name, claim.name, category) tuple.
+    Returns a list of the baseline dict entries themselves.
+    """
+    # Build signature set from current items
+    current_sigs: set[tuple[str | None, str | None, str]] = set()
+    for item in current_items:
+        fact_name = item.fact.name if item.fact else None
+        claim_name = item.claim.name if item.claim else None
+        current_sigs.add((fact_name, claim_name, item.category))
+
+    # Return baseline entries whose signature is NOT in current scan
+    resolved = []
+    for item in baseline_items:
+        fact = item.get("fact")
+        claim = item.get("claim")
+        fact_name = fact.get("name") if fact else None
+        claim_name = claim.get("name") if claim else None
+        category = item.get("category", "")
+        sig = (fact_name, claim_name, category)
+        if sig not in current_sigs:
+            resolved.append(item)
+
+    return resolved
+
+
 def filter_new_drift(
     current_items: list[DriftItem],
     baseline_items: list[dict],
