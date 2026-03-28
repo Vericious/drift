@@ -289,3 +289,262 @@ class TestGitHubSummaryMarkdownFormat:
                 assert "\\|" in message_cell or "x | y" in message_cell, f"Escaped pipes missing in: {message_cell}"
         finally:
             os.unlink(summary_path)
+
+
+# ---------------------------------------------------------------------------
+# E2E Tests: full scan -> report flow
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubSummaryReporterE2E:
+    """End-to-end integration tests for scan -> GitHubSummaryReporter flow.
+
+    These tests create real source files, run DriftScanner to produce a report,
+    then verify that GitHubSummaryReporter correctly writes the summary.
+    """
+
+    def test_e2e_scan_report_with_missing_param_writes_error(self, monkeypatch, tmp_path):
+        """Full scan->report: missing parameter detected, error written to summary."""
+        # Create a Python source file with a function missing a documented parameter
+        src_file = tmp_path / "processor.py"
+        src_file.write_text(
+            "def process_data(input_data: dict, strict: bool = False) -> dict:\n"
+            "    '''Process input data.'''\n"
+            "    return input_data\n"
+        )
+
+        # Create markdown that documents the function but WITHOUT strict param
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# API\n\n"
+            "## process_data\n\n"
+            "```python\n"
+            "def process_data(input_data: dict) -> dict\n"
+            "```\n"
+        )
+
+        # Run actual drift scan
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # Verify drift was detected
+        assert len(report.drift_items) >= 1
+        error_items = [d for d in report.drift_items if d.severity == Severity.ERROR]
+        assert len(error_items) >= 1
+
+        # Write summary
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            summary_path = f.name
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", summary_path)
+
+        try:
+            reporter = GitHubSummaryReporter(report)
+            reporter.write_summary()
+
+            content = Path(summary_path).read_text(encoding="utf-8")
+            assert "# Drift Report" in content
+            assert "process_data" in content
+            assert "## Errors" in content
+            assert "missing" in content.lower() or "param" in content.lower()
+        finally:
+            os.unlink(summary_path)
+
+    def test_e2e_scan_report_no_drift_writes_success(self, monkeypatch, tmp_path):
+        """Full scan->report: no drift found, success message written."""
+        # Create correctly documented function
+        src_file = tmp_path / "utils.py"
+        src_file.write_text(
+            "def greet(name: str) -> str:\n"
+            "    '''Return a greeting.'''\n"
+            "    return f'Hello, {name}'\n"
+        )
+
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# Utils\n\n"
+            "## greet\n\n"
+            "```python\n"
+            "def greet(name: str) -> str\n"
+            "```\n"
+        )
+
+        # Run actual drift scan
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # Verify no drift
+        assert len(report.drift_items) == 0
+
+        # Write summary
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            summary_path = f.name
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", summary_path)
+
+        try:
+            reporter = GitHubSummaryReporter(report)
+            reporter.write_summary()
+
+            content = Path(summary_path).read_text(encoding="utf-8")
+            assert "# Drift Report" in content
+            assert "✅" in content or "No drift" in content
+            assert "## Errors" not in content or content.count("## Errors") == 0
+        finally:
+            os.unlink(summary_path)
+
+    def test_e2e_scan_multiple_drift_items_all_rendered(self, monkeypatch, tmp_path):
+        """Multiple drift items of different severities are all rendered."""
+        # Create Python file with multiple functions having issues
+        src_file = tmp_path / "api.py"
+        src_file.write_text(
+            "def get_user(user_id: int, include_profile: bool = True) -> dict:\n"
+            "    '''Get user.'''\n"
+            "    return {}\n\n"
+            "def update_user(user_id: int, data: dict) -> None:\n"
+            "    '''Update user.'''\n"
+            "    pass\n\n"
+            "def helper() -> None:\n"
+            "    '''A helper.'''\n"
+            "    pass\n"
+        )
+
+        # Markdown with mismatched signatures
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# API\n\n"
+            "```python\n"
+            "def get_user(user_id: int) -> dict\n"
+            "def update_user(user_id: int) -> None\n"
+            "def helper(extra: str) -> None\n"
+            "```\n"
+        )
+
+        # Run actual drift scan
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # Write summary
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            summary_path = f.name
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", summary_path)
+
+        try:
+            reporter = GitHubSummaryReporter(report)
+            reporter.write_summary()
+
+            content = Path(summary_path).read_text(encoding="utf-8")
+            assert "# Drift Report" in content
+            assert "get_user" in content
+            assert "update_user" in content
+            assert "## Errors" in content
+        finally:
+            os.unlink(summary_path)
+
+    def test_e2e_graceful_noop_when_env_not_set(self, tmp_path):
+        """No-op when GITHUB_STEP_SUMMARY is not set (no exception raised)."""
+        import os
+
+        # Ensure env var is not set
+        if "GITHUB_STEP_SUMMARY" in os.environ:
+            del os.environ["GITHUB_STEP_SUMMARY"]
+
+        # Create some drift
+        src_file = tmp_path / "foo.py"
+        src_file.write_text(
+            "def bar(x: int, y: str = 'hi') -> bool:\n"
+            "    '''A function.'''\n"
+            "    return True\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# Docs\n"
+            "```python\n"
+            "def bar(x: int) -> bool\n"
+            "```\n"
+        )
+
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        # reporter should not raise even without env var
+        reporter = GitHubSummaryReporter(report)
+        reporter.write_summary()  # Should be no-op
+
+    def test_e2e_github_output_format_matches_gfm_table(self, monkeypatch, tmp_path):
+        """Output format matches expected GFM markdown table structure."""
+        src_file = tmp_path / "test_func.py"
+        src_file.write_text(
+            "def test_func(a: int, b: str = 'default') -> bool:\n"
+            "    '''Test function.'''\n"
+            "    return True\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# API\n"
+            "```python\n"
+            "def test_func(a: int) -> bool\n"
+            "```\n"
+        )
+
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            summary_path = f.name
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", summary_path)
+
+        try:
+            reporter = GitHubSummaryReporter(report)
+            reporter.write_summary()
+
+            content = Path(summary_path).read_text(encoding="utf-8")
+
+            # Check GFM table structure
+            assert "| Location |" in content
+            assert "| Name |" in content
+            assert "| Category |" in content
+            assert "| Message |" in content
+            assert "| Confidence |" in content
+
+            # Check separator row
+            assert "| --- | --- | --- | --- | --- |" in content
+
+            # Check that the function name appears in the Name column
+            assert "`test_func`" in content
+        finally:
+            os.unlink(summary_path)
+
+    def test_e2e_verbose_includes_scan_time(self, monkeypatch, tmp_path):
+        """Verbose mode includes scan time in the summary."""
+        src_file = tmp_path / "foo.py"
+        src_file.write_text("def foo() -> None:\n    pass\n")
+        md_file = tmp_path / "README.md"
+        md_file.write_text("```python\ndef foo() -> None\n```\n")
+
+        from drift.scanner import DriftScanner
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            summary_path = f.name
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", summary_path)
+
+        try:
+            reporter = GitHubSummaryReporter(report, verbose=True)
+            reporter.write_summary(elapsed=2.5)
+
+            content = Path(summary_path).read_text(encoding="utf-8")
+            assert "Scan Time" in content
+            assert "2.5" in content
+        finally:
+            os.unlink(summary_path)
