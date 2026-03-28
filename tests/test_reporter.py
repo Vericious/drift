@@ -10,6 +10,7 @@ import pytest
 from drift.models import (
     ClaimKind,
     CodeFact,
+    ConfidenceSignals,
     DocClaim,
     DriftItem,
     DriftReport,
@@ -238,6 +239,62 @@ class TestReportJson:
                 assert "doc_file" in item["claim"]
                 assert isinstance(item["claim"]["doc_file"], str)
 
+    def test_json_includes_signals_object(self):
+        """JSON output includes 'signals' object with all 5 fields when signals are present."""
+        signals = ConfidenceSignals(
+            name_similarity=0.9,
+            param_overlap=1.0,
+            type_match=0.8,
+            location_proximity=0.5,
+            context_match=0.7,
+        )
+        item = DriftItem(
+            fact=CodeFact(
+                name="func",
+                kind=FactKind.FUNCTION,
+                source_file=Path("a.py"),
+                line_number=1,
+            ),
+            severity=Severity.WARNING,
+            category="missing_param",
+            message="test",
+            confidence=0.85,
+            signals=signals,
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item])
+        reporter = DriftReporter(report)
+        parsed = json.loads(reporter.report_json())
+
+        drift_items = parsed["drift_items"]
+        assert len(drift_items) == 1
+        sig = drift_items[0]["signals"]
+        assert sig["name_similarity"] == 0.9
+        assert sig["param_overlap"] == 1.0
+        assert sig["type_match"] == 0.8
+        assert sig["location_proximity"] == 0.5
+        assert sig["context_match"] == 0.7
+
+    def test_json_omits_signals_when_none(self):
+        """JSON output omits 'signals' field when item.signals is None."""
+        item = DriftItem(
+            fact=CodeFact(
+                name="func",
+                kind=FactKind.FUNCTION,
+                source_file=Path("a.py"),
+                line_number=1,
+            ),
+            severity=Severity.WARNING,
+            category="missing_param",
+            message="test",
+            confidence=0.5,
+            signals=None,
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item])
+        reporter = DriftReporter(report)
+        parsed = json.loads(reporter.report_json())
+
+        assert "signals" not in parsed["drift_items"][0]
+
 
 class TestReportConsole:
     """Tests for report_console()."""
@@ -295,6 +352,16 @@ class TestReportConsole:
         reporter.report_console()
         captured = capsys.readouterr()
         assert "/path/to/project" in captured.out
+
+    def test_console_shows_confidence_pct(self, populated_report, capsys):
+        """Console output includes 'Confidence: N%' inline per drift item."""
+        reporter = DriftReporter(populated_report)
+        reporter.report_console()
+        captured = capsys.readouterr()
+        # The populated_report has 3 drift items with various confidences
+        # (1.0, 0.0, 1.0) — we just check the format appears
+        assert "Confidence:" in captured.out
+        assert "%" in captured.out
 
 
 class TestCodeFactToDict:
@@ -598,6 +665,25 @@ class TestReportSarif:
         reporter = DriftReporter(report, verbose=True)
         parsed = json.loads(reporter.report_sarif(verbose=True, elapsed=2.5))
         assert parsed["runs"][0]["properties"]["scanTimeSeconds"] == 2.5
+
+    def test_sarif_rank_equals_confidence_times_100(self):
+        """SARIF result 'rank' equals confidence * 100."""
+        item = DriftItem(
+            fact=CodeFact(
+                name="func",
+                kind=FactKind.FUNCTION,
+                source_file=Path("a.py"),
+                line_number=1,
+            ),
+            severity=Severity.WARNING,
+            category="missing_param",
+            message="test",
+            confidence=0.75,
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item])
+        reporter = DriftReporter(report)
+        parsed = json.loads(reporter.report_sarif())
+        assert parsed["runs"][0]["results"][0]["rank"] == 75.0
 
 
 class TestReportHtml:

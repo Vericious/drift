@@ -9,6 +9,7 @@ from rich.text import Text
 from drift import __version__
 from drift.models import (
     ClaimKind,
+    ConfidenceSignals,
     DocClaim,
     DriftItem,
     DriftReport,
@@ -122,6 +123,10 @@ class DriftReporter:
             if claim_sig:
                 self.console.print(f"    [dim]Claim says:[/dim] {claim_sig}")
 
+        # Confidence percentage
+        conf_pct = int(item.confidence * 100)
+        self.console.print(f"    [dim]Confidence:[/dim] {conf_pct}%")
+
         # Message
         if item.message:
             self.console.print(f"    [dim]→[/dim] {item.message}")
@@ -198,6 +203,7 @@ class DriftReporter:
                 "ruleId": rule_id,
                 "level": level,
                 "message": {"text": item.message or f"[{item.category}]"},
+                "rank": item.confidence * 100,
                 "properties": {"confidence": item.confidence},
             }
             if locations:
@@ -252,6 +258,8 @@ class DriftReporter:
                 "fact": item.fact.to_dict() if item.fact else None,
                 "claim": item.claim.to_dict() if item.claim else None,
             }
+            if item.signals is not None:
+                entry["signals"] = item.signals.to_dict()
             drift_items_list.append(entry)
 
         output: dict[str, object] = {

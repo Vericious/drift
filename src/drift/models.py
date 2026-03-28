@@ -151,6 +151,38 @@ class DocClaim:
 
 
 @dataclass
+class ConfidenceSignals:
+    """Weighted signal fields that contribute to a DriftItem's confidence score."""
+
+    name_similarity: float = 0.0  # 0.0–1.0
+    param_overlap: float = 0.0  # 0.0–1.0
+    type_match: float = 0.0  # 0.0–1.0
+    location_proximity: float = 0.0  # 0.0–1.0
+    context_match: float = 0.0  # 0.0–1.0
+
+    def score(self) -> float:
+        """Return weighted sum clamped to [0,1], rounded to 3 decimal places."""
+        weighted = (
+            self.name_similarity * 0.35
+            + self.param_overlap * 0.30
+            + self.type_match * 0.15
+            + self.location_proximity * 0.10
+            + self.context_match * 0.10
+        )
+        return round(max(0.0, min(1.0, weighted)), 3)
+
+    def to_dict(self) -> dict[str, float]:
+        """Serialize all 5 signal fields as a dict."""
+        return {
+            "name_similarity": self.name_similarity,
+            "param_overlap": self.param_overlap,
+            "type_match": self.type_match,
+            "location_proximity": self.location_proximity,
+            "context_match": self.context_match,
+        }
+
+
+@dataclass
 class DriftItem:
     """A specific mismatch between a CodeFact and a DocClaim."""
 
@@ -161,6 +193,7 @@ class DriftItem:
     message: str = ""  # human-readable description
     suggestion: str | None = None  # what the doc should probably say
     confidence: float = 1.0  # 0.0–1.0 confidence that this drift item is real
+    signals: ConfidenceSignals | None = None  # detailed signal fields
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
