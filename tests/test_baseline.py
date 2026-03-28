@@ -45,6 +45,7 @@ def temp_project(tmp_path: Path) -> Path:
 from drift.baseline import (
     BASELINE_FILENAME,
     filter_new_drift,
+    filter_resolved_drift,
     load_baseline,
     save_baseline,
 )
@@ -221,3 +222,63 @@ def test_filter_new_drift_keeps_non_baseline_items(temp_project: Path) -> None:
     # Filter — should keep all items except the first one
     filtered = filter_new_drift(report.drift_items, baseline_items_data)
     assert len(filtered) == len(report.drift_items) - 1
+
+
+def test_resolved_items_detected(temp_project: Path) -> None:
+    """Baseline items not in current scan are returned as resolved."""
+    scanner = DriftScanner(temp_project)
+    report = scanner.scan()
+    assert len(report.drift_items) >= 1, "need at least one drift item"
+
+    baseline_items_data = [
+        {
+            "fact": item.fact.to_dict() if item.fact else None,
+            "claim": item.claim.to_dict() if item.claim else None,
+            "severity": item.severity.value,
+            "category": item.category,
+            "message": item.message,
+            "suggestion": None,
+            "metadata": {},
+        }
+        for item in report.drift_items
+    ]
+
+    # Current scan has no items — all baseline items are "resolved"
+    resolved = filter_resolved_drift([], baseline_items_data)
+    assert len(resolved) == len(baseline_items_data)
+
+
+def test_unchanged_items_excluded(temp_project: Path) -> None:
+    """Baseline items also present in current scan are NOT returned."""
+    scanner = DriftScanner(temp_project)
+    report = scanner.scan()
+    assert len(report.drift_items) >= 1
+
+    baseline_items_data = [
+        {
+            "fact": item.fact.to_dict() if item.fact else None,
+            "claim": item.claim.to_dict() if item.claim else None,
+            "severity": item.severity.value,
+            "category": item.category,
+            "message": item.message,
+            "suggestion": None,
+            "metadata": {},
+        }
+        for item in report.drift_items
+    ]
+
+    # Current scan matches baseline exactly — nothing is resolved
+    resolved = filter_resolved_drift(report.drift_items, baseline_items_data)
+    assert len(resolved) == 0
+
+
+def test_empty_baseline_returns_empty(temp_project: Path) -> None:
+    """With no baseline items, resolved list is always empty."""
+    resolved = filter_resolved_drift([], [])
+    assert resolved == []
+
+    # Even with current items, empty baseline returns nothing
+    scanner = DriftScanner(temp_project)
+    report = scanner.scan()
+    resolved = filter_resolved_drift(list(report.drift_items), [])
+    assert resolved == []
