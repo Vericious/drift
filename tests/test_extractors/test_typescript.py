@@ -137,6 +137,43 @@ class TestEnumExtraction:
         assert priority_fact.metadata["is_const"] is True
 
 
+class TestFactKindAssignments:
+    """Test that FactKind.TS_* are used for TypeScript declarations."""
+
+    def test_ts_interface_fact_kind(self):
+        """Interface extraction uses FactKind.TS_INTERFACE."""
+        from drift.models import FactKind
+
+        ext = TypeScriptExtractor()
+        facts = ext.extract(FIXTURE)
+
+        user_fact = next((f for f in facts if f.name == "User"), None)
+        assert user_fact is not None
+        assert user_fact.kind == FactKind.TS_INTERFACE
+
+    def test_ts_type_fact_kind(self):
+        """Type alias extraction uses FactKind.TS_TYPE."""
+        from drift.models import FactKind
+
+        ext = TypeScriptExtractor()
+        facts = ext.extract(FIXTURE)
+
+        profile_fact = next((f for f in facts if f.name == "UserProfile"), None)
+        assert profile_fact is not None
+        assert profile_fact.kind == FactKind.TS_TYPE
+
+    def test_ts_enum_fact_kind(self):
+        """Enum extraction uses FactKind.TS_ENUM."""
+        from drift.models import FactKind
+
+        ext = TypeScriptExtractor()
+        facts = ext.extract(FIXTURE)
+
+        color_fact = next((f for f in facts if f.name == "Color"), None)
+        assert color_fact is not None
+        assert color_fact.kind == FactKind.TS_ENUM
+
+
 class TestTsxFile:
     """Test .tsx file extension."""
 
