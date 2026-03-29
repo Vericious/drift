@@ -61,15 +61,24 @@ class DotenvExtractor(Extractor):
         """Join lines ending with backslash continuation."""
         result_lines: list[str] = []
         current = ""
+        in_continuation = False
 
         for line in content.splitlines():
             stripped = line.rstrip()
             if stripped.endswith("\\"):
-                current += stripped[:-1] + " "
+                continuation = stripped[:-1].rstrip()
+                current += continuation
+                in_continuation = True
+                if continuation and not continuation.endswith(" "):
+                    current += " "
             else:
+                # Strip leading whitespace if this completes a continuation
+                if in_continuation:
+                    stripped = stripped.lstrip()
                 current += stripped
                 result_lines.append(current)
                 current = ""
+                in_continuation = False
 
         if current:
             result_lines.append(current)
@@ -147,8 +156,18 @@ class DotenvExtractor(Extractor):
             return (inner, "single_quoted")
 
         # Unquoted: strip trailing inline comment
-        # value # comment -> value
+        # value # comment -> value (space before # makes it a comment)
+        # value#comment -> value#comment (# without preceding space is NOT a comment, e.g. URL fragments)
         # value without comment -> value
-        unquoted = stripped.split("#")[0].rstrip()
+        # Find # that is preceded by whitespace (indicating start of comment)
+        comment_idx = -1
+        for i in range(1, len(stripped)):
+            if stripped[i] == "#" and stripped[i - 1] in " \t":
+                comment_idx = i
+                break
+        if comment_idx != -1:
+            unquoted = stripped[:comment_idx].rstrip()
+        else:
+            unquoted = stripped
 
         return (unquoted, "unquoted")
