@@ -369,6 +369,21 @@ class TestChangedLinesContextWindow:
         # Should have facts since no filtering
         assert len(report.facts) >= 0  # Just verify it runs without error
 
+    def test_distant_facts_filtered_out(self, temp_project: Path) -> None:
+        """Facts more than 5 lines away from any changed line are filtered out."""
+        from drift.scanner import DriftScanner
+
+        # The temp_project has:
+        # - documented_func at ~line 2
+        # - undocumented_func at ~line 6
+        # If we set changed_lines to only line 20, both facts are >5 lines away
+        changed_lines = {temp_project / "example.py": {20}}
+        scanner = DriftScanner(temp_project, changed_lines=changed_lines, no_cache=True)
+
+        report = scanner.scan()
+        # Both facts are more than 5 lines from line 20, so they should be filtered
+        assert len(report.facts) == 0
+
 
 class TestContentAwareFiltering:
     """Tests for content-aware filtering preventing false negatives."""
