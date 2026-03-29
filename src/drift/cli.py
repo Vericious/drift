@@ -116,6 +116,11 @@ def main() -> None:
     help="Filter results against .drift/baseline.json — only show NEW drift items.",
 )
 @click.option(
+    "--update-baseline",
+    is_flag=True,
+    help="After filtering with --baseline, save the current scan as the new baseline.",
+)
+@click.option(
     "--diff",
     "diff_ref",
     type=str,
@@ -151,6 +156,7 @@ def scan(
     no_cache: bool,
     clear_cache: bool,
     baseline: bool,
+    update_baseline: bool,
     diff_ref: str | None,
     extractors: tuple[str, ...],
     watch: bool,
@@ -307,6 +313,18 @@ def scan(
         original_count = len(report.drift_items)
         report.drift_items = filter_new_drift(report.drift_items, baseline_items)
         baseline_info = f" (filtered: {len(report.drift_items)} new / {original_count} total vs baseline from {created_at[:10]})"
+
+    # Validate --update-baseline requires --baseline
+    if update_baseline and not baseline:
+        raise click.ClickException(
+            "--update-baseline requires --baseline to be set. "
+            "Use 'drift scan --baseline --update-baseline' to update the baseline."
+        )
+
+    # Save new baseline if --baseline and --update-baseline are both set
+    if baseline and update_baseline:
+        new_baseline_path = save_baseline(report, Path(paths[0]))
+        click.echo(f"Baseline updated: {len(report.drift_items)} items -> {new_baseline_path}")
 
     elapsed = time.monotonic() - start
 
