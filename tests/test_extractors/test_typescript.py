@@ -181,3 +181,49 @@ class TestTsxFile:
         """TypeScriptExtractor handles .tsx files."""
         ext = TypeScriptExtractor()
         assert ext.can_handle(Path("component.tsx")) is True
+
+
+class TestParameterDataclass:
+    """Test that TypeScriptExtractor uses Parameter dataclass instances."""
+
+    def test_interface_parameters_are_parameter_dataclass(self):
+        """Interface properties are extracted as Parameter dataclass instances."""
+        from drift.models import Parameter
+
+        ext = TypeScriptExtractor()
+        facts = ext.extract(FIXTURE)
+
+        user_fact = next((f for f in facts if f.name == "User"), None)
+        assert user_fact is not None
+        assert user_fact.parameters is not None
+        assert len(user_fact.parameters) > 0
+        for param in user_fact.parameters:
+            assert isinstance(param, Parameter), f"Expected Parameter, got {type(param)}"
+            assert param.name is not None
+            assert param.type_annotation is not None
+
+    def test_type_alias_parameters_are_parameter_dataclass(self):
+        """Type alias properties are extracted as Parameter dataclass instances."""
+        from drift.models import Parameter
+
+        ext = TypeScriptExtractor()
+        facts = ext.extract(FIXTURE)
+
+        profile_fact = next((f for f in facts if f.name == "UserProfile"), None)
+        assert profile_fact is not None
+        assert profile_fact.parameters is not None
+        for param in profile_fact.parameters:
+            assert isinstance(param, Parameter), f"Expected Parameter, got {type(param)}"
+
+    def test_enum_members_are_parameter_dataclass(self):
+        """Enum members are extracted as Parameter dataclass instances."""
+        from drift.models import Parameter
+
+        ext = TypeScriptExtractor()
+        facts = ext.extract(FIXTURE)
+
+        color_fact = next((f for f in facts if f.name == "Color"), None)
+        assert color_fact is not None
+        assert color_fact.parameters is not None
+        for param in color_fact.parameters:
+            assert isinstance(param, Parameter), f"Expected Parameter, got {type(param)}"
