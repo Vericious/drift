@@ -6,6 +6,13 @@ import json
 from rich.console import Console
 from rich.text import Text
 
+# ANSI color codes for diff output
+_ANSI_RED = "\033[31m"
+_ANSI_GREEN = "\033[32m"
+_ANSI_CYAN = "\033[36m"
+_ANSI_RESET = "\033[0m"
+_ANSI_BOLD = "\033[1m"
+
 from drift import __version__
 from drift.models import (
     ClaimKind,
@@ -388,23 +395,45 @@ h2 {{ margin-top: 1.5rem; }}
     # Diff-style output
     # -------------------------------------------------------------------------
 
-    def report_diff(self, verbose: bool = False, elapsed: float = 0.0) -> str:
+    def report_diff(
+        self, verbose: bool = False, elapsed: float = 0.0, color_mode: bool | None = None
+    ) -> str:
         """Return diff-style output showing exact changes needed.
 
-        Format:
+        Args:
+            verbose: Include verbose details.
+            elapsed: Elapsed time in seconds (unused for diff format).
+            color_mode: True=force color, False=plain text, None=auto-detect terminal.
+
+        Format (plain):
           --- docs/<file>
           +++ code/<file>
           @@ -old,+new @@
           <content>
+
+        Format (colored, when color_mode=True or auto-detected terminal):
+          \033[31m--- docs/<file>\033[0m   (red)
+          \033[32m+++ code/<file>\033[0m   (green)
+          \033[36m@@ -old,+new @@\033[0m  (cyan)
+          \033[31m- removed line\033[0m     (red)
+          \033[32m+ added line\033[0m       (green)
         """
+        # Auto-detect terminal if not specified
+        if color_mode is None:
+            color_mode = Console().is_terminal
+
         report = self.report
         output_parts: list[str] = []
 
         if not report.drift_items:
             return "No drift to display.\n"
 
-        output_parts.append("[bold cyan]Drift — Diff View[/bold cyan]")
-        output_parts.append(f"[cyan]{'=' * 50}[/cyan]")
+        if color_mode:
+            output_parts.append(f"{_ANSI_BOLD}{_ANSI_CYAN}Drift — Diff View{_ANSI_RESET}")
+            output_parts.append(f"{_ANSI_CYAN}{'=' * 50}{_ANSI_RESET}")
+        else:
+            output_parts.append("[bold cyan]Drift — Diff View[/bold cyan]")
+            output_parts.append(f"[cyan]{'=' * 50}[/cyan]")
 
         errors = [d for d in report.drift_items if d.severity == Severity.ERROR]
         warnings = [d for d in report.drift_items if d.severity == Severity.WARNING]
@@ -417,15 +446,50 @@ h2 {{ margin-top: 1.5rem; }}
         ]:
             if not items:
                 continue
-            output_parts.append(f"\n[bold {group_name} ({len(items)})[/bold {group_name}]")
+            if color_mode:
+                group_color = _ANSI_RED if group_name == "Errors" else (
+                    _ANSI_BOLD + _ANSI_RED if group_name == "Warnings" else _ANSI_CYAN
+                )
+                output_parts.append(f"\n{group_color}{_ANSI_BOLD}{group_name} ({len(items)}){_ANSI_RESET}")
+            else:
+                output_parts.append(f"\n[bold {group_name} ({len(items)})[/bold {group_name}]")
 
             for item in items:
                 diff_output = self._item_diff(item)
                 if diff_output:
+                    if color_mode:
+                        diff_output = self._colorize_diff(diff_output)
                     output_parts.append(diff_output)
                     output_parts.append("")
 
         return "\n".join(output_parts)
+
+    def _colorize_diff(self, diff_text: str) -> str:
+        """Apply ANSI color codes to diff output lines.
+
+        Colors:
+          - --- lines: red
+          - +++ lines: green
+          - @@ lines: cyan
+          - lines starting with '- ' (removal): red
+          - lines starting with '+ ' (addition): green
+        """
+        lines = diff_text.split("\n")
+        colored_lines = []
+        for line in lines:
+            if line.startswith("--- "):
+                colored_lines.append(f"{_ANSI_RED}{line}{_ANSI_RESET}")
+            elif line.startswith("+++ "):
+                colored_lines.append(f"{_ANSI_GREEN}{line}{_ANSI_RESET}")
+            elif line.startswith("@@ "):
+                colored_lines.append(f"{_ANSI_CYAN}{line}{_ANSI_RESET}")
+            elif line.startswith("- "):
+                colored_lines.append(f"{_ANSI_RED}{line}{_ANSI_RESET}")
+            elif line.startswith("+ "):
+                colored_lines.append(f"{_ANSI_GREEN}{line}{_ANSI_RESET}")
+            else:
+                colored_lines.append(line)
+        return "\n".join(colored_lines)
 
     def _item_diff(self, item: DriftItem) -> str:
         """Generate diff-style output for a single drift item."""

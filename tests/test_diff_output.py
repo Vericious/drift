@@ -184,3 +184,117 @@ class TestDiffOutputFormat:
         # Should contain unified diff format headers
         assert "---" in diff_output
         assert "+++" in diff_output
+
+
+class TestAnsiColorOutput:
+    """Test ANSI color codes in diff output."""
+
+    def test_ansi_codes_in_terminal_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When color_mode=True, output contains ANSI escape codes."""
+        from drift.reporter import DriftReporter
+        from drift.models import Severity
+
+        # Mock Console.is_terminal to return True (terminal mode)
+        import drift.reporter as reporter_module
+        class MockConsole:
+            is_terminal = True
+        monkeypatch.setattr(reporter_module, "Console", MockConsole)
+
+        item = make_drift_item(
+            category="undocumented",
+            claim_name="helper_func",
+            fact_name="helper_func",
+        )
+        # Override to have no claim (undocumented)
+        from drift.models import CodeFact, DriftItem, FactKind, Parameter
+        item2 = DriftItem(
+            fact=CodeFact(
+                name="helper_func",
+                kind=FactKind.FUNCTION,
+                source_file=Path("src/helper.py"),
+                line_number=3,
+                parameters=[Parameter(name="a", type_annotation="str", default=None, kind="positional")],
+            ),
+            claim=None,
+            severity=Severity.WARNING,
+            category="undocumented",
+            message="'helper_func' exists in code but is not documented",
+            suggestion="Add documentation for helper_func",
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item2])
+        reporter = DriftReporter(report)
+        diff_output = reporter.report_diff(color_mode=True)
+
+        # ANSI codes should be present
+        assert "\033[" in diff_output  # ANSI escape sequence
+        # Specific color codes for diff markers
+        assert "\033[31m" in diff_output  # red for --- and - lines
+        assert "\033[32m" in diff_output  # green for +++ and + lines
+        assert "\033[36m" in diff_output  # cyan for @@
+
+    def test_no_ansi_in_pipe_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When color_mode=False, output contains no ANSI escape codes."""
+        from drift.reporter import DriftReporter
+        import drift.reporter as reporter_module
+
+        # Mock Console.is_terminal to return False (pipe mode)
+        class MockConsole:
+            is_terminal = False
+        monkeypatch.setattr(reporter_module, "Console", MockConsole)
+
+        item = make_drift_item(
+            category="undocumented",
+            claim_name="helper_func",
+            fact_name="helper_func",
+        )
+        from drift.models import CodeFact, DriftItem, FactKind, Parameter, Severity
+        item2 = DriftItem(
+            fact=CodeFact(
+                name="helper_func",
+                kind=FactKind.FUNCTION,
+                source_file=Path("src/helper.py"),
+                line_number=3,
+                parameters=[Parameter(name="a", type_annotation="str", default=None, kind="positional")],
+            ),
+            claim=None,
+            severity=Severity.WARNING,
+            category="undocumented",
+            message="'helper_func' exists in code but is not documented",
+            suggestion="Add documentation for helper_func",
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item2])
+        reporter = DriftReporter(report)
+        diff_output = reporter.report_diff(color_mode=False)
+
+        # No ANSI escape sequences in pipe mode
+        assert "\033[" not in diff_output
+        # Plain text markers should still be present
+        assert "---" in diff_output
+        assert "+++" in diff_output
+
+    def test_colorize_diff_exact_codes(self) -> None:
+        """_colorize_diff applies correct ANSI codes to diff lines."""
+        from drift.reporter import DriftReporter
+        from drift.models import Severity, DriftReport
+
+        diff_text = (
+            "--- docs/api.md\n"
+            "+++ code/api.py\n"
+            "@@ -1 +1 @@\n"
+            "- def old_func():\n"
+            "+ def new_func():\n"
+            "  unchanged line\n"
+        )
+        # _colorize_diff is a method on DriftReporter; use a minimal reporter instance
+        report = DriftReport(scanned_path=Path("."), drift_items=[])
+        reporter = DriftReporter(report)
+        colored = reporter._colorize_diff(diff_text)
+
+        # Check ANSI codes are applied correctly
+        assert "\033[31m--- docs/api.md\033[0m" in colored
+        assert "\033[32m+++ code/api.py\033[0m" in colored
+        assert "\033[36m@@ -1 +1 @@\033[0m" in colored
+        assert "\033[31m- def old_func():\033[0m" in colored
+        assert "\033[32m+ def new_func():\033[0m" in colored
+        # Unchanged line should not have ANSI codes
+        assert "  unchanged line\n" in colored

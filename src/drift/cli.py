@@ -121,6 +121,12 @@ def main() -> None:
     help="After filtering with --baseline, save the current scan as the new baseline.",
 )
 @click.option(
+    "--color/--no-color",
+    "color_mode",
+    default=None,
+    help="Force colored (ANSI) or plain text diff output. Default: auto-detect terminal.",
+)
+@click.option(
     "--diff",
     "diff_ref",
     type=str,
@@ -164,6 +170,7 @@ def scan(
     clear_cache: bool,
     baseline: bool,
     update_baseline: bool,
+    color_mode: bool | None,
     diff_ref: str | None,
     diff_branch: str | None,
     extractors: tuple[str, ...],
@@ -244,6 +251,7 @@ def scan(
                         baseline=baseline,
                         diff_ref=diff_ref,
                         extractors=extractors,
+                        color_mode=color_mode,
                     )
                 time.sleep(2)
             except KeyboardInterrupt:
@@ -392,7 +400,7 @@ def scan(
         output_content = reporter.report_html(verbose=verbose, elapsed=elapsed)
         click.echo(output_content)
     elif output_format == "diff":
-        output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed)
+        output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed, color_mode=color_mode)
         click.echo(output_content)
     else:
         # For text output, capture to file without Rich formatting
@@ -999,6 +1007,7 @@ def _run_watch_scan(
     baseline: bool,
     diff_ref: str | None,
     extractors: tuple[str, ...],
+    color_mode: bool | None,
 ) -> None:
     """Run a single scan pass, reusing the core logic from the scan command."""
     import time
@@ -1083,7 +1092,7 @@ def _run_watch_scan(
     elif output_format == "html":
         output_content = reporter.report_html(verbose=verbose, elapsed=elapsed)
     elif output_format == "diff":
-        output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed)
+        output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed, color_mode=color_mode)
     else:
         import io
         from rich.console import Console
