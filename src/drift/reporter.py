@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 
 from rich.console import Console
 from rich.text import Text
@@ -15,6 +16,12 @@ from drift.models import (
     DriftReport,
     Severity,
 )
+
+# ANSI color codes for diff output
+ANSI_RED = "\033[31m"
+ANSI_GREEN = "\033[32m"
+ANSI_CYAN = "\033[36m"
+ANSI_RESET = "\033[0m"
 
 
 def _severity_to_sarif_level(severity: Severity) -> str:
@@ -388,7 +395,21 @@ h2 {{ margin-top: 1.5rem; }}
     # Diff-style output
     # -------------------------------------------------------------------------
 
-    def report_diff(self, verbose: bool = False, elapsed: float = 0.0) -> str:
+    def _colorize_diff_line(self, line: str) -> str:
+        """Apply ANSI color codes to a single diff line."""
+        if line.startswith("--- "):
+            return f"{ANSI_RED}{line}{ANSI_RESET}"
+        elif line.startswith("+++ "):
+            return f"{ANSI_GREEN}{line}{ANSI_RESET}"
+        elif line.startswith("@@"):
+            return f"{ANSI_CYAN}{line}{ANSI_RESET}"
+        elif line.startswith("-"):
+            return f"{ANSI_RED}{line}{ANSI_RESET}"
+        elif line.startswith("+"):
+            return f"{ANSI_GREEN}{line}{ANSI_RESET}"
+        return line
+
+    def report_diff(self, verbose: bool = False, elapsed: float = 0.0, color: bool | None = None, patch: bool = False) -> str:
         """Return diff-style output showing exact changes needed.
 
         Format:
@@ -396,15 +417,32 @@ h2 {{ margin-top: 1.5rem; }}
           +++ code/<file>
           @@ -old,+new @@
           <content>
+
+        When patch=True, produces unified diff format suitable for `git apply`.
+
+        Args:
+            color: If None, auto-detect from terminal. If True, force ANSI colors.
+                   If False, output plain text without ANSI codes.
+            patch: If True, produce unified patch format for fixable categories.
         """
+        if color is None:
+            color = sys.stdout.isatty()
+
+        if patch:
+            return self._report_diff_patch(color)
+
         report = self.report
         output_parts: list[str] = []
 
         if not report.drift_items:
             return "No drift to display.\n"
 
-        output_parts.append("Drift — Diff View")
-        output_parts.append(f"{'=' * 50}")
+        if color:
+            output_parts.append("[bold cyan]Drift — Diff View[/bold cyan]")
+            output_parts.append(f"[cyan]{'=' * 50}[/cyan]")
+        else:
+            output_parts.append("Drift — Diff View")
+            output_parts.append(f"{'=' * 50}")
 
         errors = [d for d in report.drift_items if d.severity == Severity.ERROR]
         warnings = [d for d in report.drift_items if d.severity == Severity.WARNING]
@@ -417,18 +455,23 @@ h2 {{ margin-top: 1.5rem; }}
         ]:
             if not items:
                 continue
-            output_parts.append(f"\n{group_name} ({len(items)})")
+            if color:
+                output_parts.append(f"\n[bold {group_name} ({len(items)})[/bold {group_name}]")
+            else:
+                output_parts.append(f"\n{group_name} ({len(items)})")
 
             for item in items:
-                diff_output = self._item_diff(item)
-                if diff_output:
-                    output_parts.append(diff_output)
+                diff_lines = self._item_diff(item)
+                if diff_lines:
+                    if color:
+                        diff_lines = [self._colorize_diff_line(line) for line in diff_lines]
+                    output_parts.append("\n".join(diff_lines))
                     output_parts.append("")
 
         return "\n".join(output_parts)
 
-    def _item_diff(self, item: DriftItem) -> str:
-        """Generate diff-style output for a single drift item."""
+    def _item_diff(self, item: DriftItem) -> list[str]:
+        """Generate diff-style output for a single drift item (as list of lines)."""
         lines: list[str] = []
 
         if item.category == "documented_but_missing":
@@ -444,7 +487,7 @@ h2 {{ margin-top: 1.5rem; }}
         else:
             lines = self._diff_generic(item)
 
-        return "\n".join(lines)
+        return lines
 
     def _diff_documented_but_missing(self, item: DriftItem) -> list[str]:
         """Diff for documented_but_missing: show claim vs 'not found in code'."""
@@ -582,6 +625,145 @@ h2 {{ margin-top: 1.5rem; }}
             lines.append(f"    Suggestion: {item.suggestion}")
 
         return lines
+
+    # -------------------------------------------------------------------------
+    # Patch-style output (unified diff format for git apply)
+    # -------------------------------------------------------------------------
+
+    _PATCH_FIXABLE = {"documented_but_missing", "parameter_mismatch", "fuzzy_renamed"}
+
+    def _report_diff_patch(self, color: bool) -> str:
+        """Produce unified patch format for fixable drift categories."""
+        output_parts: list[str] = []
+
+        for item in self.report.drift_items:
+            if item.category not in self._PATCH_FIXABLE:
+                output_parts.append(f"# Skipped: {item.category} (not directly patchable)")
+                output_parts.append(f"# {item.message}")
+                output_parts.append("")
+                continue
+
+            patch_text = self._item_diff_patch(item)
+            if patch_text:
+                if color:
+                    patch_text = self._colorize_diff_block(patch_text)
+                output_parts.append(patch_text)
+                output_parts.append("")
+
+        if not output_parts:
+            return "No patchable drift to display.\n"
+
+        return "\n".join(output_parts)
+
+    def _item_diff_patch(self, item: DriftItem) -> str:
+        """Generate unified patch for a single drift item."""
+        claim = item.claim
+        fact = item.fact
+
+        if item.category == "documented_but_missing":
+            new_path = str(fact.source_file) if fact else None
+            old_path = str(claim.doc_file) if claim else None
+            lines = self._diff_documented_but_missing_patch(item)
+        elif item.category == "parameter_mismatch":
+            new_path = str(claim.doc_file) if claim else None
+            old_path = new_path
+            lines = self._diff_parameter_mismatch_patch(item)
+        elif item.category == "fuzzy_renamed":
+            new_path = str(fact.source_file) if fact else None
+            old_path = str(claim.doc_file) if claim else None
+            lines = self._diff_renamed_patch(item)
+        else:
+            lines = ""
+
+        if not lines or not new_path:
+            return ""
+
+        header = f"diff --git a/{new_path} b/{new_path}"
+        old_header = f"--- a/{old_path}" if old_path else f"--- a/{new_path}"
+        new_header = f"+++ b/{new_path}"
+
+        return "\n".join([header, old_header, new_header, lines])
+
+    def _diff_documented_but_missing_patch(self, item: DriftItem) -> str:
+        """Generate patch lines for documented_but_missing (missing code)."""
+        lines: list[str] = []
+        claim = item.claim
+        fact = item.fact
+
+        fact_name = fact.name if fact else claim.name if claim else "?"
+        doc_file = str(claim.doc_file) if claim else "?"
+
+        lines.append("@@ -0,0 +1,? @@")
+        lines.append(f"+ # MISSING: {fact_name} not found in code")
+        lines.append(f"+ # Documented in: {doc_file}")
+        if claim:
+            sig = self._claim_signature_str(claim)
+            lines.append(f"+ def {sig}:")
+            if claim.raw_text:
+                for doc_line in claim.raw_text.split("\n"):
+                    lines.append(f"+ {doc_line}")
+        if item.suggestion:
+            lines.append(f"+ # Suggestion: {item.suggestion}")
+
+        return "\n".join(lines)
+
+    def _diff_parameter_mismatch_patch(self, item: DriftItem) -> str:
+        """Generate patch lines for parameter_mismatch (wrong docs)."""
+        lines: list[str] = []
+        claim = item.claim
+        fact = item.fact
+
+        claim_line = claim.line_number if claim else 1
+        hunk_start = max(1, claim_line - 1)
+
+        lines.append(f"@@ -{hunk_start},{hunk_start + 2} +{hunk_start},{hunk_start + 2} @@")
+        if claim:
+            lines.append(f"- {self._claim_signature_str(claim)}")
+        if fact:
+            lines.append(f"+ {fact.signature_str()}")
+        if item.suggestion:
+            lines.append(f"+ # Suggestion: {item.suggestion}")
+
+        return "\n".join(lines)
+
+    def _diff_renamed_patch(self, item: DriftItem) -> str:
+        """Generate patch lines for fuzzy_renamed (name change)."""
+        lines: list[str] = []
+        claim = item.claim
+        fact = item.fact
+
+        claim_name = claim.name if claim else "?"
+        fact_name = fact.name if fact else claim_name
+        claim_line = claim.line_number if claim else 1
+        hunk_start = max(1, claim_line - 1)
+
+        lines.append(f"@@ -{hunk_start},{hunk_start + 1} +{hunk_start},{hunk_start + 1} @@")
+        lines.append(f"- def {claim_name}(...):")
+        lines.append(f"+ def {fact_name}(...):")
+        if item.suggestion:
+            lines.append(f"+ # Suggestion: {item.suggestion}")
+
+        return "\n".join(lines)
+
+    def _colorize_diff_block(self, block: str) -> str:
+        """Apply ANSI colors to a complete diff block (for patch mode)."""
+        colored_lines = []
+        for line in block.split("\n"):
+            if line.startswith("diff --git"):
+                colored_lines.append(f"{ANSI_CYAN}{line}{ANSI_RESET}")
+            elif line.startswith("--- "):
+                colored_lines.append(f"{ANSI_RED}{line}{ANSI_RESET}")
+            elif line.startswith("+++ "):
+                colored_lines.append(f"{ANSI_GREEN}{line}{ANSI_RESET}")
+            elif line.startswith("@@"):
+                colored_lines.append(f"{ANSI_CYAN}{line}{ANSI_RESET}")
+            elif line.startswith("-"):
+                colored_lines.append(f"{ANSI_RED}{line}{ANSI_RESET}")
+            elif line.startswith("+"):
+                colored_lines.append(f"{ANSI_GREEN}{line}{ANSI_RESET}")
+            else:
+                colored_lines.append(line)
+        return "\n".join(colored_lines)
 
 
 def _escape(s: str) -> str:
