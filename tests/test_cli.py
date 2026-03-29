@@ -488,3 +488,86 @@ class TestCheckCommand:
         md_file.write_text("old_func()\n")  # exact match, no drift
         result = cli_runner.invoke(main, ["check", "--fail-on", "error", str(tmp_path)])
         assert result.exit_code == 0
+
+
+class TestBaselineDiffCommand:
+    """Tests for `drift baseline diff` subcommand."""
+
+    def _create_project_with_drift(self, tmp_path: Path) -> None:
+        """Create a project with some drift items for baseline testing."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def old_func(x: int) -> str:\n"
+            "    '''Old documented function.'''\n"
+            "    return str(x)\n"
+            "\n"
+            "def new_func(x: int) -> str:\n"
+            "    '''New undocumented function.'''\n"
+            "    return str(x)\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## old_func\n"
+            "\n"
+            "```python\n"
+            "def old_func(x: int) -> str\n"
+            "```\n"
+            "\n"
+            "## fake_func\n"
+            "\n"
+            "```python\n"
+            "def fake_func(x: int) -> str\n"
+            "```\n"
+        )
+
+    def test_baseline_diff_console_format(self, cli_runner, tmp_path):
+        """`drift baseline diff` shows new/resolved/unchanged counts in console format."""
+        # Create initial project and baseline
+        self._create_project_with_drift(tmp_path)
+        result = cli_runner.invoke(main, ["baseline", str(tmp_path)])
+        assert result.exit_code == 0
+
+        # Run baseline diff
+        result = cli_runner.invoke(main, ["baseline-diff", str(tmp_path)])
+        assert result.exit_code == 0
+        # Should show the format with +, -, = prefixes
+        assert "+ " in result.output or "new drift" in result.output
+        assert "- " in result.output or "resolved" in result.output
+        assert "=" in result.output or "unchanged" in result.output
+        assert "Baseline from:" in result.output
+
+    def test_baseline_diff_json_flag(self, cli_runner, tmp_path):
+        """`drift baseline-diff --json` outputs valid JSON with new/resolved/unchanged keys."""
+        # Create initial project and baseline
+        self._create_project_with_drift(tmp_path)
+        result = cli_runner.invoke(main, ["baseline", str(tmp_path)])
+        assert result.exit_code == 0
+
+        # Run baseline diff with --json
+        result = cli_runner.invoke(main, ["baseline-diff", "--json", str(tmp_path)])
+        assert result.exit_code == 0
+        import json
+
+        data = json.loads(result.output)
+        assert "new" in data
+        assert "resolved" in data
+        assert "unchanged" in data
+        assert "baseline_created_at" in data
+        assert isinstance(data["new"], int)
+        assert isinstance(data["resolved"], int)
+        assert isinstance(data["unchanged"], int)
+
+    def test_baseline_diff_empty_message(self, cli_runner, tmp_path):
+        """`drift baseline-diff` handles empty baseline gracefully (no crash)."""
+        # Create a project but no baseline yet
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def func(): pass\n")
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("func()\n")
+
+        # Run baseline diff without creating baseline first
+        result = cli_runner.invoke(main, ["baseline-diff", str(tmp_path)])
+        assert result.exit_code != 0
+        assert "No baseline found" in result.output

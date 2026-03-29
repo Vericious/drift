@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 
 from drift import __version__
-from drift.baseline import filter_new_drift, load_baseline, save_baseline
+from drift.baseline import filter_new_drift, filter_resolved_drift, load_baseline, save_baseline
 from drift.config import load_config
 from drift.git_utils import get_changed_files, get_merge_base, is_git_repo, ref_exists
 from drift.models import CodeFact, DocClaim, DriftItem, DriftReport
@@ -924,6 +924,106 @@ def baseline(path: str, update: bool) -> None:
         click.echo(f"Created baseline: {baseline_path}")
     click.echo(f"  {len(report.drift_items)} drift item(s) snapshot")
     click.echo(f"  Run 'drift scan --baseline' to compare against this snapshot.")
+
+
+@main.command()
+@click.argument("path", type=click.Path(exists=True), default=".")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
+@click.option("--verbose", "-V", is_flag=True, help="Show detailed output including new and resolved items.")
+def baseline_diff(path: str, output_json: bool, verbose: bool) -> None:
+    """Compare current drift state against the baseline snapshot.
+
+    Shows drift items that are NEW (not in baseline), RESOLVED (in baseline but
+    not in current scan), and UNCHANGED (in both).
+
+    Use 'drift baseline' first to create a baseline snapshot.
+    """
+    import time
+
+    from drift.config import load_config
+
+    start = time.monotonic()
+    scan_path = Path(path)
+
+    # Load config (silently ignore if not found)
+    try:
+        load_config()
+    except (FileNotFoundError, ValueError):
+        pass
+
+    # Run fresh scan
+    scanner = DriftScanner(scan_path, strict=False)
+    report = scanner.scan()
+
+    # Load baseline
+    loaded = load_baseline(scan_path)
+    if loaded is None:
+        raise click.ClickException("No baseline found. Run 'drift baseline' first.")
+
+    created_at, baseline_items = loaded
+
+    # Compute resolved (in baseline but not in current)
+    resolved = filter_resolved_drift(report.drift_items, baseline_items)
+
+    # Compute new (in current but not in baseline)
+    new_items = filter_new_drift(report.drift_items, baseline_items)
+
+    # Compute unchanged (in both)
+    baseline_sigs = {
+        (
+            item.get("fact", {}).get("name") if item.get("fact") else None,
+            item.get("claim", {}).get("name") if item.get("claim") else None,
+            item.get("category", ""),
+        )
+        for item in baseline_items
+    }
+    current_sigs = {
+        (item.fact.name if item.fact else None, item.claim.name if item.claim else None, item.category)
+        for item in report.drift_items
+    }
+    unchanged_sigs = baseline_sigs & current_sigs
+    unchanged_count = len(unchanged_sigs)
+
+    elapsed = time.monotonic() - start
+
+    if output_json:
+        import json
+        result = {
+            "new": len(new_items),
+            "resolved": len(resolved),
+            "unchanged": unchanged_count,
+            "baseline_created_at": created_at,
+            "elapsed_seconds": round(elapsed, 2),
+        }
+        if verbose:
+            result["new_items"] = [
+                {"fact": item.fact.name if item.fact else None, "claim": item.claim.name if item.claim else None, "category": item.category}
+                for item in new_items
+            ]
+            result["resolved_items"] = resolved
+        click.echo(json.dumps(result, indent=2))
+    else:
+        click.echo(f"Baseline from: {created_at}")
+        click.echo()
+        click.echo(f"+ {len(new_items)} new drift item(s)")
+        click.echo(f"- {len(resolved)} resolved drift item(s)")
+        click.echo(f"= {unchanged_count} unchanged")
+
+        if verbose:
+            if new_items:
+                click.echo()
+                click.echo("New drift items:")
+                for item in new_items:
+                    fact_name = item.fact.name if item.fact else "(none)"
+                    claim_name = item.claim.name if item.claim else "(none)"
+                    click.echo(f"  [{item.category}] {fact_name} / {claim_name}")
+            if resolved:
+                click.echo()
+                click.echo("Resolved drift items:")
+                for item in resolved:
+                    fact = item.get("fact", {})
+                    claim = item.get("claim", {})
+                    click.echo(f"  [{item.get('category', '')}] {fact.get('name', '(none)')} / {claim.get('name', '(none)')}")
 
 
 def _filter_by_severity(items: list[DriftItem], min_severity: str) -> list[DriftItem]:
