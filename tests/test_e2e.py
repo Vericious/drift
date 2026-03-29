@@ -516,3 +516,120 @@ class TestConfigFileDrift:
         assert any(c.name == "database.port" for c in config_claims), (
             f"Expected database.port claim, got: {[c.name for c in config_claims]}"
         )
+
+
+class TestUpdateBaseline:
+    """Tests for the --update-baseline flag on drift scan."""
+
+    def test_update_baseline_requires_baseline_flag(self, tmp_path: Path) -> None:
+        """--update-baseline without --baseline exits with error."""
+        # Create a minimal project
+        py_file = tmp_path / "src.py"
+        py_file.write_text("def foo(x: int) -> str:\n    return str(x)\n")
+        md_file = tmp_path / "README.md"
+        md_file.write_text("```python\ndef foo(x: int) -> str\n```\n")
+
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path), "--update-baseline"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode != 0, (
+            f"Expected non-zero exit when --update-baseline used without --baseline, "
+            f"got {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        assert "--update-baseline requires --baseline" in result.stderr
+
+    def test_update_baseline_saves_file(self, tmp_path: Path) -> None:
+        """--baseline --update-baseline saves a new baseline file after filtering."""
+        # Create a minimal project with some drift
+        py_file = tmp_path / "src.py"
+        py_file.write_text(
+            "def old_func(x: int) -> None:\n"
+            "    '''Documented.'''\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API\n\n"
+            "## old_func\n\n"
+            "```python\n"
+            "def old_func(x: int) -> None\n"
+            "```\n"
+        )
+
+        # First, create an initial baseline
+        result = subprocess.run(
+            DRIFT_CMD + ["baseline", str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"baseline creation failed: {result.stderr}"
+
+        baseline_path = tmp_path / ".drift" / "baseline.json"
+        assert baseline_path.exists()
+
+        # Get the original baseline mtime
+        original_mtime = baseline_path.stat().st_mtime
+
+        import time
+        time.sleep(0.01)
+
+        # Now run scan with --baseline --update-baseline
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path), "--baseline", "--update-baseline"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, (
+            f"scan --baseline --update-baseline failed: {result.stderr}\n"
+            f"stdout: {result.stdout}"
+        )
+        assert baseline_path.exists()
+        # The baseline file should have been updated (mtime changed or content changed)
+        assert "Baseline updated:" in result.stdout
+
+    def test_update_baseline_prints_item_count(self, tmp_path: Path) -> None:
+        """--baseline --update-baseline prints 'Baseline updated: N items'."""
+        # Create a minimal project with drift
+        py_file = tmp_path / "src.py"
+        py_file.write_text(
+            "def my_func(a: int, b: str) -> bool:\n"
+            "    '''Docstring.'''\n"
+            "    return True\n"
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text(
+            "# API\n\n"
+            "## my_func\n\n"
+            "```python\n"
+            "def my_func(a: int, b: str) -> bool\n"
+            "```\n"
+        )
+
+        # Create initial baseline
+        subprocess.run(
+            DRIFT_CMD + ["baseline", str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+
+        # Run scan with --baseline --update-baseline
+        result = subprocess.run(
+            DRIFT_CMD + ["scan", str(tmp_path), "--baseline", "--update-baseline"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "Baseline updated:" in result.stdout
+        # Should print item count (the number of items in the baseline)
+        import re
+        match = re.search(r"Baseline updated: (\d+) items", result.stdout)
+        assert match is not None, (
+            f"Expected 'Baseline updated: N items' in output, got: {result.stdout}"
+        )
+        item_count = int(match.group(1))
+        assert item_count >= 0
