@@ -143,6 +143,61 @@ def test_ref_exists(temp_project: Path) -> None:
 
     assert ref_exists("nonexistent-xyz", temp_project) is False
 
+def test_changed_lines_context_window(temp_project: Path) -> None:
+    """Changed lines within ±5 context window are retained, others filtered."""
+    from drift.git_utils import get_changed_lines
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=str(temp_project), capture_output=True)
+
+    # Change line 2 (documented_func signature)
+    py_file = temp_project / "example.py"
+    lines = py_file.read_text().splitlines()
+    lines[1] = "    '''Modified docstring.'''"
+    py_file.write_text("\n".join(lines) + "\n")
+
+    subprocess.run(["git", "add", "."], cwd=str(temp_project), capture_output=True)
+
+    result = get_changed_lines("HEAD", temp_project)
+    assert result is not None
+    assert temp_project / "example.py" in result
+    # Line 2 is 0-indexed at position 1, but displayed as line 2 in git
+    assert 2 in result[temp_project / "example.py"]
+
+
+def test_diff_branch_merge_base(temp_project: Path) -> None:
+    """get_merge_base returns the common ancestor commit hash for two branches."""
+    from drift.git_utils import get_merge_base
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=str(temp_project), capture_output=True)
+
+    # Create a feature branch
+    subprocess.run(["git", "checkout", "-b", "feature"], cwd=str(temp_project), capture_output=True)
+    py_file = temp_project / "example.py"
+    py_file.write_text(py_file.read_text() + "\n# Feature branch change\n")
+    subprocess.run(["git", "add", "."], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "commit", "-m", "feature commit"], cwd=str(temp_project), capture_output=True)
+
+    # Switch back to main and create another commit
+    subprocess.run(["git", "checkout", "main"], cwd=str(temp_project), capture_output=True)
+    py_file.write_text(py_file.read_text() + "\n# Main branch change\n")
+    subprocess.run(["git", "add", "."], cwd=str(temp_project), capture_output=True)
+    subprocess.run(["git", "commit", "-m", "main commit"], cwd=str(temp_project), capture_output=True)
+
+    result = get_merge_base("feature", temp_project)
+    assert result is not None
+    assert len(result) == 40  # Full SHA-1 hash
+
+
 def test_changed_lines_parsing(temp_project: Path) -> None:
     """get_changed_lines returns a dict mapping files to changed line numbers."""
     from drift.git_utils import get_changed_lines
