@@ -1,10 +1,13 @@
 """Baseline management — snapshot and compare drift state."""
 
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 from drift.models import CodeFact, DocClaim, DriftItem, DriftReport
+
+BASELINE_MAX_AGE_DAYS = 30
 
 
 BASELINE_FILENAME = Path(".drift") / "baseline.json"
@@ -60,6 +63,28 @@ def load_baseline(base_path: Path | None = None) -> tuple[str, list[dict]] | Non
         return data["created_at"], data["items"]
     except (json.JSONDecodeError, KeyError, OSError):
         return None
+
+
+def check_baseline_age(created_at: str) -> None:
+    """Print a warning to stderr if the baseline is older than BASELINE_MAX_AGE_DAYS.
+
+    Does not block execution.
+    """
+    try:
+        baseline_dt = datetime.fromisoformat(created_at).astimezone(timezone.utc)
+    except (ValueError, TypeError):
+        return
+
+    age = datetime.now(timezone.utc) - baseline_dt
+    age_days = age.days
+
+    if age_days > BASELINE_MAX_AGE_DAYS:
+        date_str = baseline_dt.strftime("%Y-%m-%d")
+        print(
+            f"⚠ Baseline is {age_days} days old (created {date_str}). "
+            f"Consider running drift baseline --update",
+            file=sys.stderr,
+        )
 
 
 def filter_resolved_drift(

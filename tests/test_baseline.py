@@ -44,6 +44,8 @@ def temp_project(tmp_path: Path) -> Path:
 
 from drift.baseline import (
     BASELINE_FILENAME,
+    BASELINE_MAX_AGE_DAYS,
+    check_baseline_age,
     filter_new_drift,
     filter_resolved_drift,
     load_baseline,
@@ -282,3 +284,88 @@ def test_empty_baseline_returns_empty(temp_project: Path) -> None:
     report = scanner.scan()
     resolved = filter_resolved_drift(list(report.drift_items), [])
     assert resolved == []
+
+
+def test_age_warning_triggered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Warning is printed when baseline is older than 30 days."""
+    from datetime import datetime, timedelta, timezone
+    import io
+    import sys
+    from drift import baseline as baseline_module
+
+    # Mock datetime.now() to return a date 31 days after the baseline
+    baseline_date = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    future_date = baseline_date + timedelta(days=31)
+
+    class MockDatetime(baseline_module.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return future_date
+
+    monkeypatch.setattr(baseline_module, "datetime", MockDatetime)
+
+    captured_stderr = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", captured_stderr)
+
+    created_at = baseline_date.isoformat()
+    check_baseline_age(created_at)
+
+    warning = captured_stderr.getvalue()
+    assert "⚠ Baseline is 31 days old (created 2024-01-01)" in warning
+    assert "Consider running drift baseline --update" in warning
+
+
+def test_age_no_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No warning is printed when baseline is younger than 30 days."""
+    from datetime import datetime, timedelta, timezone
+    import io
+    import sys
+    from drift import baseline as baseline_module
+
+    # Mock datetime.now() to return a date 29 days after the baseline
+    baseline_date = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    future_date = baseline_date + timedelta(days=29)
+
+    class MockDatetime(baseline_module.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return future_date
+
+    monkeypatch.setattr(baseline_module, "datetime", MockDatetime)
+
+    captured_stderr = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", captured_stderr)
+
+    created_at = baseline_date.isoformat()
+    check_baseline_age(created_at)
+
+    assert captured_stderr.getvalue() == ""
+
+
+def test_age_warning_exact_message_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Warning message exactly matches the specified format."""
+    from datetime import datetime, timedelta, timezone
+    import io
+    import sys
+    from drift import baseline as baseline_module
+
+    baseline_date = datetime(2024, 6, 15, 0, 0, 0, tzinfo=timezone.utc)
+    future_date = baseline_date + timedelta(days=45)
+
+    class MockDatetime(baseline_module.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return future_date
+
+    monkeypatch.setattr(baseline_module, "datetime", MockDatetime)
+
+    captured_stderr = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", captured_stderr)
+
+    check_baseline_age(baseline_date.isoformat())
+
+    expected = (
+        f"⚠ Baseline is 45 days old (created 2024-06-15). "
+        f"Consider running drift baseline --update\n"
+    )
+    assert captured_stderr.getvalue() == expected

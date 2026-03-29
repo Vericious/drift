@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 
 from drift import __version__
-from drift.baseline import filter_new_drift, load_baseline, save_baseline
+from drift.baseline import check_baseline_age, filter_new_drift, load_baseline, save_baseline
 from drift.config import load_config
 from drift.git_utils import get_changed_files, get_merge_base, is_git_repo, ref_exists
 from drift.models import CodeFact, DocClaim, DriftItem, DriftReport
@@ -343,6 +343,7 @@ def scan(
                 "No baseline found. Run 'drift baseline' first to create one."
             )
         created_at, baseline_items = loaded
+        check_baseline_age(created_at)
         original_count = len(report.drift_items)
         report.drift_items = filter_new_drift(report.drift_items, baseline_items)
         baseline_info = f" (filtered: {len(report.drift_items)} new / {original_count} total vs baseline from {created_at[:10]})"
@@ -1062,6 +1063,7 @@ def _run_watch_scan(
         if loaded is None:
             raise click.ClickException("No baseline found. Run 'drift baseline' first.")
         created_at, baseline_items = loaded
+        check_baseline_age(created_at)
         report.drift_items = filter_new_drift(report.drift_items, baseline_items)
 
     elapsed = time.monotonic() - start
