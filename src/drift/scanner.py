@@ -29,6 +29,7 @@ class DriftScanner:
         no_cache: bool = False,
         clear_cache: bool = False,
         changed_files: list[Path] | None = None,
+        changed_lines: dict[Path, set[int]] | None = None,
         extractors_enabled: list[str] | None = None,
         extractors_disabled: list[str] | None = None,
     ) -> None:
@@ -41,6 +42,7 @@ class DriftScanner:
         self.no_cache = no_cache or parallel
         self.clear_cache = clear_cache
         self.changed_files = changed_files  # If set, only scan these files
+        self.changed_lines = changed_lines  # If set, filter facts/claims to ±5 context window
         # Per-extractor enable/disable: None/[] = run all; list = only run these
         self._extractors_enabled = extractors_enabled
         self._extractors_disabled = extractors_disabled or []
@@ -234,6 +236,40 @@ class DriftScanner:
             self._mark_cached(f)
         return changed
 
+    def _filter_content_aware(
+        self,
+        facts: list[CodeFact],
+        claims: list[DocClaim],
+    ) -> tuple[list[CodeFact], list[DocClaim]]:
+        """Filter facts/claims to those within ±5 lines of any changed line.
+
+        This prevents noise from unchanged functions in large files when using
+        content-aware diff scanning.
+        """
+        CONTEXT_WINDOW = 5
+        filtered_facts: list[CodeFact] = []
+        filtered_claims: list[DocClaim] = []
+
+        for fact in facts:
+            changed_lines_for_file = self.changed_lines.get(fact.source_file.resolve(), set())
+            # Check if fact.line_number is within ±CONTEXT_WINDOW of any changed line
+            if any(
+                abs(fact.line_number - cl) <= CONTEXT_WINDOW
+                for cl in changed_lines_for_file
+            ):
+                filtered_facts.append(fact)
+
+        for claim in claims:
+            changed_lines_for_file = self.changed_lines.get(claim.doc_file.resolve(), set())
+            # Check if claim.line_number is within ±CONTEXT_WINDOW of any changed line
+            if any(
+                abs(claim.line_number - cl) <= CONTEXT_WINDOW
+                for cl in changed_lines_for_file
+            ):
+                filtered_claims.append(claim)
+
+        return filtered_facts, filtered_claims
+
     def _extract_py(
         self, py_file: Path
     ) -> tuple[list[CodeFact], list[DocClaim], list[str]]:
@@ -366,6 +402,12 @@ class DriftScanner:
         else:
             all_facts, all_claims, errors = self._serial_scan(
                 py_files, md_files, config_files, js_files
+            )
+
+        # Filter to content-aware changed lines if --diff was used with changed_lines
+        if self.changed_lines is not None:
+            all_facts, all_claims = self._filter_content_aware(
+                all_facts, all_claims
             )
 
         # Match facts against claims

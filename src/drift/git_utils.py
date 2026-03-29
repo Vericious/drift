@@ -124,3 +124,27 @@ def ref_exists(ref: str, path: Path) -> bool:
         return result.returncode == 0
     except (subprocess.TimeoutExpired, OSError):
         return False
+
+
+def get_merge_base(branch: str, path: Path) -> str | None:
+    """Get the merge-base commit between branch and HEAD.
+
+    Returns None if:
+    - Not in a git repo
+    - branch is invalid or doesn't exist
+    - No common ancestor found
+    - git command fails for any reason
+    """
+    try:
+        result = subprocess.run(
+            ["git", "merge-base", branch, "HEAD"],
+            cwd=str(path),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip()
+    except (subprocess.TimeoutExpired, OSError):
+        return None
