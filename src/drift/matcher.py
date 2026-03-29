@@ -81,57 +81,65 @@ class SignatureMatcher:
         union = len(set1 | set2)
         return intersection / union if union > 0 else 0.0
 
+    def _compute_type_match_fraction(
+        self, fact: CodeFact, claim: DocClaim
+    ) -> float:
+        """Compute fraction of parameters where types match."""
+        fact_params = {p.name: p for p in fact.parameters}
+        claim_params = {p.name: p for p in claim.parameters}
+        common_names = set(fact_params.keys()) & set(claim_params.keys())
+        if not common_names:
+            return 0.0
+        matches = sum(
+            1
+            for name in common_names
+            if fact_params[name].type_annotation == claim_params[name].type_annotation
+        )
+        return matches / len(common_names)
+
+    def _same_directory(self, fact: CodeFact, claim: DocClaim) -> bool:
+        """Return True if fact and claim are in the same directory."""
+        fact_dir = fact.source_file.parent
+        claim_dir = claim.doc_file.parent
+        return fact_dir == claim_dir
+
     def _compute_fuzzy_signals(
-        self, fact: CodeFact, claim: DocClaim, name_ratio: float
+        self, fact: CodeFact, claim: DocClaim
     ) -> ConfidenceSignals:
         """Compute signals for a fuzzy_renamed match."""
-        # Name similarity from SequenceMatcher ratio
-        name_sim = name_ratio
+        # name_similarity: SequenceMatcher.ratio on normalized names
+        name_sim = difflib.SequenceMatcher(None, fact.name, claim.name).ratio()
 
-        # Parameter overlap (Jaccard of parameter names)
+        # param_overlap: Jaccard of param names
         fact_param_names = {p.name for p in fact.parameters}
         claim_param_names = {p.name for p in claim.parameters}
         param_overlap = self._jaccard(fact_param_names, claim_param_names)
 
-        # Type match fraction
-        if fact.parameters and claim.parameters:
-            fact_types = {p.name: p.type_annotation for p in fact.parameters}
-            claim_types = {p.name: p.type_annotation for p in claim.parameters}
-            common_names = set(fact_types) & set(claim_types)
-            if common_names:
-                type_matches = sum(
-                    1 for n in common_names if fact_types[n] == claim_types[n]
-                )
-                type_match = type_matches / len(common_names)
-            else:
-                type_match = 0.0
-        else:
-            type_match = 0.0
+        # type_match: fraction of params where types match
+        type_match = self._compute_type_match_fraction(fact, claim)
 
-        # Location proximity: 1.0 if same directory, 0.5 otherwise
-        fact_dir = fact.source_file.parent if fact.source_file else Path(".")
-        claim_dir = claim.doc_file.parent if claim.doc_file else Path(".")
-        location_prox = 1.0 if fact_dir == claim_dir else 0.5
+        # location_proximity: 1.0 if same directory, else 0.5
+        location_prox = 1.0 if self._same_directory(fact, claim) else 0.5
 
         signals = ConfidenceSignals(
-            name_similarity=name_sim,
-            param_overlap=param_overlap,
-            type_match=type_match,
+            name_similarity=round(name_sim, 3),
+            param_overlap=round(param_overlap, 3),
+            type_match=round(type_match, 3),
             location_proximity=location_prox,
             context_match=0.0,
         )
         return signals
 
-    def _compute_exact_signals(self, fact: CodeFact, claim: DocClaim) -> ConfidenceSignals:
-        """Compute signals for exact-with-drift match (param/return type mismatches).
+    def _compute_exact_drift_signals(
+        self, fact: CodeFact, claim: DocClaim
+    ) -> ConfidenceSignals:
+        """Compute signals for an exact-with-drift match (name matches, params differ).
 
         For exact name matches with minor drift, set high signals to reflect
-        the strong match confidence (original behavior: confidence=1.0).
+        the strong match confidence (confidence=1.0 for same directory).
         """
         # Location proximity: 1.0 if same directory, 0.5 otherwise
-        fact_dir = fact.source_file.parent if fact.source_file else Path(".")
-        claim_dir = claim.doc_file.parent if claim.doc_file else Path(".")
-        location_prox = 1.0 if fact_dir == claim_dir else 0.5
+        location_prox = 1.0 if self._same_directory(fact, claim) else 0.5
 
         signals = ConfidenceSignals(
             name_similarity=1.0,
@@ -143,7 +151,7 @@ class SignatureMatcher:
         return signals
 
     def _compute_missing_signals(self) -> ConfidenceSignals:
-        """Compute signals for documented_but_missing (no fact found)."""
+        """Compute signals for documented_but_missing (all zeros)."""
         return ConfidenceSignals(
             name_similarity=0.0,
             param_overlap=0.0,
@@ -228,10 +236,7 @@ class SignatureMatcher:
                 if fuzzy_match:
                     fuzzy_fact, confidence = fuzzy_match
                     matched_fact_names.add(fuzzy_fact.name)
-                    signals = self._compute_fuzzy_signals(
-                        fuzzy_fact, claim, confidence / 100.0
-                    )
-                    computed_confidence = signals.score()
+                    signals = self._compute_fuzzy_signals(fuzzy_fact, claim)
                     drift_items.append(
                         DriftItem(
                             fact=fuzzy_fact,
@@ -243,7 +248,7 @@ class SignatureMatcher:
                             f"'{fuzzy_fact.name}' (code) — {confidence}% confidence"
                         ),
                             suggestion=f"Consider renaming '{fuzzy_fact.name}' to '{claim.name}' or update docs",
-                            confidence=computed_confidence,
+                            confidence=signals.score(),
                             signals=signals,
                             metadata={
                                 "match_method": "fuzzy",
@@ -335,6 +340,9 @@ class SignatureMatcher:
             if fact.kind == FactKind.CONFIG_KEY and claim.kind == ClaimKind.CONFIG_REF:
                 continue
 
+            # Compute signals for exact-with-drift (name matches exactly, params differ)
+            signals = self._compute_exact_drift_signals(fact, claim)
+
             # Compare parameters
             fact_params = {p.name: p for p in fact.parameters}
             claim_params = {p.name: p for p in claim.parameters}
@@ -347,7 +355,6 @@ class SignatureMatcher:
 
                 if c_param is None:
                     # Missing param in docs — fact has it, claim doesn't
-                    signals = self._compute_exact_signals(fact, claim)
                     drift_items.append(
                         DriftItem(
                             fact=fact,
@@ -362,7 +369,6 @@ class SignatureMatcher:
                     )
                 elif f_param is None:
                     # Extra param in docs — claim has it but fact doesn't
-                    signals = self._compute_exact_signals(fact, claim)
                     drift_items.append(
                         DriftItem(
                             fact=fact,
@@ -378,7 +384,6 @@ class SignatureMatcher:
                 else:
                     # Both have the param — check defaults and types
                     if f_param.default != c_param.default:
-                        signals = self._compute_exact_signals(fact, claim)
                         drift_items.append(
                             DriftItem(
                                 fact=fact,
@@ -395,7 +400,6 @@ class SignatureMatcher:
                             )
                         )
                     if f_param.type_annotation != c_param.type_annotation:
-                        signals = self._compute_exact_signals(fact, claim)
                         drift_items.append(
                             DriftItem(
                                 fact=fact,
@@ -414,7 +418,6 @@ class SignatureMatcher:
 
             # Check return type
             if fact.return_type != claim.return_type:
-                signals = self._compute_exact_signals(fact, claim)
                 drift_items.append(
                     DriftItem(
                         fact=fact,
