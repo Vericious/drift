@@ -392,3 +392,66 @@ class TestDriftIgnoreSuppression:
 
         func1_claim = next(c for c in claims if c.name == "func1")
         assert func1_claim.metadata.get("suppressed") is not True
+
+
+class TestTypeScriptClaimExtraction:
+    """Tests for TypeScript claim extraction in MarkdownExtractor."""
+
+    def test_ts_code_block_parsed(self, extractor, tmp_path: Path) -> None:
+        """TypeScript code block is parsed into TS_CODE_BLOCK claims."""
+        md_file = tmp_path / "types.md"
+        md_file.write_text(
+            "# Types\n\n"
+            "```typescript\n"
+            "interface User {\n"
+            "  id: number;\n"
+            "  name: string;\n"
+            "}\n"
+            "```\n"
+        )
+        claims = extractor.extract(md_file)
+
+        ts_claims = [c for c in claims if c.kind == ClaimKind.TS_CODE_BLOCK]
+        assert len(ts_claims) >= 1
+        user_claim = next((c for c in ts_claims if c.name == "User"), None)
+        assert user_claim is not None
+        assert user_claim.kind == ClaimKind.TS_CODE_BLOCK
+        assert user_claim.metadata["ts_kind"] == "TS_INTERFACE"
+        assert user_claim.kind == ClaimKind.TS_CODE_BLOCK
+
+    def test_property_table_parsed(self, extractor, tmp_path: Path) -> None:
+        """Property table after a TS interface header is parsed into TS claims."""
+        md_file = tmp_path / "types.md"
+        md_file.write_text(
+            "# Types\n\n"
+            "## interface User\n\n"
+            "The User interface.\n\n"
+            "| Name | Type | Description |\n"
+            "|------|------|-------------|\n"
+            "| id   | number | User ID |\n"
+            "| name | string | User name |\n"
+        )
+        claims = extractor.extract(md_file)
+
+        ts_claims = [c for c in claims if c.kind == ClaimKind.TS_INTERFACE_REF]
+        assert len(ts_claims) >= 2
+        id_claim = next((c for c in ts_claims if c.name == "id"), None)
+        assert id_claim is not None
+        assert id_claim.metadata.get("parent_type") == "User"
+        assert id_claim.metadata.get("table_row") is True
+
+    def test_inline_ref_detected(self, extractor, tmp_path: Path) -> None:
+        """Inline type reference (interface `TypeName`) is detected."""
+        md_file = tmp_path / "types.md"
+        md_file.write_text(
+            "# Types\n\n"
+            "Use interface `UserId` to identify users.\n"
+            "The type `Status` represents current state.\n"
+        )
+        claims = extractor.extract(md_file)
+
+        ref_claims = [c for c in claims if c.metadata.get("inline_ref") is True]
+        assert len(ref_claims) >= 2
+        names = {c.name for c in ref_claims}
+        assert "UserId" in names
+        assert "Status" in names
