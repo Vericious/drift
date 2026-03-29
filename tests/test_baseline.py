@@ -282,3 +282,241 @@ def test_empty_baseline_returns_empty(temp_project: Path) -> None:
     report = scanner.scan()
     resolved = filter_resolved_drift(list(report.drift_items), [])
     assert resolved == []
+
+
+# --- Baseline diff tests (DRIFT-146) ---
+
+
+def test_baseline_diff_new_items(temp_project: Path) -> None:
+    """filter_new_drift returns only items NOT in baseline (new drift)."""
+    scanner = DriftScanner(temp_project)
+    report = scanner.scan()
+    save_baseline(report, temp_project)
+
+    loaded = load_baseline(temp_project)
+    assert loaded is not None
+    created_at, baseline_items = loaded
+
+    # Add a new drift item to current scan
+    new_item = make_drift_item("brand_new_func", "undocumented")
+    current_items = list(report.drift_items) + [new_item]
+
+    # Diff should show only the new item
+    diff_new = filter_new_drift(current_items, baseline_items)
+    assert len(diff_new) == 1
+    assert diff_new[0].fact.name == "brand_new_func"
+
+
+def test_baseline_diff_resolved_items(temp_project: Path) -> None:
+    """filter_resolved_drift returns baseline items NOT in current scan (resolved)."""
+    scanner = DriftScanner(temp_project)
+    report = scanner.scan()
+    assert len(report.drift_items) >= 1
+
+    baseline_items_data = [
+        {
+            "fact": item.fact.to_dict() if item.fact else None,
+            "claim": item.claim.to_dict() if item.claim else None,
+            "severity": item.severity.value,
+            "category": item.category,
+            "message": item.message,
+            "suggestion": None,
+            "metadata": {},
+        }
+        for item in report.drift_items
+    ]
+
+    # Current scan is empty — all baseline items are "resolved"
+    resolved = filter_resolved_drift([], baseline_items_data)
+    assert len(resolved) == len(baseline_items_data)
+    assert resolved[0].get("fact", {}).get("name") == report.drift_items[0].fact.name
+
+
+def test_baseline_diff_unchanged(temp_project: Path) -> None:
+    """Items in both baseline and current scan are "unchanged" (not in new or resolved)."""
+    scanner = DriftScanner(temp_project)
+    report = scanner.scan()
+    assert len(report.drift_items) >= 1
+
+    baseline_items_data = [
+        {
+            "fact": item.fact.to_dict() if item.fact else None,
+            "claim": item.claim.to_dict() if item.claim else None,
+            "severity": item.severity.value,
+            "category": item.category,
+            "message": item.message,
+            "suggestion": None,
+            "metadata": {},
+        }
+        for item in report.drift_items
+    ]
+
+    # Current scan exactly matches baseline
+    new_items = filter_new_drift(report.drift_items, baseline_items_data)
+    resolved_items = filter_resolved_drift(report.drift_items, baseline_items_data)
+
+    # Nothing is new or resolved — everything is unchanged
+    assert len(new_items) == 0
+    assert len(resolved_items) == 0
+
+
+def test_baseline_diff_json_output(temp_project: Path, capsys) -> None:
+    """drift baseline-diff --json outputs correct JSON structure."""
+    from click.testing import CliRunner
+    from drift.cli import main
+
+    # Create baseline
+    scanner = DriftScanner(temp_project)
+    report = scanner.scan()
+    save_baseline(report, temp_project)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["baseline-diff", "--json", str(temp_project)])
+    assert result.exit_code == 0, result.output
+
+    data = json.loads(result.output)
+    assert "baseline_created_at" in data
+    assert "new" in data
+    assert "resolved" in data
+    assert "unchanged" in data
+    assert "summary" in data
+    assert "new_count" in data["summary"]
+    assert "resolved_count" in data["summary"]
+    assert "unchanged_count" in data["summary"]
+
+
+def test_baseline_diff_empty_message(temp_project: Path, capsys) -> None:
+    """drift baseline-diff shows correct counts when nothing changed."""
+    from click.testing import CliRunner
+    from drift.cli import main
+
+    # Create baseline and scan (identical state — nothing changed)
+    scanner = DriftScanner(temp_project)
+    report = scanner.scan()
+    save_baseline(report, temp_project)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["baseline-diff", str(temp_project)])
+    assert result.exit_code == 0, result.output
+    assert "+ 0 new drift item(s)" in result.output
+    assert "- 0 resolved drift item(s)" in result.output
+
+
+# --- Update baseline tests (DRIFT-147) ---
+
+
+def test_update_baseline_requires_baseline_flag(temp_project: Path) -> None:
+    """--update-baseline without --baseline exits with error."""
+    from click.testing import CliRunner
+    from drift.cli import main
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["scan", "--update-baseline", str(temp_project)])
+    assert result.exit_code != 0
+    assert "--update-baseline requires --baseline" in result.output
+
+
+def test_update_baseline_saves_file(temp_project: Path) -> None:
+    """--baseline --update-baseline saves new baseline after filtering."""
+    from click.testing import CliRunner
+    from drift.cli import main
+
+    # Create initial baseline
+    scanner = DriftScanner(temp_project)
+    report = scanner.scan()
+    save_baseline(report, temp_project)
+
+    baseline_path = temp_project / BASELINE_FILENAME
+    first_mtime = baseline_path.stat().st_mtime
+
+    time.sleep(0.01)
+
+    # Run scan with --baseline --update-baseline
+    runner = CliRunner()
+    result = runner.invoke(main, ["scan", "--baseline", "--update-baseline", str(temp_project)])
+    assert result.exit_code == 0, result.output
+    assert "Baseline updated:" in result.output
+    assert baseline_path.stat().st_mtime >= first_mtime
+
+
+def test_update_baseline_prints_item_count(temp_project: Path) -> None:
+    """--baseline --update-baseline prints item count in output."""
+    from click.testing import CliRunner
+    from drift.cli import main
+
+    scanner = DriftScanner(temp_project)
+    report = scanner.scan()
+    save_baseline(report, temp_project)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["scan", "--baseline", "--update-baseline", str(temp_project)])
+    assert result.exit_code == 0
+    assert "Baseline updated:" in result.output
+    assert "items" in result.output.lower()
+
+
+# --- Age warning tests (DRIFT-148) ---
+
+
+def test_age_warning_triggered(temp_project: Path, capsys) -> None:
+    """Warning is printed to stderr when baseline is older than 30 days."""
+    import sys
+    from datetime import datetime, timedelta, timezone
+
+    # Create a baseline file with an old timestamp
+    old_date = (datetime.now(timezone.utc) - timedelta(days=31)).isoformat()
+    baseline_path = temp_project / BASELINE_FILENAME
+    baseline_path.parent.mkdir(parents=True, exist_ok=True)
+    baseline_path.write_text(json.dumps({
+        "created_at": old_date,
+        "items": [],
+    }))
+
+    # Load baseline — should trigger warning
+    result = load_baseline(temp_project)
+    assert result is not None
+
+    captured = capsys.readouterr()
+    assert "⚠ Baseline is 31 days old" in captured.err
+
+
+def test_age_no_warning(temp_project: Path, capsys) -> None:
+    """No warning is printed when baseline is younger than 30 days."""
+    from datetime import datetime, timedelta, timezone
+
+    # Create a baseline file with a recent timestamp
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=29)).isoformat()
+    baseline_path = temp_project / BASELINE_FILENAME
+    baseline_path.parent.mkdir(parents=True, exist_ok=True)
+    baseline_path.write_text(json.dumps({
+        "created_at": recent_date,
+        "items": [],
+    }))
+
+    # Load baseline — should NOT trigger warning
+    result = load_baseline(temp_project)
+    assert result is not None
+
+    captured = capsys.readouterr()
+    assert "days old" not in captured.err
+
+
+def test_age_warning_exact_message_format(temp_project: Path, capsys) -> None:
+    """Age warning message matches the expected format exactly."""
+    import sys
+    from datetime import datetime, timedelta, timezone
+
+    old_date = (datetime.now(timezone.utc) - timedelta(days=45)).isoformat()
+    baseline_path = temp_project / BASELINE_FILENAME
+    baseline_path.parent.mkdir(parents=True, exist_ok=True)
+    baseline_path.write_text(json.dumps({
+        "created_at": old_date,
+        "items": [],
+    }))
+
+    result = load_baseline(temp_project)
+    assert result is not None
+
+    captured = capsys.readouterr()
+    assert "⚠ Baseline is 45 days old (created " in captured.err
+    assert "). Consider running drift baseline --update" in captured.err

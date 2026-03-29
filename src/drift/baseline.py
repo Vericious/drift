@@ -1,7 +1,8 @@
 """Baseline management — snapshot and compare drift state."""
 
 import json
-from datetime import datetime, timezone
+import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from drift.models import CodeFact, DocClaim, DriftItem, DriftReport
@@ -48,6 +49,8 @@ def load_baseline(base_path: Path | None = None) -> tuple[str, list[dict]] | Non
     """Load a baseline snapshot.
 
     Returns (created_at, items) if found, or None if no baseline exists.
+
+    Prints a warning to stderr if the baseline is older than 30 days.
     """
     baseline_path = base_path / BASELINE_FILENAME if base_path else Path(BASELINE_FILENAME)
     baseline_path = baseline_path.resolve()
@@ -57,7 +60,23 @@ def load_baseline(base_path: Path | None = None) -> tuple[str, list[dict]] | Non
 
     try:
         data = json.loads(baseline_path.read_text())
-        return data["created_at"], data["items"]
+        created_at_str = data["created_at"]
+
+        # Check baseline age
+        try:
+            created_at_dt = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+            age = datetime.now(timezone.utc) - created_at_dt
+            if age > timedelta(days=30):
+                days = age.days
+                date_str = created_at_dt.strftime("%Y-%m-%d")
+                sys.stderr.write(
+                    f"⚠ Baseline is {days} days old (created {date_str}). "
+                    f"Consider running drift baseline --update\n"
+                )
+        except (ValueError, OSError):
+            pass
+
+        return created_at_str, data["items"]
     except (json.JSONDecodeError, KeyError, OSError):
         return None
 

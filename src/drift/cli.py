@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 
 from drift import __version__
-from drift.baseline import filter_new_drift, load_baseline, save_baseline
+from drift.baseline import filter_new_drift, filter_resolved_drift, load_baseline, save_baseline
 from drift.config import load_config
 from drift.git_utils import get_changed_files, is_git_repo, ref_exists
 from drift.models import CodeFact, DocClaim, DriftItem, DriftReport
@@ -116,6 +116,11 @@ def main() -> None:
     help="Filter results against .drift/baseline.json — only show NEW drift items.",
 )
 @click.option(
+    "--update-baseline",
+    is_flag=True,
+    help="Save filtered drift items as new baseline after scan (requires --baseline).",
+)
+@click.option(
     "--diff",
     "diff_ref",
     type=str,
@@ -151,6 +156,7 @@ def scan(
     no_cache: bool,
     clear_cache: bool,
     baseline: bool,
+    update_baseline: bool,
     diff_ref: str | None,
     extractors: tuple[str, ...],
     watch: bool,
@@ -228,6 +234,7 @@ def scan(
                         no_cache=no_cache,
                         clear_cache=clear_cache,
                         baseline=baseline,
+                        update_baseline=update_baseline,
                         diff_ref=diff_ref,
                         extractors=extractors,
                     )
@@ -297,6 +304,10 @@ def scan(
 
     # Filter against baseline if --baseline is set
     baseline_info: str | None = None
+    if update_baseline and not baseline:
+        raise click.ClickException(
+            "--update-baseline requires --baseline to also be set."
+        )
     if baseline:
         loaded = load_baseline(Path(paths[0]))
         if loaded is None:
@@ -307,6 +318,10 @@ def scan(
         original_count = len(report.drift_items)
         report.drift_items = filter_new_drift(report.drift_items, baseline_items)
         baseline_info = f" (filtered: {len(report.drift_items)} new / {original_count} total vs baseline from {created_at[:10]})"
+
+        if update_baseline:
+            baseline_path = save_baseline(report, Path(paths[0]))
+            click.echo(f"Baseline updated: {len(report.drift_items)} items → {baseline_path}")
 
     elapsed = time.monotonic() - start
 
@@ -875,6 +890,91 @@ def baseline(path: str, update: bool) -> None:
     click.echo(f"  Run 'drift scan --baseline' to compare against this snapshot.")
 
 
+@main.command(name="baseline-diff")
+@click.argument("path", type=click.Path(exists=True), default=".")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
+@click.option("--verbose", "-V", is_flag=True, help="Show detailed item list")
+def baseline_diff(path: str, output_json: bool, verbose: bool) -> None:
+    """Show drift items added and resolved since the last baseline.
+
+    Compares the current scan against the saved baseline and reports:
+      + New drift items (in current scan but not in baseline)
+      - Resolved drift items (in baseline but not in current scan)
+      = Unchanged drift items (present in both)
+
+    Use 'drift baseline' to create or update the baseline snapshot.
+    """
+    import time
+
+    scan_path = Path(path)
+
+    # Run a fresh scan (no_cache=True to always get current state)
+    start = time.monotonic()
+    scanner = DriftScanner(scan_path, strict=False, no_cache=True)
+    report = scanner.scan()
+    current_items = list(report.drift_items)
+
+    # Load baseline
+    loaded = load_baseline(scan_path)
+    if loaded is None:
+        raise click.ClickException("No baseline found. Run 'drift baseline' first.")
+
+    created_at, baseline_items = loaded
+
+    # Compute diff
+    new_items = filter_new_drift(current_items, baseline_items)
+    resolved_items = filter_resolved_drift(current_items, baseline_items)
+
+    # Build baseline sig set for unchanged
+    baseline_sigs: set[tuple] = set()
+    for item in baseline_items:
+        fact = item.get("fact")
+        claim = item.get("claim")
+        baseline_sigs.add((
+            fact.get("name") if fact else None,
+            claim.get("name") if claim else None,
+            item.get("category", ""),
+        ))
+    unchanged_items = [
+        item for item in current_items
+        if (item.fact.name if item.fact else None,
+            item.claim.name if item.claim else None,
+            item.category) in baseline_sigs
+    ]
+
+    if output_json:
+        import json
+        output = {
+            "baseline_created_at": created_at,
+            "new": [
+                {"name": i.fact.name if i.fact else None,
+                 "claim": i.claim.name if i.claim else None,
+                 "category": i.category,
+                 "message": i.message}
+                for i in new_items
+            ],
+            "resolved": resolved_items,
+            "unchanged": [
+                {"name": i.fact.name if i.fact else None,
+                 "claim": i.claim.name if i.claim else None,
+                 "category": i.category}
+                for i in unchanged_items
+            ],
+            "summary": {
+                "new_count": len(new_items),
+                "resolved_count": len(resolved_items),
+                "unchanged_count": len(unchanged_items),
+            },
+        }
+        click.echo(json.dumps(output, indent=2))
+    else:
+        elapsed = time.monotonic() - start
+        click.echo(f"Baseline diff vs. {created_at[:10]} (scanned in {elapsed:.2f}s)")
+        click.echo(f"  + {len(new_items)} new drift item(s)")
+        click.echo(f"  - {len(resolved_items)} resolved drift item(s)")
+        click.echo(f"  = {len(unchanged_items)} unchanged drift item(s)")
+
+
 def _filter_by_severity(items: list[DriftItem], min_severity: str) -> list[DriftItem]:
     """Filter drift items to only those >= min_severity.
 
@@ -946,6 +1046,7 @@ def _run_watch_scan(
     no_cache: bool,
     clear_cache: bool,
     baseline: bool,
+    update_baseline: bool,
     diff_ref: str | None,
     extractors: tuple[str, ...],
 ) -> None:
@@ -1006,12 +1107,20 @@ def _run_watch_scan(
     )
     report = scanner.scan()
 
+    if update_baseline and not baseline:
+        raise click.ClickException(
+            "--update-baseline requires --baseline to also be set."
+        )
     if baseline:
         loaded = load_baseline(scan_path)
         if loaded is None:
             raise click.ClickException("No baseline found. Run 'drift baseline' first.")
         created_at, baseline_items = loaded
         report.drift_items = filter_new_drift(report.drift_items, baseline_items)
+
+        if update_baseline:
+            baseline_path = save_baseline(report, scan_path)
+            click.echo(f"Baseline updated: {len(report.drift_items)} items → {baseline_path}")
 
     elapsed = time.monotonic() - start
 
