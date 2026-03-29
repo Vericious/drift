@@ -23,6 +23,9 @@ class FactKind(Enum):
     DECORATOR = "decorator"
     DEPRECATED = "deprecated"
     TABLE_SCHEMA = "table_schema"
+    TS_INTERFACE = "ts_interface"
+    TS_TYPE = "ts_type"
+    TS_ENUM = "ts_enum"
 
 
 class ClaimKind(Enum):

@@ -14,7 +14,7 @@ from typing import Any
 
 from drift.extractors.base import Extractor
 from drift.extractors.registry import register
-from drift.models import CodeFact, FactKind
+from drift.models import CodeFact, FactKind, Parameter
 
 
 # Match interface declarations: interface Foo { ... }
@@ -120,11 +120,11 @@ class TypeScriptExtractor(Extractor):
             facts.append(
                 CodeFact(
                     name=name,
-                    kind=FactKind.FUNCTION,  # Closest existing kind
+                    kind=FactKind.TS_INTERFACE,
                     source_file=path,
                     line_number=line_number,
                     parameters=[
-                        {"name": n, "type_annotation": t, "default": d, "kind": "positional"}
+                        Parameter(name=n, type_annotation=t, default=d, kind="positional")
                         for n, t, d in parameters
                     ],
                     metadata=metadata,
@@ -162,11 +162,11 @@ class TypeScriptExtractor(Extractor):
             facts.append(
                 CodeFact(
                     name=name,
-                    kind=FactKind.FUNCTION,  # Closest existing kind
+                    kind=FactKind.TS_TYPE,
                     source_file=path,
                     line_number=line_number,
                     parameters=[
-                        {"name": n, "type_annotation": t, "default": d, "kind": "positional"}
+                        Parameter(name=n, type_annotation=t, default=d, kind="positional")
                         for n, t, d in parameters
                     ],
                     metadata=metadata,
@@ -212,11 +212,11 @@ class TypeScriptExtractor(Extractor):
             facts.append(
                 CodeFact(
                     name=name,
-                    kind=FactKind.FUNCTION,  # Closest existing kind
+                    kind=FactKind.TS_ENUM,
                     source_file=path,
                     line_number=line_number,
                     parameters=[
-                        {"name": n, "type_annotation": t, "default": d, "kind": "positional"}
+                        Parameter(name=n, type_annotation=t, default=d, kind="positional")
                         for n, t, d in parameters
                     ],
                     metadata={
