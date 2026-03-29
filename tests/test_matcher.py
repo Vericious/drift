@@ -354,3 +354,69 @@ class TestFuzzyRenamed:
         confidence = fuzzy_items[0].metadata.get("confidence")
         assert isinstance(confidence, float)
         assert 0 <= confidence <= 100
+
+
+class TestConfidenceSignals:
+    """Tests for ConfidenceSignals computed by SignatureMatcher."""
+
+    def test_signals_fuzzy(self):
+        """fuzzy_renamed items have signals with name_sim < 1.0 and correct param overlap."""
+        f = fact("get_user", params=[param("x", "int"), param("name", "str")])
+        c = claim("fetch_user", params=[param("x", "int"), param("name", "str")])
+
+        items = SignatureMatcher().match([f], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 1
+
+        item = fuzzy_items[0]
+        assert item.signals is not None
+        # name_similarity should be < 1.0 for fuzzy match
+        assert item.signals.name_similarity < 1.0
+        assert item.signals.name_similarity > 0.0
+        # param_overlap should be 1.0 (identical params)
+        assert item.signals.param_overlap == 1.0
+        # type_match should be 1.0 (identical types)
+        assert item.signals.type_match == 1.0
+        # confidence should be derived from signals
+        assert 0.0 < item.confidence < 1.0
+
+    def test_signals_exact_drift(self):
+        """exact-with-drift items (e.g., missing_param) have name_sim=1.0 and location_prox=1.0."""
+        f = fact("func", params=[param("x", "int"), param("y", "str")])
+        c = claim("func", params=[param("x", "int")])  # missing param "y"
+
+        items = SignatureMatcher().match([f], [c])
+        missing_items = [i for i in items if i.category == "missing_param"]
+        assert len(missing_items) == 1
+
+        item = missing_items[0]
+        assert item.signals is not None
+        # name_similarity should be 1.0 for exact match
+        assert item.signals.name_similarity == 1.0
+        # location_proximity should be 1.0 for exact match
+        assert item.signals.location_proximity == 1.0
+        # param_overlap should be 1.0 for exact-with-drift (name matches exactly)
+        assert item.signals.param_overlap == 1.0
+        # confidence should be 1.0 for exact-with-drift
+        assert item.confidence == 1.0
+
+    def test_signals_missing(self):
+        """documented_but_missing items have all signals = 0.0."""
+        # Use names that won't fuzzy match (completely different)
+        f = fact("get_user", params=[param("x", "int")])
+        c = claim("undocumented_api", params=[param("x", "int")])
+
+        items = SignatureMatcher().match([f], [c])
+        missing_items = [i for i in items if i.category == "documented_but_missing"]
+        assert len(missing_items) == 1
+
+        item = missing_items[0]
+        assert item.signals is not None
+        # All signals should be 0.0 for documented_but_missing
+        assert item.signals.name_similarity == 0.0
+        assert item.signals.param_overlap == 0.0
+        assert item.signals.type_match == 0.0
+        assert item.signals.location_proximity == 0.0
+        assert item.signals.context_match == 0.0
+        # confidence should be 0.0
+        assert item.confidence == 0.0

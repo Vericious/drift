@@ -8,6 +8,7 @@ from pathlib import Path
 from drift.models import (
     ClaimKind,
     CodeFact,
+    ConfidenceSignals,
     DocClaim,
     DriftItem,
     DriftReport,
@@ -71,6 +72,95 @@ class SignatureMatcher:
         ):
             return True
         return False
+
+    def _jaccard_similarity(
+        self, fact_params: list, claim_params: list
+    ) -> float:
+        """Compute Jaccard similarity between two param lists based on names."""
+        fact_names = {p.name for p in fact_params}
+        claim_names = {p.name for p in claim_params}
+        if not fact_names and not claim_names:
+            return 1.0
+        intersection = fact_names & claim_names
+        union = fact_names | claim_names
+        return len(intersection) / len(union) if union else 0.0
+
+    def _type_match_fraction(
+        self, fact: CodeFact, claim: DocClaim
+    ) -> float:
+        """Compute fraction of matching type annotations between fact and claim params."""
+        fact_params = {p.name: p for p in fact.parameters}
+        claim_params = {p.name: p for p in claim.parameters}
+        common_names = set(fact_params.keys()) & set(claim_params.keys())
+        if not common_names:
+            return 0.0
+        matches = sum(
+            1
+            for name in common_names
+            if fact_params[name].type_annotation == claim_params[name].type_annotation
+        )
+        return matches / len(common_names)
+
+    def _same_directory(self, fact: CodeFact, claim: DocClaim) -> bool:
+        """Return True if fact and claim are in the same directory."""
+        if fact.source_file and claim.doc_file:
+            fact_dir = fact.source_file.parent
+            claim_dir = claim.doc_file.parent
+            return fact_dir == claim_dir
+        return False
+
+    def _compute_signals(
+        self,
+        fact: CodeFact | None,
+        claim: DocClaim | None,
+        category: str,
+        fuzzy_name_ratio: float = 0.0,
+    ) -> ConfidenceSignals:
+        """Compute ConfidenceSignals for a drift item based on its category."""
+        if category == "documented_but_missing":
+            return ConfidenceSignals(
+                name_similarity=0.0,
+                param_overlap=0.0,
+                type_match=0.0,
+                location_proximity=0.0,
+                context_match=0.0,
+            )
+
+        if category == "fuzzy_renamed" and fact and claim:
+            fact_params = fact.parameters
+            claim_params = claim.parameters
+            param_overlap = self._jaccard_similarity(fact_params, claim_params)
+            type_match = self._type_match_fraction(fact, claim)
+            location_prox = 1.0 if self._same_directory(fact, claim) else 0.5
+            return ConfidenceSignals(
+                name_similarity=fuzzy_name_ratio,
+                param_overlap=param_overlap,
+                type_match=type_match,
+                location_proximity=location_prox,
+                context_match=1.0,  # context match assumed high for fuzzy matches
+            )
+
+        # For exact-with-drift: name matches exactly but there's some drift
+        # (renamed, missing_param, extra_param, wrong_default, wrong_type, wrong_return_type)
+        # Location proximity is always 1.0 for exact matches.
+        # param_overlap and type_match are set to 1.0 as the name/location are confirmed matches.
+        if fact and claim:
+            return ConfidenceSignals(
+                name_similarity=1.0,
+                param_overlap=1.0,
+                type_match=1.0,
+                location_proximity=1.0,
+                context_match=1.0,
+            )
+
+        # For undocumented: fact exists but no claim - all signals 0.0
+        return ConfidenceSignals(
+            name_similarity=0.0,
+            param_overlap=0.0,
+            type_match=0.0,
+            location_proximity=0.0,
+            context_match=0.0,
+        )
 
     def match(self, facts: list[CodeFact], claims: list[DocClaim]) -> list[DriftItem]:
         """Match facts against claims and return drift items."""
@@ -464,6 +554,23 @@ class SignatureMatcher:
                         confidence=0.0,
                     )
                 )
+
+        # Post-process: compute and attach ConfidenceSignals for each drift item
+        for item in drift_items:
+            # Extract fuzzy_name_ratio from metadata if available
+            fuzzy_ratio = 0.0
+            if item.category == "fuzzy_renamed" and item.metadata.get("match_method") == "fuzzy":
+                fuzzy_ratio = (item.metadata.get("confidence", 0) or 0) / 100.0
+
+            signals = self._compute_signals(
+                fact=item.fact,
+                claim=item.claim,
+                category=item.category,
+                fuzzy_name_ratio=fuzzy_ratio,
+            )
+            item.signals = signals
+            # Update confidence from signals score
+            item.confidence = signals.score()
 
         return drift_items
 
