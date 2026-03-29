@@ -47,6 +47,25 @@ def main() -> None:
     help="Output diff-style unified diff showing exact changes needed (mutually exclusive with --json, --sarif, --html)",
 )
 @click.option(
+    "--color",
+    "force_color",
+    flag_value=True,
+    default=None,
+    help="Force colored ANSI output for diff (auto-detected in terminal).",
+)
+@click.option(
+    "--no-color",
+    "force_color",
+    flag_value=False,
+    default=None,
+    help="Disable colored output for diff (force plain text).",
+)
+@click.option(
+    "--patch",
+    is_flag=True,
+    help="Generate unified patch format for fixable categories (implies --diff-output).",
+)
+@click.option(
     "--output",
     "-o",
     "output_file",
@@ -160,6 +179,8 @@ def scan(
     diff_ref: str | None,
     extractors: tuple[str, ...],
     watch: bool,
+    force_color: bool | None,
+    patch: bool,
 ) -> None:
     """Scan one or more paths for documentation drift."""
     import time
@@ -186,6 +207,9 @@ def scan(
         raise click.ClickException(
             "--json, --sarif, --html, and --diff-output cannot be used together."
         )
+    # --patch implies --diff-output
+    if patch and not any([output_json, output_sarif, output_html]):
+        output_diff = True
     if output_json:
         output_format = "json"
     elif output_sarif:
@@ -236,6 +260,8 @@ def scan(
                         baseline=baseline,
                         diff_ref=diff_ref,
                         extractors=extractors,
+                        force_color=force_color,
+                        patch=patch,
                     )
                 time.sleep(2)
             except KeyboardInterrupt:
@@ -359,7 +385,7 @@ def scan(
         output_content = reporter.report_html(verbose=verbose, elapsed=elapsed)
         click.echo(output_content)
     elif output_format == "diff":
-        output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed)
+        output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed, color=force_color, patch=patch)
         click.echo(output_content)
     else:
         # For text output, capture to file without Rich formatting
@@ -966,6 +992,8 @@ def _run_watch_scan(
     baseline: bool,
     diff_ref: str | None,
     extractors: tuple[str, ...],
+    force_color: bool | None,
+    patch: bool,
 ) -> None:
     """Run a single scan pass, reusing the core logic from the scan command."""
     import time
@@ -1050,7 +1078,7 @@ def _run_watch_scan(
     elif output_format == "html":
         output_content = reporter.report_html(verbose=verbose, elapsed=elapsed)
     elif output_format == "diff":
-        output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed)
+        output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed, color=force_color, patch=patch)
     else:
         import io
         from rich.console import Console

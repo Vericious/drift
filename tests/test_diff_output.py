@@ -184,3 +184,161 @@ class TestDiffOutputFormat:
         # Should contain unified diff format headers
         assert "---" in diff_output
         assert "+++" in diff_output
+
+
+class TestAnsiDiffColors:
+    """Test ANSI color codes in diff output."""
+
+    def test_ansi_codes_in_terminal_mode(self):
+        """Terminal mode (color=True) includes ANSI color codes."""
+        item = make_drift_item(
+            category="documented_but_missing",
+            claim_name="func_a",
+            fact_name="func_a",
+        )
+        report = DriftReport(
+            scanned_path=Path("."),
+            drift_items=[item],
+        )
+        reporter = DriftReporter(report)
+        diff_output = reporter.report_diff(color=True)
+
+        # ANSI escape codes should be present
+        assert "\033[31m" in diff_output  # Red for ---
+        assert "\033[32m" in diff_output  # Green for +++
+        assert "\033[36m" in diff_output  # Cyan for @@
+        # Reset codes should also be present
+        assert "\033[0m" in diff_output
+
+    def test_no_ansi_in_pipe_mode(self):
+        """Pipe mode (color=False) excludes ANSI color codes."""
+        item = make_drift_item(
+            category="documented_but_missing",
+            claim_name="func_a",
+            fact_name="func_a",
+        )
+        report = DriftReport(
+            scanned_path=Path("."),
+            drift_items=[item],
+        )
+        reporter = DriftReporter(report)
+        diff_output = reporter.report_diff(color=False)
+
+        # ANSI escape codes should NOT be present
+        assert "\033[" not in diff_output
+        assert "---" in diff_output  # Content still present
+        assert "+++" in diff_output
+
+    def test_ansi_codes_apply_to_correct_line_types(self):
+        """Each diff line type gets the correct color."""
+        item = make_drift_item(
+            category="documented_but_missing",
+            claim_name="func_a",
+            fact_name="func_a",
+        )
+        report = DriftReport(
+            scanned_path=Path("."),
+            drift_items=[item],
+        )
+        reporter = DriftReporter(report)
+        diff_output = reporter.report_diff(color=True)
+
+        # --- lines should be red
+        assert "\033[31m--- " in diff_output
+        # +++ lines should be green
+        assert "\033[32m+++ " in diff_output
+        # @@ lines should be cyan
+        assert "\033[36m@@" in diff_output
+        # - lines (removed) should be red
+        assert "\033[31m- def func_a" in diff_output
+        # + lines (added) should be green
+        assert "\033[32m+" in diff_output
+
+
+class TestPatchMode:
+    """Tests for --patch mode (unified diff output)."""
+
+    def test_patch_documented_but_missing(self):
+        """Patch mode produces unified diff for documented_but_missing."""
+        item = make_drift_item(
+            category="documented_but_missing",
+            claim_name="func_a",
+            fact_name="func_a",
+        )
+        report = DriftReport(
+            scanned_path=Path("."),
+            drift_items=[item],
+        )
+        reporter = DriftReporter(report)
+        patch_output = reporter.report_diff(patch=True)
+
+        # Should have git diff header
+        assert "diff --git" in patch_output
+        # Should have proper hunk header
+        assert "@@" in patch_output
+        # Should show what's missing
+        assert "MISSING" in patch_output
+
+    def test_patch_skips_undocumented(self):
+        """Patch mode skips undocumented items with a comment."""
+        item = make_drift_item(
+            category="undocumented",
+            claim_name="func_b",
+            fact_name="func_b",
+        )
+        report = DriftReport(
+            scanned_path=Path("."),
+            drift_items=[item],
+        )
+        reporter = DriftReporter(report)
+        patch_output = reporter.report_diff(patch=True)
+
+        # Should have a skip comment
+        assert "Skipped" in patch_output or "not directly patchable" in patch_output.lower()
+
+    def test_patch_parameter_mismatch(self):
+        """Patch mode produces unified diff for parameter_mismatch."""
+        item = make_drift_item(
+            category="parameter_mismatch",
+            claim_name="func_c",
+            fact_name="func_c",
+            doc_params=[{"name": "x", "type_annotation": "int", "default": None, "kind": "positional"}],
+            code_params=[{"name": "x", "type_annotation": "str", "default": None, "kind": "positional"}],
+        )
+        report = DriftReport(
+            scanned_path=Path("."),
+            drift_items=[item],
+        )
+        reporter = DriftReporter(report)
+        patch_output = reporter.report_diff(patch=True)
+
+        # Should have git diff header
+        assert "diff --git" in patch_output
+        # Should have proper hunk header
+        assert "@@" in patch_output
+        # Should show the mismatch
+        assert "Skipped" not in patch_output or "diff --git" in patch_output
+
+    def test_patch_fuzzy_renamed(self):
+        """Patch mode produces unified diff for fuzzy_renamed."""
+        item = make_drift_item(
+            category="fuzzy_renamed",
+            claim_name="old_func",
+            fact_name="new_func",
+        )
+        report = DriftReport(
+            scanned_path=Path("."),
+            drift_items=[item],
+        )
+        reporter = DriftReporter(report)
+        patch_output = reporter.report_diff(patch=True)
+
+        # Should have git diff header
+        assert "diff --git" in patch_output
+        # Should have proper hunk header
+        assert "@@" in patch_output
+        # Should show the rename
+        assert "old_func" in patch_output
+        assert "new_func" in patch_output
+        # Should NOT be skipped
+        assert "Skipped" not in patch_output
