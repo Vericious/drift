@@ -120,6 +120,119 @@ class SignatureMatcher:
                     matched_fact_names.add(cli_fact.name)
                     continue
 
+            # Special case: TS interface/type/enum claims are matched via parent_type,
+            # not by the claim's own name (which is the property name).
+            # TS claims from property tables carry parent_type in metadata.
+            if claim.kind in (
+                ClaimKind.TS_INTERFACE_REF,
+                ClaimKind.TS_TYPE_REF,
+                ClaimKind.TS_ENUM_REF,
+            ):
+                ts_kind_map = {
+                    ClaimKind.TS_INTERFACE_REF: FactKind.TS_INTERFACE,
+                    ClaimKind.TS_TYPE_REF: FactKind.TS_TYPE,
+                    ClaimKind.TS_ENUM_REF: FactKind.TS_ENUM,
+                }
+                ts_fact_kind = ts_kind_map.get(claim.kind)
+                if ts_fact_kind is None:
+                    continue
+
+                parent_type = claim.metadata.get("parent_type")
+                if not parent_type:
+                    continue
+
+                ts_fact: CodeFact | None = None
+                if parent_type in facts_by_qualified:
+                    candidate = facts_by_qualified[parent_type]
+                    if candidate.kind == ts_fact_kind:
+                        ts_fact = candidate
+
+                if ts_fact is None:
+                    drift_items.append(
+                        DriftItem(
+                            fact=None,
+                            claim=claim,
+                            severity=Severity.ERROR,
+                            category="documented_but_missing",
+                            message=(
+                                f"Type '{parent_type}' is documented but not found in code"
+                            ),
+                            suggestion=(
+                                f"Add implementation for '{parent_type}' or update docs"
+                            ),
+                            confidence=0.0,
+                        )
+                    )
+                    continue
+
+                matched_fact_names.add(ts_fact.name)
+
+                # Compare properties: TS facts store properties as fact.parameters
+                fact_params = {p.name: p for p in ts_fact.parameters}
+                claim_params = {p.name: p for p in claim.parameters}
+
+                all_prop_names = set(fact_params.keys()) | set(claim_params.keys())
+                for prop_name in all_prop_names:
+                    f_param = fact_params.get(prop_name)
+                    c_param = claim_params.get(prop_name)
+
+                    if c_param is None:
+                        drift_items.append(
+                            DriftItem(
+                                fact=ts_fact,
+                                claim=claim,
+                                severity=Severity.ERROR,
+                                category="missing_param",
+                                message=(
+                                    f"Property '{prop_name}' in {ts_fact.name} "
+                                    "is not documented"
+                                ),
+                                suggestion=(
+                                    f"Add '{prop_name}' to docs for {ts_fact.name}"
+                                ),
+                                confidence=1.0,
+                            )
+                        )
+                    elif f_param is None:
+                        drift_items.append(
+                            DriftItem(
+                                fact=ts_fact,
+                                claim=claim,
+                                severity=Severity.ERROR,
+                                category="extra_param",
+                                message=(
+                                    f"Property '{prop_name}' is documented for "
+                                    f"{ts_fact.name} but not in code"
+                                ),
+                                suggestion=(
+                                    f"Remove '{prop_name}' from docs or "
+                                    "update implementation"
+                                ),
+                                confidence=1.0,
+                            )
+                        )
+                    else:
+                        if f_param.type_annotation != c_param.type_annotation:
+                            drift_items.append(
+                                DriftItem(
+                                    fact=ts_fact,
+                                    claim=claim,
+                                    severity=Severity.WARNING,
+                                    category="wrong_type",
+                                    message=(
+                                        f"Property '{prop_name}' type differs: "
+                                        f"{c_param.type_annotation!r} (docs) vs "
+                                        f"{f_param.type_annotation!r} (code)"
+                                    ),
+                                    suggestion=(
+                                        f"Update docs for '{prop_name}' to "
+                                        f"type {f_param.type_annotation!r}"
+                                    ),
+                                    confidence=1.0,
+                                )
+                            )
+                continue
+
             # Try exact qualified name match first
             fact = facts_by_qualified.get(claim.name)
 
