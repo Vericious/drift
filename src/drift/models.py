@@ -33,6 +33,10 @@ class ClaimKind(Enum):
     CLI_USAGE = "cli_usage"
     CLI_FLAG_REF = "cli_flag_ref"
     CONFIG_REF = "config_ref"
+    TS_CODE_BLOCK = "ts_code_block"
+    TS_INTERFACE_REF = "ts_interface_ref"
+    TS_TYPE_REF = "ts_type_ref"
+    TS_ENUM_REF = "ts_enum_ref"
 
 
 class Severity(Enum):

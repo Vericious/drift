@@ -62,6 +62,9 @@ class MarkdownExtractor:
         # Extract code blocks
         claims.extend(self._extract_code_blocks(content, lines, path))
 
+        # Extract TypeScript claims from TS code blocks, property tables, inline refs
+        claims.extend(self._extract_typescript_claims(content, lines, path))
+
         # Extract inline code references
         claims.extend(self._extract_inline_refs(content, lines, path))
 
@@ -664,5 +667,202 @@ class MarkdownExtractor:
                             metadata=metadata,
                         )
                     )
+
+        return claims
+
+    # ── TypeScript claim extraction ─────────────────────────────────────────────
+
+    # Re-use TypeScriptExtractor regexes for parsing TS declarations
+    _TS_INTERFACE_RE = re.compile(
+        r"(?:export\s+)?interface\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:extends\s+([A-Za-z_$][A-Za-z0-9_$]*))?\s*\{",
+        re.MULTILINE,
+    )
+    _TS_TYPE_ALIAS_RE = re.compile(
+        r"(?:export\s+)?type\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:\{[^}]*\}|[^;]+);",
+        re.MULTILINE,
+    )
+    _TS_ENUM_RE = re.compile(
+        r"(?:const\s+)?enum\s+([A-Za-z_$][A-Za-z_$]*)\s*\{",
+        re.MULTILINE,
+    )
+    _TS_INLINE_REF_RE = re.compile(
+        r"(?:type|interface|enum|struct)\s+`([A-Za-z_$][A-Za-z0-9_$]*)`",
+        re.MULTILINE,
+    )
+
+    def _extract_typescript_claims(
+        self, content: str, lines: list[str], path: Path
+    ) -> list[DocClaim]:
+        """Extract TypeScript claims from TS code blocks, property tables, and inline refs.
+
+        - TS code blocks (```ts / ```typescript): parsed with TSExtractor regexes
+          → TS_CODE_BLOCK claims
+        - Property tables after 'interface/type/enum TypeName' headers
+          → TS_INTERFACE_REF / TS_TYPE_REF / TS_ENUM_REF claims
+        - Inline type references: `TypeName` preceded by type/interface/enum keyword
+          → TS_TYPE_REF / TS_INTERFACE_REF claims
+        """
+        claims: list[DocClaim] = []
+        seen: set[tuple[int, str, ClaimKind]] = set()
+
+        # ── 1. TS code blocks ─────────────────────────────────────────────────
+        in_ts_block = False
+        ts_block_lines: list[str] = []
+        ts_block_start = 0
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            is_ts_fence = bool(re.match(r"^```(?:ts|typescript)\s*$", stripped))
+            is_close_fence = bool(re.match(r"^```\s*$", stripped))
+            if is_ts_fence or (in_ts_block and is_close_fence):
+                if not in_ts_block:
+                    in_ts_block = True
+                    ts_block_start = i
+                    ts_block_lines = []
+                else:
+                    block_text = "\n".join(ts_block_lines)
+                    line_offset = ts_block_start + 1
+
+                    for m in self._TS_INTERFACE_RE.finditer(block_text):
+                        key = (line_offset, m.group(1), ClaimKind.TS_CODE_BLOCK)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        claims.append(
+                            DocClaim(
+                                raw_text=m.group(0),
+                                kind=ClaimKind.TS_CODE_BLOCK,
+                                doc_file=path,
+                                line_number=line_offset,
+                                name=m.group(1),
+                                metadata={"ts_kind": "TS_INTERFACE"},
+                            )
+                        )
+
+                    for m in self._TS_TYPE_ALIAS_RE.finditer(block_text):
+                        key = (line_offset, m.group(1), ClaimKind.TS_CODE_BLOCK)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        claims.append(
+                            DocClaim(
+                                raw_text=m.group(0),
+                                kind=ClaimKind.TS_CODE_BLOCK,
+                                doc_file=path,
+                                line_number=line_offset,
+                                name=m.group(1),
+                                metadata={"ts_kind": "TS_TYPE"},
+                            )
+                        )
+
+                    for m in self._TS_ENUM_RE.finditer(block_text):
+                        key = (line_offset, m.group(1), ClaimKind.TS_CODE_BLOCK)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        claims.append(
+                            DocClaim(
+                                raw_text=m.group(0),
+                                kind=ClaimKind.TS_CODE_BLOCK,
+                                doc_file=path,
+                                line_number=line_offset,
+                                name=m.group(1),
+                                metadata={"ts_kind": "TS_ENUM"},
+                            )
+                        )
+
+                    in_ts_block = False
+                    ts_block_lines = []
+            elif in_ts_block:
+                ts_block_lines.append(line)
+
+        # ── 2. Property tables after TS declaration headers ─────────────────
+        for i, line in enumerate(lines):
+            header = line.strip()
+            decl_match = re.match(
+                r"(?:#+\s+)?(?:export\s+)?(?:interface|type|const\s+enum|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+                header,
+            )
+            if not decl_match:
+                continue
+            decl_name = decl_match.group(1)
+            if header.lstrip().startswith("type "):
+                decl_kind = ClaimKind.TS_TYPE_REF
+            elif "enum" in header:
+                decl_kind = ClaimKind.TS_ENUM_REF
+            else:
+                decl_kind = ClaimKind.TS_INTERFACE_REF
+
+            table_start = i + 1
+            header_idx = None
+            sep_idx = None
+            # Scan ahead to find table header row and separator row
+            for scan_i in range(table_start, len(lines)):
+                stripped = lines[scan_i].strip()
+                if not stripped:
+                    continue  # Skip blank lines
+                if stripped.startswith("#"):
+                    break  # Hit a heading, not a table
+                if stripped.startswith("|"):
+                    if re.search(r"\|[-:]+\|", stripped):
+                        # This is the separator row
+                        sep_idx = scan_i
+                        break
+                    elif header_idx is None:
+                        # First table row = header
+                        header_idx = scan_i
+            if header_idx is None or sep_idx is None:
+                continue
+
+            for row_i in range(sep_idx + 1, len(lines)):
+                row = lines[row_i].strip()
+                if not row.startswith("|"):
+                    break
+                cells = [c.strip() for c in row.split("|")[1:-1]]
+                if not cells:
+                    continue
+                prop_name = cells[0]
+                if not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", prop_name):
+                    continue
+                key = (row_i + 1, prop_name, decl_kind)
+                if key in seen:
+                    continue
+                seen.add(key)
+                claims.append(
+                    DocClaim(
+                        raw_text=prop_name,
+                        kind=decl_kind,
+                        doc_file=path,
+                        line_number=row_i + 1,
+                        name=prop_name,
+                        metadata={"parent_type": decl_name, "table_row": True},
+                    )
+                )
+
+        # ── 3. Inline type references ───────────────────────────────────────
+        for i, line in enumerate(lines):
+            for m in self._TS_INLINE_REF_RE.finditer(line):
+                type_name = m.group(1)
+                prefix_lower = line[: m.start()].lower()
+                if "interface" in prefix_lower:
+                    kind = ClaimKind.TS_INTERFACE_REF
+                elif "enum" in prefix_lower:
+                    kind = ClaimKind.TS_ENUM_REF
+                else:
+                    kind = ClaimKind.TS_TYPE_REF
+                key = (i + 1, type_name, kind)
+                if key in seen:
+                    continue
+                seen.add(key)
+                claims.append(
+                    DocClaim(
+                        raw_text=m.group(0),
+                        kind=kind,
+                        doc_file=path,
+                        line_number=i + 1,
+                        name=type_name,
+                        metadata={"inline_ref": True},
+                    )
+                )
 
         return claims
