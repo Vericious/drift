@@ -230,3 +230,23 @@ class TestDriftReport:
         )
         r = DriftReport(scanned_path=Path("."), drift_items=[item])
         assert r.has_drift
+
+
+class TestDriftCategoryTS:
+    """Tests for TypeScript-specific drift categories."""
+
+    def test_ts_property_missing_exists(self):
+        assert hasattr(DriftCategory, "TS_PROPERTY_MISSING")
+        assert DriftCategory.TS_PROPERTY_MISSING.value == "ts_property_missing"
+
+    def test_ts_property_extra_exists(self):
+        assert hasattr(DriftCategory, "TS_PROPERTY_EXTRA")
+        assert DriftCategory.TS_PROPERTY_EXTRA.value == "ts_property_extra"
+
+    def test_ts_member_missing_exists(self):
+        assert hasattr(DriftCategory, "TS_MEMBER_MISSING")
+        assert DriftCategory.TS_MEMBER_MISSING.value == "ts_member_missing"
+
+    def test_ts_member_extra_exists(self):
+        assert hasattr(DriftCategory, "TS_MEMBER_EXTRA")
+        assert DriftCategory.TS_MEMBER_EXTRA.value == "ts_member_extra"

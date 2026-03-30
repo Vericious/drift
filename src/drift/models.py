@@ -56,6 +56,10 @@ class DriftCategory(Enum):
     DOCUMENTED_BUT_MISSING = "documented_but_missing"
     UNDOCUMENTED = "undocumented"
     SIGNATURE_MISMATCH = "signature_mismatch"
+    TS_PROPERTY_MISSING = "ts_property_missing"
+    TS_PROPERTY_EXTRA = "ts_property_extra"
+    TS_MEMBER_MISSING = "ts_member_missing"
+    TS_MEMBER_EXTRA = "ts_member_extra"
 
 
 @dataclass
