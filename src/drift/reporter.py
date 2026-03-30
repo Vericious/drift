@@ -427,6 +427,439 @@ h2 {{ margin-top: 1.5rem; }}
 
         return "\n".join(output_parts)
 
+    # -------------------------------------------------------------------------
+    # Unified patch output
+    # -------------------------------------------------------------------------
+
+    # Categories that can be represented as a unified patch
+    _PATCHABLE_CATEGORIES = frozenset([
+        "wrong_default",
+        "wrong_type",
+        "wrong_return_type",
+        "documented_but_missing",
+    ])
+
+    def report_patch(self, verbose: bool = False, elapsed: float = 0.0) -> str:
+        """Return git-compatible unified patches for fixable drift categories.
+
+        Produces proper 'diff --git a/ b/' unified patches for:
+        - wrong_default: update doc to show correct parameter default
+        - wrong_type: update doc to show correct parameter type
+        - wrong_return_type: update doc to show correct return type
+        - documented_but_missing: remove the doc entry (the item was removed from code)
+
+        Non-fixable categories are skipped with a comment.
+        """
+        report = self.report
+        output_parts: list[str] = []
+
+        if not report.drift_items:
+            return "No drift to display.\n"
+
+        patch_count = 0
+        skip_count = 0
+
+        for item in report.drift_items:
+            if item.category in self._PATCHABLE_CATEGORIES:
+                patch_output = self._item_patch(item)
+                if patch_output:
+                    output_parts.append(patch_output)
+                    output_parts.append("")
+                    patch_count += 1
+                else:
+                    skip_count += 1
+            else:
+                skip_count += 1
+
+        if skip_count > 0:
+            output_parts.append(f"# {skip_count} item(s) skipped (not patchable)\n")
+
+        if patch_count == 0 and skip_count > 0:
+            return (
+                "".join(output_parts)
+                + "No patchable drift items found.\n"
+            )
+
+        return "\n".join(output_parts)
+
+    def _item_patch(self, item: DriftItem) -> str | None:
+        """Generate a unified patch for a single fixable drift item.
+
+        Returns None if the patch cannot be generated (e.g., file not readable).
+        """
+        if item.category == "documented_but_missing":
+            return self._patch_documented_but_missing(item)
+        elif item.category == "wrong_default":
+            return self._patch_wrong_default(item)
+        elif item.category == "wrong_type":
+            return self._patch_wrong_type(item)
+        elif item.category == "wrong_return_type":
+            return self._patch_wrong_return_type(item)
+        return None
+
+    def _read_doc_lines(self, doc_file: Path, start_line: int, end_line: int) -> list[str]:
+        """Read lines from a doc file, returning lines in [start_line, end_line] inclusive.
+
+        Returns empty list if file cannot be read.
+        """
+        try:
+            with open(doc_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            # Convert 1-indexed to 0-indexed, inclusive
+            start = max(0, start_line - 1)
+            end = min(len(lines), end_line)
+            return lines[start:end]
+        except (OSError, IOError):
+            return []
+
+    def _build_patch_hunk(
+        self,
+        doc_file: Path,
+        claim_line: int,
+        context_before: int = 3,
+        context_after: int = 3,
+        old_lines: list[str] | None = None,
+        new_lines: list[str] | None = None,
+    ) -> str | None:
+        """Build a unified patch hunk for changes to a doc file.
+
+        Args:
+            doc_file: Path to the doc file being patched
+            claim_line: The primary line number associated with the drift item (1-indexed)
+            context_before: Number of context lines before the change
+            context_after: Number of context lines after the change
+            old_lines: Lines being removed (without leading +/-)
+            new_lines: Lines being added (without leading +/-)
+
+        Returns:
+            A unified diff string, or None if the file cannot be read.
+        """
+        try:
+            with open(doc_file, "r", encoding="utf-8") as f:
+                all_lines = f.readlines()
+        except (OSError, IOError):
+            return None
+
+        # Compute hunk range: we want context around the change
+        # old_lines are at claim_line, new_lines replace them
+        hunk_start = max(0, claim_line - 1 - context_before)
+        hunk_end = min(len(all_lines), claim_line - 1 + context_after)
+
+        # If old_lines provided, extend range to include them
+        if old_lines:
+            # Find where in the file these lines appear near claim_line
+            pass  # We'll search for the old content
+
+        # Simple approach: use claim_line as center, read context around it
+        # Build the hunk body
+        body_lines: list[str] = []
+        # Add context before
+        for i in range(hunk_start, claim_line - 1):
+            body_lines.append(f" {all_lines[i].rstrip()}")
+
+        # Add old lines (removed)
+        if old_lines:
+            for line in old_lines:
+                body_lines.append(f"-{line.rstrip()}")
+
+        # Add new lines (added)
+        if new_lines:
+            for line in new_lines:
+                body_lines.append(f"+{line}")
+
+        # Add context after
+        for i in range(claim_line - 1, hunk_end):
+            body_lines.append(f" {all_lines[i].rstrip()}")
+
+        # Compute hunk ranges
+        old_count = len([l for l in body_lines if l.startswith(" ")]) + len(old_lines) if old_lines else 0
+        new_count = len([l for l in body_lines if l.startswith(" ")]) + len(new_lines) if new_lines else 0
+        # Actually compute from actual context + removals/additions
+        old_range_lines = [l for l in body_lines if l.startswith(" ") or l.startswith("-")]
+        new_range_lines = [l for l in body_lines if l.startswith(" ") or l.startswith("+")]
+
+        # We need the actual line numbers in the file for @@ header
+        old_start = hunk_start + 1  # 1-indexed
+        old_count_final = len(old_range_lines)
+        new_start = hunk_start + 1
+        new_count_final = len(new_range_lines)
+
+        file_str = str(doc_file)
+        git_path = file_str  # Use the file path as-is
+
+        hunk_header = (
+            f"diff --git a/{git_path} b/{git_path}\n"
+            f"--- a/{git_path}\n"
+            f"+++ b/{git_path}\n"
+            f"@@ -{old_start},{old_count_final} +{new_start},{new_count_final} @@"
+        )
+
+        return hunk_header + "\n" + "\n".join(body_lines) + "\n"
+
+    def _patch_documented_but_missing(self, item: DriftItem) -> str | None:
+        """Generate a patch that removes a documented-but-missing item from docs.
+
+        The patch removes the doc claim line from the doc file.
+        """
+        if not item.claim:
+            return None
+
+        doc_file = item.claim.doc_file
+        claim_line = item.claim.line_number
+
+        # Try to read the doc file to find the line
+        try:
+            with open(doc_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except (OSError, IOError):
+            return None
+
+        if claim_line < 1 or claim_line > len(lines):
+            return None
+
+        # Find the line content and surrounding context
+        context_before = 3
+        context_after = 3
+
+        # claim_line is 1-indexed. Context before covers [claim_line-1-context_before, claim_line-2].
+        # Context after covers [claim_line, claim_line+context_after-1].
+        hunk_start = max(0, claim_line - 1 - context_before)
+        hunk_end = min(len(lines), claim_line + context_after)  # claim_line is 1-idx, so this is exclusive bound
+
+        # The line at claim_line is the one to remove
+        body_lines: list[str] = []
+
+        # Context before: indices [hunk_start, claim_line-2] = range(hunk_start, claim_line-1)
+        for i in range(hunk_start, claim_line - 1):
+            body_lines.append(f" {lines[i].rstrip()}")
+
+        # The line to remove (at 1-indexed claim_line = 0-indexed claim_line-1)
+        body_lines.append(f"-{lines[claim_line - 1].rstrip()}")
+
+        # Context after: indices [claim_line, hunk_end-1] = range(claim_line, hunk_end)
+        for i in range(claim_line, hunk_end):
+            body_lines.append(f" {lines[i].rstrip()}")
+
+        # old_count: context_before + 1 (removed line) + context_after
+        old_count = (claim_line - 1 - hunk_start) + 1 + (hunk_end - claim_line)
+        # new_count: context_before + context_after (removed line not present)
+        new_count = (claim_line - 1 - hunk_start) + (hunk_end - claim_line)
+
+        file_str = str(doc_file)
+        hunk_header = (
+            f"diff --git a/{file_str} b/{file_str}\n"
+            f"--- a/{file_str}\n"
+            f"+++ b/{file_str}\n"
+            f"@@ -{hunk_start + 1},{old_count} +{hunk_start + 1},{new_count} @@ [documented_but_missing] remove missing item"
+        )
+
+        return hunk_header + "\n" + "\n".join(body_lines) + "\n"
+
+    def _patch_wrong_default(self, item: DriftItem) -> str | None:
+        """Generate a patch to fix a wrong parameter default in docs."""
+        if not item.claim or not item.fact:
+            return None
+
+        doc_file = item.claim.doc_file
+        claim_line = item.claim.line_number
+
+        try:
+            with open(doc_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except (OSError, IOError):
+            return None
+
+        if claim_line < 1 or claim_line > len(lines):
+            return None
+
+        # Find the parameter with wrong default
+        # The claim has parameters with their documented defaults
+        # The fact has the actual defaults
+        claim_params = {p.name: p for p in item.claim.parameters}
+        fact_params = {p.name: p for p in item.fact.parameters}
+
+        old_line = lines[claim_line - 1].rstrip()
+        new_line = old_line
+
+        # Try to update the default for matching params
+        for param_name, fact_param in fact_params.items():
+            if param_name in claim_params:
+                claim_param = claim_params[param_name]
+                if claim_param.default is not None and fact_param.default is not None:
+                    if claim_param.default != fact_param.default:
+                        # Replace old default with new default in the line
+                        # The old format likely has "= <old_default>"
+                        old_default_str = f"= {claim_param.default}"
+                        new_default_str = f"= {fact_param.default}"
+                        if old_default_str in new_line:
+                            new_line = new_line.replace(old_default_str, new_default_str)
+                        elif claim_param.default in new_line:
+                            new_line = new_line.replace(claim_param.default, fact_param.default)
+
+        if old_line == new_line:
+            return None  # No change needed
+
+        context_before = 3
+        context_after = 3
+        # claim_line is 1-indexed; context after starts at claim_line+1 (0-indexed = claim_line)
+        hunk_start = max(0, claim_line - 1 - context_before)
+        hunk_end = min(len(lines), claim_line + context_after)  # claim_line is 1-idx, exclusive end
+
+        body_lines: list[str] = []
+        for i in range(hunk_start, claim_line - 1):
+            body_lines.append(f" {lines[i].rstrip()}")
+        body_lines.append(f"-{old_line}")
+        body_lines.append(f"+{new_line}")
+        for i in range(claim_line, hunk_end):
+            body_lines.append(f" {lines[i].rstrip()}")
+
+        # For substitution: old = ctx_before + 1(removed) + ctx_after, new = ctx_before + 1(added) + ctx_after
+        # old_count = (claim_line - 1 - hunk_start) + 1 + (hunk_end - claim_line)
+        # new_count = (claim_line - 1 - hunk_start) + 1 + (hunk_end - claim_line)
+        # But the @@ counts: for substitution at a single line, old gets +1, new gets +1 (the sub line counts in both)
+        # Actually: old_count = ctx_before + 1(removed) + ctx_after, new_count = ctx_before + 1(added) + ctx_after
+        old_count = (claim_line - 1 - hunk_start) + 1 + (hunk_end - claim_line)
+        new_count = old_count  # same total line count (1 removed, 1 added, net 0)
+
+        file_str = str(doc_file)
+        hunk_header = (
+            f"diff --git a/{file_str} b/{file_str}\n"
+            f"--- a/{file_str}\n"
+            f"+++ b/{file_str}\n"
+            f"@@ -{hunk_start + 1},{old_count} +{hunk_start + 1},{new_count} @@ [wrong_default] fix parameter default"
+        )
+
+        return hunk_header + "\n" + "\n".join(body_lines) + "\n"
+
+    def _patch_wrong_type(self, item: DriftItem) -> str | None:
+        """Generate a patch to fix a wrong parameter type in docs."""
+        if not item.claim or not item.fact:
+            return None
+
+        doc_file = item.claim.doc_file
+        claim_line = item.claim.line_number
+
+        try:
+            with open(doc_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except (OSError, IOError):
+            return None
+
+        if claim_line < 1 or claim_line > len(lines):
+            return None
+
+        claim_params = {p.name: p for p in item.claim.parameters}
+        fact_params = {p.name: p for p in item.fact.parameters}
+
+        old_line = lines[claim_line - 1].rstrip()
+        new_line = old_line
+
+        for param_name, fact_param in fact_params.items():
+            if param_name in claim_params:
+                claim_param = claim_params[param_name]
+                if claim_param.type_annotation and fact_param.type_annotation:
+                    if claim_param.type_annotation != fact_param.type_annotation:
+                        if f": {claim_param.type_annotation}" in new_line:
+                            new_line = new_line.replace(
+                                f": {claim_param.type_annotation}",
+                                f": {fact_param.type_annotation}",
+                            )
+                        elif claim_param.type_annotation in new_line:
+                            new_line = new_line.replace(
+                                claim_param.type_annotation,
+                                fact_param.type_annotation,
+                            )
+
+        if old_line == new_line:
+            return None
+
+        context_before = 3
+        context_after = 3
+        hunk_start = max(0, claim_line - 1 - context_before)
+        hunk_end = min(len(lines), claim_line - 1 + context_after)
+
+        body_lines: list[str] = []
+        for i in range(hunk_start, claim_line - 1):
+            body_lines.append(f" {lines[i].rstrip()}")
+        body_lines.append(f"-{old_line}")
+        body_lines.append(f"+{new_line}")
+        for i in range(claim_line, hunk_end):
+            body_lines.append(f" {lines[i].rstrip()}")
+
+        old_count = hunk_end - hunk_start
+        new_count = old_count
+
+        file_str = str(doc_file)
+        hunk_header = (
+            f"diff --git a/{file_str} b/{file_str}\n"
+            f"--- a/{file_str}\n"
+            f"+++ b/{file_str}\n"
+            f"@@ -{hunk_start + 1},{old_count} +{hunk_start + 1},{new_count} @@ [wrong_type] fix parameter type"
+        )
+
+        return hunk_header + "\n" + "\n".join(body_lines) + "\n"
+
+    def _patch_wrong_return_type(self, item: DriftItem) -> str | None:
+        """Generate a patch to fix a wrong return type in docs."""
+        if not item.claim or not item.fact:
+            return None
+
+        doc_file = item.claim.doc_file
+        claim_line = item.claim.line_number
+
+        try:
+            with open(doc_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except (OSError, IOError):
+            return None
+
+        if claim_line < 1 or claim_line > len(lines):
+            return None
+
+        old_line = lines[claim_line - 1].rstrip()
+        new_line = old_line
+
+        if item.claim.return_type and item.fact.return_type:
+            if item.claim.return_type != item.fact.return_type:
+                old_ret = f"-> {item.claim.return_type}"
+                new_ret = f"-> {item.fact.return_type}"
+                if old_ret in new_line:
+                    new_line = new_line.replace(old_ret, new_ret)
+                elif item.claim.return_type in new_line:
+                    new_line = new_line.replace(
+                        item.claim.return_type,
+                        item.fact.return_type,
+                    )
+
+        if old_line == new_line:
+            return None
+
+        context_before = 3
+        context_after = 3
+        hunk_start = max(0, claim_line - 1 - context_before)
+        hunk_end = min(len(lines), claim_line - 1 + context_after)
+
+        body_lines: list[str] = []
+        for i in range(hunk_start, claim_line - 1):
+            body_lines.append(f" {lines[i].rstrip()}")
+        body_lines.append(f"-{old_line}")
+        body_lines.append(f"+{new_line}")
+        for i in range(claim_line, hunk_end):
+            body_lines.append(f" {lines[i].rstrip()}")
+
+        old_count = hunk_end - hunk_start
+        new_count = old_count
+
+        file_str = str(doc_file)
+        hunk_header = (
+            f"diff --git a/{file_str} b/{file_str}\n"
+            f"--- a/{file_str}\n"
+            f"+++ b/{file_str}\n"
+            f"@@ -{hunk_start + 1},{old_count} +{hunk_start + 1},{new_count} @@ [wrong_return_type] fix return type"
+        )
+
+        return hunk_header + "\n" + "\n".join(body_lines) + "\n"
+
     def _item_diff(self, item: DriftItem) -> str:
         """Generate diff-style output for a single drift item."""
         lines: list[str] = []

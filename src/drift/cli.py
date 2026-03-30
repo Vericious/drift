@@ -44,7 +44,13 @@ def main() -> None:
     "--diff-output",
     "output_diff",
     is_flag=True,
-    help="Output diff-style unified diff showing exact changes needed (mutually exclusive with --json, --sarif, --html)",
+    help="Output diff-style unified diff showing exact changes needed (mutually exclusive with --json, --sarif, --html, --patch)",
+)
+@click.option(
+    "--patch",
+    "output_patch",
+    is_flag=True,
+    help="Output git-compatible unified patches for fixable categories (wrong_default, wrong_type, wrong_return_type, documented_but_missing). Non-fixable categories are skipped with a comment. (mutually exclusive with --json, --sarif, --html, --diff-output)",
 )
 @click.option(
     "--output",
@@ -151,6 +157,7 @@ def scan(
     output_sarif: bool,
     output_html: bool,
     output_diff: bool,
+    output_patch: bool,
     output_file: str | None,
     config_path: str | None,
     strict: bool,
@@ -189,10 +196,10 @@ def scan(
 
     # CLI --json, --sarif, --html, or --diff-output flag overrides config
     # These flags are mutually exclusive
-    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff] if f)
+    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff, output_patch] if f)
     if flag_count > 1:
         raise click.ClickException(
-            "--json, --sarif, --html, and --diff-output cannot be used together."
+            "--json, --sarif, --html, --diff-output, and --patch cannot be used together."
         )
     if output_json:
         output_format = "json"
@@ -202,6 +209,8 @@ def scan(
         output_format = "html"
     elif output_diff:
         output_format = "diff"
+    elif output_patch:
+        output_format = "patch"
     else:
         output_format = config.output_format
 
@@ -230,6 +239,7 @@ def scan(
                         output_sarif=output_sarif,
                         output_html=output_html,
                         output_diff=output_diff,
+                        output_patch=output_patch,
                         output_file=output_file,
                         config_path=config_path,
                         strict=strict,
@@ -393,6 +403,9 @@ def scan(
         click.echo(output_content)
     elif output_format == "diff":
         output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed)
+        click.echo(output_content)
+    elif output_format == "patch":
+        output_content = reporter.report_patch(verbose=verbose, elapsed=elapsed)
         click.echo(output_content)
     else:
         # For text output, capture to file without Rich formatting
@@ -985,6 +998,7 @@ def _run_watch_scan(
     output_sarif: bool,
     output_html: bool,
     output_diff: bool,
+    output_patch: bool,
     output_file: str | None,
     config_path: str | None,
     strict: bool,
@@ -1013,9 +1027,9 @@ def _run_watch_scan(
     except ValueError as e:
         raise click.ClickException(str(e)) from e
 
-    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff] if f)
+    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff, output_patch] if f)
     if flag_count > 1:
-        raise click.ClickException("--json, --sarif, --html, and --diff-output cannot be used together.")
+        raise click.ClickException("--json, --sarif, --html, --diff-output, and --patch cannot be used together.")
     if output_json:
         output_format = "json"
     elif output_sarif:
@@ -1084,6 +1098,8 @@ def _run_watch_scan(
         output_content = reporter.report_html(verbose=verbose, elapsed=elapsed)
     elif output_format == "diff":
         output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed)
+    elif output_format == "patch":
+        output_content = reporter.report_patch(verbose=verbose, elapsed=elapsed)
     else:
         import io
         from rich.console import Console

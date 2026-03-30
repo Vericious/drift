@@ -184,3 +184,243 @@ class TestDiffOutputFormat:
         # Should contain unified diff format headers
         assert "---" in diff_output
         assert "+++" in diff_output
+
+
+# ---------------------------------------------------------------------------
+# Tests for --patch output (unified git-compatible patches)
+# ---------------------------------------------------------------------------
+
+import os
+import tempfile
+
+from drift.reporter import DriftReporter
+
+
+class TestPatchOutputWrongDefault:
+    """Test patch output for wrong_default category."""
+
+    def test_patch_wrong_default(self):
+        """Patch fixes wrong parameter default in docs."""
+        # Create a temp doc file
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False
+        ) as f:
+            f.write("line 1\n")
+            f.write("line 2\n")
+            f.write("line 3 - def func(x: int = 0):\n")
+            f.write("line 4\n")
+            f.write("line 5\n")
+            f.write("line 6\n")
+            doc_path = f.name
+
+        try:
+            claim = DocClaim(
+                raw_text="def func(x: int = 0):",
+                kind=ClaimKind.FUNCTION_SIGNATURE,
+                doc_file=Path(doc_path),
+                line_number=3,
+                name="func",
+                parameters=[
+                    Parameter(name="x", type_annotation="int", default="0", kind="positional")
+                ],
+            )
+            fact = CodeFact(
+                name="func",
+                kind=FactKind.FUNCTION,
+                source_file=Path("src/api.py"),
+                line_number=10,
+                parameters=[
+                    Parameter(name="x", type_annotation="int", default="42", kind="positional")
+                ],
+            )
+            item = DriftItem(
+                fact=fact,
+                claim=claim,
+                severity=Severity.ERROR,
+                category="wrong_default",
+                message="func has wrong default for x",
+            )
+            report = DriftReport(scanned_path=Path("."), drift_items=[item])
+            reporter = DriftReporter(report)
+            patch = reporter.report_patch()
+
+            # Should have git diff format
+            assert "diff --git" in patch
+            assert "--- a/" in patch
+            assert "+++ b/" in patch
+            assert "@@" in patch
+            assert "[wrong_default]" in patch
+            # Should show old and new defaults
+            assert "= 0" in patch
+            assert "= 42" in patch
+            # Should have removal and addition markers
+            assert "-line 3 - def func(x: int = 0):" in patch
+            assert "+line 3 - def func(x: int = 42):" in patch
+        finally:
+            os.unlink(doc_path)
+
+
+class TestPatchOutputDocumentedButMissing:
+    """Test patch output for documented_but_missing category."""
+
+    def test_patch_documented_but_missing(self):
+        """Patch removes the doc entry for a function not in code."""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False
+        ) as f:
+            f.write("line 1\n")
+            f.write("line 2\n")
+            f.write("line 3 - documented_func description\n")
+            f.write("line 4\n")
+            f.write("line 5\n")
+            f.write("line 6\n")
+            doc_path = f.name
+
+        try:
+            claim = DocClaim(
+                raw_text="documented_func description",
+                kind=ClaimKind.FUNCTION_SIGNATURE,
+                doc_file=Path(doc_path),
+                line_number=3,
+                name="documented_func",
+                parameters=[],
+            )
+            fact = CodeFact(
+                name="documented_func",
+                kind=FactKind.FUNCTION,
+                source_file=Path("src/api.py"),
+                line_number=10,
+                parameters=[],
+            )
+            item = DriftItem(
+                fact=fact,
+                claim=claim,
+                severity=Severity.ERROR,
+                category="documented_but_missing",
+                message="documented_func is documented but not found in code",
+            )
+            report = DriftReport(scanned_path=Path("."), drift_items=[item])
+            reporter = DriftReporter(report)
+            patch = reporter.report_patch()
+
+            # Should have git diff format
+            assert "diff --git" in patch
+            assert "--- a/" in patch
+            assert "+++ b/" in patch
+            assert "@@" in patch
+            assert "[documented_but_missing]" in patch
+            # Should show removal of the documented line
+            assert "-line 3 - documented_func description" in patch
+            # No addition lines (pure deletion)
+            lines = patch.split("\n")
+            added = [l for l in lines if l.startswith("+") and not l.startswith("+++")]
+            assert len(added) == 0
+        finally:
+            os.unlink(doc_path)
+
+
+class TestPatchOutputSkipsUndocumented:
+    """Test that patch output skips non-fixable categories."""
+
+    def test_patch_skips_undocumented(self):
+        """Undocumented (and other non-fixable categories) are skipped with a comment."""
+        # Create an item with a non-fixable category (undocumented)
+        item = DriftItem(
+            fact=CodeFact(
+                name="helper_func",
+                kind=FactKind.FUNCTION,
+                source_file=Path("src/helper.py"),
+                line_number=3,
+                parameters=[
+                    Parameter(name="a", type_annotation="str", default=None, kind="positional")
+                ],
+            ),
+            claim=None,
+            severity=Severity.WARNING,
+            category="undocumented",
+            message="'helper_func' exists in code but is not documented",
+            suggestion="Add documentation for helper_func",
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item])
+        reporter = DriftReporter(report)
+        patch = reporter.report_patch()
+
+        # Should indicate no patchable items
+        assert "skipped" in patch.lower() or "not patchable" in patch.lower()
+        assert "No patchable drift items found" in patch
+        # Should NOT have diff --git for undocumented
+        assert "diff --git" not in patch
+
+    def test_patch_mixed_fixable_and_unfixable(self):
+        """When some items are fixable and some are not, only fixable get patches."""
+        # Create a temp doc file for the fixable item
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False
+        ) as f:
+            f.write("line 1\n")
+            f.write("line 2\n")
+            f.write("line 3 - def func(x: int = 0):\n")
+            f.write("line 4\n")
+            f.write("line 5\n")
+            f.write("line 6\n")
+            doc_path = f.name
+
+        try:
+            # Fixable: wrong_default
+            claim = DocClaim(
+                raw_text="def func(x: int = 0):",
+                kind=ClaimKind.FUNCTION_SIGNATURE,
+                doc_file=Path(doc_path),
+                line_number=3,
+                name="func",
+                parameters=[
+                    Parameter(name="x", type_annotation="int", default="0", kind="positional")
+                ],
+            )
+            fact = CodeFact(
+                name="func",
+                kind=FactKind.FUNCTION,
+                source_file=Path("src/api.py"),
+                line_number=10,
+                parameters=[
+                    Parameter(name="x", type_annotation="int", default="99", kind="positional")
+                ],
+            )
+            fixable_item = DriftItem(
+                fact=fact,
+                claim=claim,
+                severity=Severity.ERROR,
+                category="wrong_default",
+                message="func has wrong default",
+            )
+            # Non-fixable: undocumented
+            unfixable_item = DriftItem(
+                fact=CodeFact(
+                    name="helper",
+                    kind=FactKind.FUNCTION,
+                    source_file=Path("src/helper.py"),
+                    line_number=5,
+                    parameters=[],
+                ),
+                claim=None,
+                severity=Severity.WARNING,
+                category="undocumented",
+                message="helper not documented",
+            )
+            report = DriftReport(
+                scanned_path=Path("."),
+                drift_items=[fixable_item, unfixable_item],
+            )
+            reporter = DriftReporter(report)
+            patch = reporter.report_patch()
+
+            # Should have patch for fixable item
+            assert "diff --git" in patch
+            assert "wrong_default" in patch
+            assert "= 99" in patch
+            # Should mention skip count
+            assert "1 item(s) skipped" in patch
+            # Should not have undocumented in a patch (should be skipped)
+            assert patch.count("diff --git") == 1
+        finally:
+            os.unlink(doc_path)
