@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.5.0-dev
+## v0.5.0
 
 ### New Features
 - **Protocol and ABC extractor (DRIFT-098)**: New `src/drift/extractors/protocols.py` extractor for `typing.Protocol` and `abc.ABC` classes. Extracts Protocol method stubs (signature only), `@abstractmethod` from ABC classes, and `@runtime_checkable` metadata. Produces `PROTOCOL_METHOD` and `ABSTRACT_METHOD` CodeFacts. 10 new tests pass.
