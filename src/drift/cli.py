@@ -389,7 +389,7 @@ def scan(
                 f"(min={min_confidence})"
             )
 
-    reporter = DriftReporter(report, verbose=verbose)
+    reporter = DriftReporter(report, verbose=verbose, min_confidence=min_confidence)
 
     # Generate output based on format
     if output_format == "json":
@@ -1088,7 +1088,7 @@ def _run_watch_scan(
             item for item in report.drift_items if item.confidence >= min_confidence
         ]
 
-    reporter = DriftReporter(report, verbose=verbose)
+    reporter = DriftReporter(report, verbose=verbose, min_confidence=min_confidence)
 
     if output_format == "json":
         output_content = reporter.report_json(verbose=verbose, elapsed=elapsed)

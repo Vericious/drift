@@ -30,9 +30,15 @@ def _severity_to_sarif_level(severity: Severity) -> str:
 class DriftReporter:
     """Render a DriftReport as console text or JSON."""
 
-    def __init__(self, report: DriftReport, verbose: bool = False) -> None:
+    def __init__(
+        self,
+        report: DriftReport,
+        verbose: bool = False,
+        min_confidence: float | None = None,
+    ) -> None:
         self.report = report
         self.verbose = verbose
+        self.min_confidence = min_confidence
         self.console = Console()
 
     # -------------------------------------------------------------------------
@@ -59,6 +65,12 @@ class DriftReporter:
             self.console.print(f"  [dim]Facts:[/dim] {len(report.facts)}")
             self.console.print(f"  [dim]Claims:[/dim] {len(report.claims)}")
             self.console.print(f"  [dim]Errors logged:[/dim] {len(report.errors)}")
+        if verbose and self.min_confidence is not None:
+            self.console.print(
+                f"  [dim]Confidence filter:[/dim] "
+                f"{len(report.drift_items)}/{len(report.facts) + len(report.claims)} "
+                f"items shown (min={self.min_confidence})"
+            )
         self.console.print()
 
         if not report.has_drift and not report.drift_items:
@@ -277,6 +289,13 @@ class DriftReporter:
 
         if verbose:
             output["scan_time_seconds"] = round(elapsed, 3)
+
+        if self.min_confidence is not None:
+            output["confidence_filter"] = {
+                "min": self.min_confidence,
+                "shown": len(report.drift_items),
+                "total": len(report.facts) + len(report.claims),
+            }
 
         return json.dumps(output, indent=2)
 

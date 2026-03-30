@@ -742,3 +742,38 @@ class TestReportHtml:
         reporter = DriftReporter(populated_report)
         output = reporter.report_html()
         assert "Drift v0.5.0-dev" in output
+
+
+class TestConfidenceFilterVerbose:
+    """Tests for confidence filter verbose output."""
+
+    def test_verbose_shows_filter_count(self, populated_report, capsys):
+        """Verbose console output shows confidence filter count when min_confidence is set."""
+        reporter = DriftReporter(
+            populated_report, verbose=True, min_confidence=0.5
+        )
+        reporter.report_console(verbose=True)
+        captured = capsys.readouterr()
+        assert "Confidence filter:" in captured.out
+        assert "min=0.5" in captured.out
+
+    def test_json_output_has_confidence_filter_key(self, populated_report):
+        """JSON output includes confidence_filter metadata when min_confidence is set."""
+        reporter = DriftReporter(
+            populated_report, verbose=True, min_confidence=0.5
+        )
+        output = reporter.report_json(verbose=True)
+        import json
+
+        data = json.loads(output)
+        assert "confidence_filter" in data
+        assert data["confidence_filter"]["min"] == 0.5
+        assert "shown" in data["confidence_filter"]
+        assert "total" in data["confidence_filter"]
+
+    def test_filter_count_zero_when_no_min_confidence(self, populated_report, capsys):
+        """Console output does not show filter count when min_confidence is None."""
+        reporter = DriftReporter(populated_report, verbose=True)
+        reporter.report_console(verbose=True)
+        captured = capsys.readouterr()
+        assert "Confidence filter:" not in captured.out
