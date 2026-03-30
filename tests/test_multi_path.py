@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from drift.cli import main
+from drift.cli import main, _merge_reports
+from drift.models import ClaimKind, CodeFact, DocClaim, DriftItem, DriftReport, FactKind, Parameter, Severity
 
 
 @pytest.fixture
@@ -73,3 +74,137 @@ def test_overlapping_paths_dedup(cli_runner, tmp_path):
     assert result.exit_code == 0
     # Should show 1 fact (not 2 from double-scanning)
     assert "1 fact" in result.output
+
+
+# =============================================================================
+# DRIFT-175: Multi-path deduplication tests for _merge_reports()
+# =============================================================================
+
+
+def _make_drift_item(
+    category: str,
+    fact_name: str = "func",
+    claim_name: str = "func",
+    fact_file: str = "src/code.py",
+    claim_file: str = "docs/api.md",
+    severity: Severity = Severity.ERROR,
+) -> DriftItem:
+    """Helper to create a DriftItem for deduplication testing."""
+    fact = CodeFact(
+        name=fact_name,
+        kind=FactKind.FUNCTION,
+        source_file=Path(fact_file),
+        line_number=10,
+        parameters=[],
+    )
+    claim = DocClaim(
+        raw_text=f"def {claim_name}()",
+        kind=ClaimKind.FUNCTION_SIGNATURE,
+        doc_file=Path(claim_file),
+        line_number=5,
+        name=claim_name,
+        parameters=[],
+    )
+    return DriftItem(
+        fact=fact,
+        claim=claim,
+        severity=severity,
+        category=category,
+        message=f"{category}: {fact_name}",
+    )
+
+
+def test_no_duplicates_same_file_two_paths():
+    """Same file scanned via two paths produces no duplicate drift items."""
+    # Create two reports with the same drift item (same source file, fact name, claim name, category)
+    item = _make_drift_item(
+        category="undocumented",
+        fact_name="my_func",
+        claim_name="my_func",
+        fact_file="src/my_func.py",
+    )
+
+    report1 = DriftReport(scanned_path=Path("project1"), drift_items=[item])
+    report2 = DriftReport(scanned_path=Path("project2"), drift_items=[item])
+
+    merged = _merge_reports([report1, report2])
+
+    # Should have only 1 drift item (deduplicated), not 2
+    assert len(merged.drift_items) == 1
+    assert merged.drift_items[0].fact.name == "my_func"
+
+
+def test_no_duplicates_ts_and_md_overlap():
+    """Same item documented in both .ts and .md files is deduplicated."""
+    # Two reports with same item but different doc sources
+    # (TypeScript interface and Markdown both document the same function)
+    item = _make_drift_item(
+        category="documented_but_missing",
+        fact_name="UserService",
+        claim_name="UserService",
+        fact_file="src/user_service.ts",
+        claim_file="docs/user_service.md",
+    )
+
+    report_ts = DriftReport(
+        scanned_path=Path("src"),
+        drift_items=[
+            _make_drift_item(
+                category="documented_but_missing",
+                fact_name="UserService",
+                claim_name="UserService",
+                fact_file="src/user_service.ts",
+                claim_file="src/user_service.ts",  # TS doc claim
+            )
+        ],
+    )
+    report_md = DriftReport(
+        scanned_path=Path("docs"),
+        drift_items=[
+            _make_drift_item(
+                category="documented_but_missing",
+                fact_name="UserService",
+                claim_name="UserService",
+                fact_file="src/user_service.ts",
+                claim_file="docs/user_service.md",  # MD doc claim
+            )
+        ],
+    )
+
+    merged = _merge_reports([report_ts, report_md])
+
+    # Both have the same (source_file, fact.name, claim.name, category) key
+    # Should be deduplicated to 1 item
+    assert len(merged.drift_items) == 1
+
+
+def test_merge_preserves_unique_items():
+    """Items with different (source_file, fact.name, claim.name, category) are preserved."""
+    item1 = _make_drift_item(
+        category="undocumented",
+        fact_name="func_a",
+        claim_name="func_a",
+        fact_file="src/a.py",
+    )
+    item2 = _make_drift_item(
+        category="fuzzy_renamed",
+        fact_name="old_b",
+        claim_name="new_b",  # Different claim name
+        fact_file="src/b.py",
+    )
+    item3 = _make_drift_item(
+        category="undocumented",
+        fact_name="func_c",
+        claim_name="func_c",
+        fact_file="src/c.py",
+    )
+
+    report1 = DriftReport(scanned_path=Path("proj1"), drift_items=[item1])
+    report2 = DriftReport(scanned_path=Path("proj2"), drift_items=[item2, item3])
+
+    merged = _merge_reports([report1, report2])
+
+    # All 3 unique items should be preserved
+    assert len(merged.drift_items) == 3
+    names = {item.fact.name for item in merged.drift_items}
+    assert names == {"func_a", "old_b", "func_c"}
