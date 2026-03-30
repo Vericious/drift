@@ -2,7 +2,7 @@
 
 > Detect when your documentation no longer matches your code.
 
-**Status: Pre-Alpha (v0.4.0)**
+**Status: Alpha (v0.5.0)**
 
 Drift parses your codebase and your documentation, then tells you exactly where they've diverged.
 
@@ -23,9 +23,15 @@ drift scan .
 ```
 
 Drift will:
-1. Extract **facts** — function signatures from `.py` files
-2. Extract **claims** — documented signatures from `.md` files
+1. Extract **facts** — signatures from `.py`, `.ts`, `.js`, `.sql`, `.hcl`, and many other file types
+2. Extract **claims** — documented signatures from `.md`, docstrings, YAML, and config files
 3. Match them and report mismatches as **drift items**
+
+Drift supports **multiple scan paths**:
+
+```bash
+drift scan src/ tests/ docs/
+```
 
 ### `drift scan [PATH] --json`
 
@@ -33,6 +39,32 @@ Output results as JSON for machine consumption.
 
 ```bash
 drift scan . --json
+```
+
+### Output formats
+
+Drift supports multiple output formats:
+
+| Flag | Description |
+|------|-------------|
+| `--json` | JSON output for machine consumption |
+| `--sarif` | SARIF v2.1.0 for GitHub code scanning integration |
+| `--html` | Self-contained HTML report |
+| `--diff-output` | Unified diff showing exact changes needed |
+| `--patch` | Git-compatible unified patches for fixable categories |
+
+```bash
+# SARIF output (GitHub Security tab integration)
+drift scan . --sarif -o drift.sarif
+
+# HTML report
+drift scan . --html -o drift.html
+
+# Unified diff view
+drift scan . --diff-output
+
+# Git-compatible patches
+drift scan . --patch
 ```
 
 JSON output structure:
@@ -53,11 +85,49 @@ JSON output structure:
       "category": "missing_param",
       "message": "Parameter 'b' in my_func is not documented",
       "suggestion": "Add 'b' to docs for my_func",
+      "confidence": 0.95,
       "fact": { "name": "my_func", "kind": "function", ... },
       "claim": { "name": "my_func", ... }
     }
   ]
 }
+```
+
+Each drift item includes a **confidence score** (0.0–1.0) indicating how certain the matcher is. Use `--min-confidence` to filter noisy low-confidence matches:
+
+```bash
+# Only show high-confidence drift items
+drift scan . --min-confidence 0.7
+
+# Combine with JSON output for CI
+drift scan . --json --min-confidence 0.5
+```
+
+### Git-diff filtering
+
+Scan only files changed vs a git reference:
+
+```bash
+# Only check files changed since main
+drift scan . --diff main
+
+# Only check files changed in the last 3 commits
+drift scan . --diff HEAD~3
+
+# Use --diff-branch to scan files changed vs a branch's merge-base with HEAD
+drift scan . --diff-branch main
+```
+
+### Baseline diff
+
+Save a baseline of current drift state, then only report **new** drift:
+
+```bash
+# Save current drift state as baseline
+drift scan . --update-baseline
+
+# Later: only show NEW drift vs the baseline
+drift scan . --baseline
 ```
 
 ### Understanding the output
@@ -89,15 +159,38 @@ docs/*.md
 
 ## Self-check
 
-Drift v0.4.0 was validated by running `drift scan .` on itself (2026-03-26).
+Drift v0.5.0 was validated by running `drift scan .` on itself.
 
-**Result: 161 tests passing**
+**Result: 450+ tests passing**
+
+## Supported Languages and File Types
+
+Drift v0.5.0 ships with extractors for:
+
+| Language/Type | File Extensions | What it extracts |
+|---------------|-----------------|------------------|
+| Python | `.py` | Functions, classes, decorators, async defs |
+| TypeScript | `.ts`, `.tsx` | Interfaces, types, enums, function signatures |
+| JSDoc | `.js`, `.ts`, `.jsx`, `.tsx` | `@param`, `@returns`, `@type`, `@throws` |
+| SQLAlchemy | `.py` | `Column`, `relationship`, `Table` definitions |
+| Django | `.py` | URL patterns (`path()`, `re_path()`) |
+| Terraform | `.tf` | Resource types, data sources, variables |
+| GraphQL | `.graphql`, `.gql` | Type definitions, queries, mutations |
+| Protocol/ABC | `.py` | `typing.Protocol`, `abc.ABC` classes |
+| Makefile | `Makefile` | Targets, variables, dependencies |
+| Dockerfile | `Dockerfile` | `RUN`, `EXPOSE`, `ENV`, `COPY`, `ADD` |
+| YAML | `.yaml`, `.yml` | Config key-value pairs |
+| Config | `.toml`, `.ini`, `.env` | Settings, sections, variables |
+| Deprecations | `.py` | `@deprecated`, `DeprecationWarning` |
+| CLI flags | `.py` | `argparse`/`click`/`typer` definitions |
+
+Plus [plugin support](#extending-with-plugins) for third-party extractors.
 
 ---
 
 ## CLI Flag Detection
 
-Drift v0.4.0+ detects when CLI flags documented in your markdown don't match what your `argparse` or `click` CLI actually registers.
+Drift v0.5.0 detects when CLI flags documented in your markdown don't match what your `argparse` or `click` CLI actually registers.
 
 ### Example
 
@@ -162,18 +255,20 @@ repos:
     hooks:
       - id: drift-check
         name: drift (check)
-        entry: drift check
+        entry: drift check --diff HEAD~1 --min-confidence 0.5
         language: system
         pass_filenames: true
         types: [python]
       - id: drift-fix
         name: drift (auto-fix)
-        entry: drift fix
+        entry: drift fix --diff HEAD~1 --min-confidence 0.5
         language: system
         pass_filenames: false
         stages: [commit]
         types: [python]
 ```
+
+The `--diff HEAD~1` flag checks only files changed in this commit. Use `--min-confidence 0.5` to filter low-confidence signals and reduce noise.
 
 ### Hook options
 
