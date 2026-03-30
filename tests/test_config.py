@@ -96,13 +96,41 @@ threshold = 1.5
             load_config(config_file)
 
     def test_invalid_output_format(self, tmp_path: Path):
-        """Test that output_format must be 'text' or 'json'."""
+        """Test that output_format must be 'text', 'json', 'sarif', 'html', or 'diff'."""
         config_file = tmp_path / ".drift.toml"
         config_file.write_text("""
 output_format = "yaml"
 """)
 
-        with pytest.raises(ValueError, match="must be 'text' or 'json'"):
+        with pytest.raises(ValueError, match="output_format must be"):
+            load_config(config_file)
+
+    def test_config_output_format_sarif(self, tmp_path: Path):
+        """Test that 'sarif' is a valid output_format value."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text('output_format = "sarif"\n')
+        config = load_config(config_file)
+        assert config.output_format == "sarif"
+
+    def test_config_output_format_html(self, tmp_path: Path):
+        """Test that 'html' is a valid output_format value."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text('output_format = "html"\n')
+        config = load_config(config_file)
+        assert config.output_format == "html"
+
+    def test_config_output_format_diff(self, tmp_path: Path):
+        """Test that 'diff' is a valid output_format value."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text('output_format = "diff"\n')
+        config = load_config(config_file)
+        assert config.output_format == "diff"
+
+    def test_config_output_format_invalid_rejects(self, tmp_path: Path):
+        """Test that invalid output_format values are rejected."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text('output_format = "csv"\n')
+        with pytest.raises(ValueError, match="output_format must be"):
             load_config(config_file)
 
     def test_partial_config_uses_defaults(self, tmp_path: Path):

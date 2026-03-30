@@ -19,7 +19,7 @@ class DriftConfig:
 
     ignore_patterns: list[str] = field(default_factory=list)
     threshold: float = 0.0
-    output_format: Literal["text", "json"] = "text"
+    output_format: Literal["text", "json", "sarif", "html", "diff"] = "text"
     fail_on: Literal["error", "warning", "info", "none"] = "error"
     extractors_enabled: list[str] | None = None  # None = all enabled
     extractors_disabled: list[str] = field(default_factory=list)
@@ -71,8 +71,8 @@ def load_config(path: Path | None = None) -> DriftConfig:
         raise ValueError(f"threshold must be between 0.0 and 1.0 in {path}")
 
     output_format = data.get("output_format", "text")
-    if output_format not in ("text", "json"):
-        raise ValueError(f"output_format must be 'text' or 'json' in {path}")
+    if output_format not in ("text", "json", "sarif", "html", "diff"):
+        raise ValueError(f"output_format must be 'text', 'json', 'sarif', 'html', or 'diff' in {path}")
 
     fail_on = data.get("fail_on", "error")
     if fail_on not in ("error", "warning", "info", "none"):
