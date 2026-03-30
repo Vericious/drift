@@ -2,7 +2,7 @@
 
 > Detect when your documentation no longer matches your code.
 
-**Status: Pre-Alpha (v0.4.0)**
+**Status: Pre-Alpha (v0.5.0)**
 
 Drift parses your codebase and your documentation, then tells you exactly where they've diverged.
 
@@ -60,6 +60,82 @@ JSON output structure:
 }
 ```
 
+### `drift scan [PATH] --diff <ref>`
+
+Filter scan to only files changed since a git ref (branch, tag, commit).
+
+```bash
+drift scan . --diff main
+drift scan . --diff-branch develop
+```
+
+This is useful in CI/PR contexts to catch drift only in the files you're modifying.
+
+### `drift scan [PATH] --diff-branch <branch>`
+
+Resolve the merge-base between `<branch>` and HEAD, then scan only changed files.
+
+```bash
+drift scan . --diff-branch main
+```
+
+### `drift scan [PATH] --update-baseline`
+
+Update the baseline file (`.drift/baseline.json`) with the current scan results.
+
+```bash
+drift scan . --update-baseline
+```
+
+### `drift scan [PATH] --min-confidence <score>`
+
+Filter out drift items below a confidence threshold (0.0–1.0).
+
+```bash
+drift scan . --min-confidence 0.8
+```
+
+### `drift scan [PATH] --fail-on <severity>`
+
+Control exit code based on severity level.
+
+| Value | Exit code 1 when |
+|-------|-----------------|
+| `error` | Error-severity drift found (default) |
+| `warning` | Warning or higher |
+| `info` | Any drift |
+| `none` | Never exit with error |
+
+```bash
+drift scan . --fail-on warning
+```
+
+### `drift scan [PATH] --patch`
+
+Output a unified diff showing how to fix drift items.
+
+```bash
+drift scan . --patch
+```
+
+## Confidence Scoring
+
+Drift v0.5.0+ computes a **confidence score** (0.0–1.0) for each drift item based on multiple signals:
+
+| Signal | Weight | Description |
+|--------|--------|-------------|
+| `name_similarity` | 0.35 | How similar are the fact and claim names? |
+| `param_overlap` | 0.30 | What fraction of parameters match? |
+| `type_match` | 0.15 | Do parameter types align? |
+| `location_proximity` | 0.10 | How close is the doc to the code? |
+| `context_match` | 0.10 | Does surrounding context align? |
+
+Use `--min-confidence` to filter low-confidence drift items.
+
+```bash
+drift scan . --min-confidence 0.7
+```
+
 ### Understanding the output
 
 Drift reports two severity levels:
@@ -89,15 +165,15 @@ docs/*.md
 
 ## Self-check
 
-Drift v0.4.0 was validated by running `drift scan .` on itself (2026-03-26).
+Drift v0.5.0 was validated by running `drift scan .` on itself.
 
-**Result: 161 tests passing**
+**Result: 905 tests passing**
 
 ---
 
 ## CLI Flag Detection
 
-Drift v0.4.0+ detects when CLI flags documented in your markdown don't match what your `argparse` or `click` CLI actually registers.
+Drift v0.5.0+ detects when CLI flags documented in your markdown don't match what your `argparse`, `click`, or `typer` CLI actually registers.
 
 ### Example
 
@@ -223,6 +299,39 @@ jobs:
 Drift's GitHub Action uploads results as SARIF, enabling GitHub's code scanning alerts integration. Results appear in the Security tab of your repository.
 
 See `.github/actions/drift-check/action.yml` for the full action definition.
+
+## TypeScript Support
+
+Drift v0.5.0+ extracts facts from TypeScript and JavaScript code.
+
+Drift parses:
+- **Function signatures** — named function declarations
+- **Interface properties** — property names and types within interfaces
+- **Type aliases** — primitive and union types
+
+Document TypeScript facts in Markdown using JSDoc-style syntax:
+
+```typescript
+// greet.ts
+export function greet(name: string, greeting: string = "Hello"): string {
+  return `${greeting}, ${name}!`;
+}
+```
+
+```markdown
+# greet API
+
+## greet(name, greeting?)
+
+Greets the named person.
+
+### Parameters
+
+- `name` (string): The person's name
+- `greeting` (string, optional): Custom greeting prefix
+```
+
+Drift detects when your TypeScript signatures and Markdown documentation diverge.
 
 ## Extending with Plugins
 
