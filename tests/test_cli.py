@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from drift import __version__
 from drift.cli import main
 
 
@@ -18,7 +19,19 @@ def test_version(cli_runner):
     """`drift --version` returns 0 and contains version string."""
     result = cli_runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.5.0-dev" in result.output
+    assert "0.5.0" in result.output
+
+
+def test_version_string_is_0_5_0():
+    """The __version__ string is exactly '0.5.0'."""
+    assert __version__ == "0.5.0"
+
+
+def test_cli_version_flag_matches_package(cli_runner):
+    """`drift --version` output matches the package __version__."""
+    result = cli_runner.invoke(main, ["--version"])
+    assert result.exit_code == 0
+    assert __version__ in result.output
 
 
 def test_help(cli_runner):
