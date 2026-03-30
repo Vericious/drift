@@ -742,3 +742,43 @@ class TestReportHtml:
         reporter = DriftReporter(populated_report)
         output = reporter.report_html()
         assert "Drift v0.5.0-dev" in output
+
+
+class TestJsonConfidenceFilter:
+    """Tests for confidence_filter in JSON output."""
+
+    def test_json_confidence_filter_present_when_min_set(self, populated_report):
+        """JSON output includes confidence_filter when min_confidence is set."""
+        reporter = DriftReporter(
+            populated_report, min_confidence=0.5
+        )
+        output = reporter.report_json()
+        import json
+
+        data = json.loads(output)
+        assert "confidence_filter" in data
+        assert data["confidence_filter"]["min"] == 0.5
+        assert "shown" in data["confidence_filter"]
+        assert "total" in data["confidence_filter"]
+
+    def test_json_confidence_filter_absent_when_no_min(self, populated_report):
+        """JSON output omits confidence_filter when min_confidence is not set."""
+        reporter = DriftReporter(populated_report)
+        output = reporter.report_json()
+        import json
+
+        data = json.loads(output)
+        assert "confidence_filter" not in data
+
+    def test_json_confidence_filter_counts_match_items(self, populated_report):
+        """confidence_filter counts match actual drift items."""
+        reporter = DriftReporter(
+            populated_report, min_confidence=0.0
+        )
+        output = reporter.report_json()
+        import json
+
+        data = json.loads(output)
+        assert "confidence_filter" in data
+        assert data["confidence_filter"]["shown"] == len(populated_report.drift_items)
+        assert data["confidence_filter"]["total"] == len(populated_report.facts) + len(populated_report.claims)

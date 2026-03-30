@@ -30,9 +30,15 @@ def _severity_to_sarif_level(severity: Severity) -> str:
 class DriftReporter:
     """Render a DriftReport as console text or JSON."""
 
-    def __init__(self, report: DriftReport, verbose: bool = False) -> None:
+    def __init__(
+        self,
+        report: DriftReport,
+        verbose: bool = False,
+        min_confidence: float | None = None,
+    ) -> None:
         self.report = report
         self.verbose = verbose
+        self.min_confidence = min_confidence
         self.console = Console()
 
     # -------------------------------------------------------------------------
@@ -277,6 +283,13 @@ class DriftReporter:
 
         if verbose:
             output["scan_time_seconds"] = round(elapsed, 3)
+
+        if self.min_confidence is not None:
+            output["confidence_filter"] = {
+                "min": self.min_confidence,
+                "shown": len(report.drift_items),
+                "total": len(report.facts) + len(report.claims),
+            }
 
         return json.dumps(output, indent=2)
 
