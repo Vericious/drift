@@ -922,6 +922,50 @@ class TestChangedLinesFiltering:
         assert "func_b" in fact_names
 
 
+class TestPythonExtractorRegistry:
+    """Tests for PythonExtractor registration in the main registry."""
+
+    def test_python_extractor_in_registry(self) -> None:
+        """PythonExtractor is registered in the main extractors registry."""
+        from drift.extractors.registry import get_extractors
+
+        extractor_names = [e.__name__ for e in get_extractors()]
+        assert "PythonExtractor" in extractor_names
+
+    def test_python_files_dispatched_via_registry(self, tmp_path: Path) -> None:
+        """Python files are handled via registry dispatch (not direct extraction)."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def my_func(x: int) -> None: pass\n")
+
+        scanner = DriftScanner(tmp_path)
+        facts, claims, errors = scanner._extract_registered(py_file)
+
+        fact_names = [f.name for f in facts]
+        assert "my_func" in fact_names, f"Expected 'my_func' in {fact_names}"
+        assert not errors
+
+    def test_python_extraction_results_unchanged(self, tmp_path: Path) -> None:
+        """Python extraction via registry produces same results as before."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "class MyClass:\n"
+            "    def method(self, x: int) -> None: pass\n"
+            "\n"
+            "def public_func(a: str = 'default') -> bool: pass\n"
+        )
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        fact_names = [f.name for f in report.facts]
+        # Should extract class, method, and public function
+        assert "MyClass" in fact_names
+        assert "MyClass.method" in fact_names
+        assert "public_func" in fact_names
+        # Should NOT extract private functions
+        assert "_private" not in " ".join(fact_names)
+
+
 class TestExtractRegistered:
     """Tests for _extract_registered routing via registry can_handle."""
 
