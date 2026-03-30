@@ -3,11 +3,14 @@
 Provides auto-registration of Extractor subclasses via the @register decorator.
 """
 
+import threading
+
 from drift.extractors.base import Extractor
 
 # Global registry of extractor classes
 _EXTRACTORS: list[type[Extractor]] = []
 _DISCOVERY_DONE = False
+_LOCK = threading.RLock()
 
 
 def register(cls: type[Extractor]) -> type[Extractor]:
@@ -18,14 +21,16 @@ def register(cls: type[Extractor]) -> type[Extractor]:
         class MyExtractor(Extractor):
             ...
     """
-    _EXTRACTORS.append(cls)
+    with _LOCK:
+        _EXTRACTORS.append(cls)
     return cls
 
 
 def get_extractors() -> list[type[Extractor]]:
     """Return all registered extractor classes (built-in + plugins)."""
-    _ensure_discovered()
-    return list(_EXTRACTORS)
+    with _LOCK:
+        _ensure_discovered()
+        return list(_EXTRACTORS)
 
 
 def _ensure_discovered() -> None:
