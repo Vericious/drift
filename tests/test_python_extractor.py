@@ -247,3 +247,77 @@ def my_function(x: int) -> str:
         facts = extractor.extract(py_file)
         assert len(facts) == 1
         assert facts[0].module == "foo"
+
+
+class TestEdgeCases:
+    """Edge case tests for PythonExtractor coverage."""
+
+    def test_nested_function_extracted(self, tmp_path: Path, extractor: PythonExtractor) -> None:
+        """Nested function definitions are extracted."""
+        py_file = tmp_path / "nested.py"
+        py_file.write_text(
+            "def outer():\n"
+            "    def inner():\n"
+            "        pass\n"
+            "    return inner\n"
+        )
+
+        facts = extractor.extract(py_file)
+        fact_names = [f.name for f in facts]
+        # inner is not extracted (private to outer) — outer is extracted
+        assert "outer" in fact_names
+        assert "inner" not in fact_names
+
+    def test_async_def_extracted(self, tmp_path: Path, extractor: PythonExtractor) -> None:
+        """async def functions are extracted."""
+        py_file = tmp_path / "async_func.py"
+        py_file.write_text(
+            "async def fetch_data(url: str) -> bytes:\n"
+            "    pass\n"
+        )
+
+        facts = extractor.extract(py_file)
+        fact_names = [f.name for f in facts]
+        assert "fetch_data" in fact_names
+
+    def test_property_decorator_extracted(self, tmp_path: Path, extractor: PythonExtractor) -> None:
+        """Functions with @property decorator are extracted."""
+        py_file = tmp_path / "prop.py"
+        py_file.write_text(
+            "class MyClass:\n"
+            "    @property\n"
+            "    def value(self) -> int:\n"
+            "        return 42\n"
+        )
+
+        facts = extractor.extract(py_file)
+        fact_names = [f.name for f in facts]
+        assert "MyClass.value" in fact_names
+
+    def test_classmethod_extracted(self, tmp_path: Path, extractor: PythonExtractor) -> None:
+        """Functions with @classmethod decorator are extracted."""
+        py_file = tmp_path / "cmethod.py"
+        py_file.write_text(
+            "class MyClass:\n"
+            "    @classmethod\n"
+            "    def from_dict(cls, data: dict) -> 'MyClass':\n"
+            "        pass\n"
+        )
+
+        facts = extractor.extract(py_file)
+        fact_names = [f.name for f in facts]
+        assert "MyClass.from_dict" in fact_names
+
+    def test_staticmethod_extracted(self, tmp_path: Path, extractor: PythonExtractor) -> None:
+        """Functions with @staticmethod decorator are extracted."""
+        py_file = tmp_path / "smethod.py"
+        py_file.write_text(
+            "class MyClass:\n"
+            "    @staticmethod\n"
+            "    def helper(x: int) -> int:\n"
+            "        return x * 2\n"
+        )
+
+        facts = extractor.extract(py_file)
+        fact_names = [f.name for f in facts]
+        assert "MyClass.helper" in fact_names
