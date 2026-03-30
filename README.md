@@ -2,7 +2,7 @@
 
 > Detect when your documentation no longer matches your code.
 
-**Status: Pre-Alpha (v0.4.0)**
+**Status: v0.5.0**
 
 Drift parses your codebase and your documentation, then tells you exactly where they've diverged.
 
@@ -10,6 +10,48 @@ Drift parses your codebase and your documentation, then tells you exactly where 
 
 ```bash
 pip install -e ".[dev]"
+```
+
+## v0.5.0 Highlights
+
+Drift v0.5.0 adds major new features:
+
+### TypeScript Support
+Extract function signatures from `.ts` and `.tsx` files with full JSDoc parsing. Matches TypeScript interfaces, types, and enums against documentation.
+
+### Confidence Scoring
+Every drift item now includes a confidence score (0.0–1.0) indicating how likely it is to be real drift vs. a false positive. Use `--min-confidence` to filter:
+
+```bash
+drift scan . --min-confidence 0.5
+```
+
+### Baseline Diff
+Save a baseline of your current drift state, then track only *new* drift items:
+
+```bash
+drift scan . --baseline              # Save baseline
+drift scan . --baseline              # Show only new drift
+drift scan . --update-baseline       # Update baseline to current state
+```
+
+### Git-Diff Filtering
+Scan only files changed since a git ref:
+
+```bash
+drift scan . --diff HEAD~1           # Scan changed files since last commit
+drift scan . --diff-branch main      # Scan changed vs main branch
+```
+
+### New Output Formats
+Additional output formats for CI and tooling:
+
+```bash
+drift scan . --json                  # JSON output
+drift scan . --sarif                 # SARIF v2.1.0 for GitHub Advanced Security
+drift scan . --html                  # Self-contained HTML report
+drift scan . --diff-output           # Unified diff showing exact changes needed
+drift scan . --patch                 # Git-compatible patches for auto-fixing
 ```
 
 ## Usage
@@ -89,9 +131,9 @@ docs/*.md
 
 ## Self-check
 
-Drift v0.4.0 was validated by running `drift scan .` on itself (2026-03-26).
+Drift v0.5.0 was validated by running `drift scan .` on itself (2026-03-30).
 
-**Result: 161 tests passing**
+**Result: 880+ tests passing**
 
 ---
 
