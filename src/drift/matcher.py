@@ -8,6 +8,7 @@ from pathlib import Path
 from drift.models import (
     ClaimKind,
     CodeFact,
+    ConfidenceSignals,
     DocClaim,
     DriftItem,
     DriftReport,
@@ -146,8 +147,33 @@ class SignatureMatcher:
                                 fuzzy_match = (f, confidence)
 
                 if fuzzy_match:
-                    fuzzy_fact, confidence = fuzzy_match
+                    fuzzy_fact, fuzzy_confidence = fuzzy_match
                     matched_fact_names.add(fuzzy_fact.name)
+                    # Compute ConfidenceSignals for fuzzy_renamed
+                    name_similarity = fuzzy_confidence / 100.0
+                    # param_overlap: ratio of shared param names
+                    fact_param_names = {p.name for p in fuzzy_fact.parameters}
+                    claim_param_names = {p.name for p in claim.parameters}
+                    shared = len(fact_param_names & claim_param_names)
+                    total = len(fact_param_names | claim_param_names)
+                    param_overlap = shared / total if total > 0 else 0.0
+                    # type_match: ratio of params with matching type annotations
+                    fact_params = {p.name: p for p in fuzzy_fact.parameters}
+                    claim_params = {p.name: p for p in claim.parameters}
+                    type_match_count = 0
+                    type_compare_count = 0
+                    for name in fact_param_names & claim_param_names:
+                        type_compare_count += 1
+                        if fact_params[name].type_annotation == claim_params[name].type_annotation:
+                            type_match_count += 1
+                    type_match = type_match_count / type_compare_count if type_compare_count > 0 else 0.0
+                    signals = ConfidenceSignals(
+                        name_similarity=name_similarity,
+                        param_overlap=param_overlap,
+                        type_match=type_match,
+                        location_proximity=0.0,
+                        context_match=0.0,
+                    )
                     drift_items.append(
                         DriftItem(
                             fact=fuzzy_fact,
@@ -156,13 +182,14 @@ class SignatureMatcher:
                             category="fuzzy_renamed",
                             message=(
                             f"'{claim.name}' (docs) may match "
-                            f"'{fuzzy_fact.name}' (code) — {confidence}% confidence"
+                            f"'{fuzzy_fact.name}' (code) — {fuzzy_confidence}% confidence"
                         ),
                             suggestion=f"Consider renaming '{fuzzy_fact.name}' to '{claim.name}' or update docs",
-                            confidence=confidence / 100.0,
+                            confidence=signals.score(),
+                            signals=signals,
                             metadata={
                                 "match_method": "fuzzy",
-                                "confidence": confidence,
+                                "confidence": fuzzy_confidence,
                             },
                         )
                     )

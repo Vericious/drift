@@ -187,3 +187,41 @@ class TestConfidence:
             confidence=0.0,
         )
         assert item.confidence == 0.0
+
+    def test_confidence_signals_fuzzy_renamed(self):
+        """fuzzy_renamed: signals populated with name_similarity, param_overlap, type_match."""
+        fact = CodeFact(
+            name="my_function",
+            kind=FactKind.FUNCTION,
+            source_file=Path("code.py"),
+            line_number=10,
+            parameters=[
+                Parameter(name="x", type_annotation="int"),
+                Parameter(name="y", type_annotation="str"),
+            ],
+        )
+        # Name is similar enough to fuzzy-match; param names match but types differ for y
+        claim = DocClaim(
+            raw_text="myFunction(x: int, y: int)",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("docs.md"),
+            line_number=1,
+            name="myFunction",
+            parameters=[
+                Parameter(name="x", type_annotation="int"),
+                Parameter(name="y", type_annotation="int"),  # type mismatch
+            ],
+        )
+        matcher = SignatureMatcher()
+        items = matcher.match([fact], [claim])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 1
+        item = fuzzy_items[0]
+        assert item.signals is not None
+        assert 0.0 < item.signals.name_similarity <= 1.0
+        assert item.signals.param_overlap == 1.0  # all param names match
+        assert item.signals.type_match == 0.5  # x matches but y doesn't (1/2)
+        assert item.signals.location_proximity == 0.0
+        assert item.signals.context_match == 0.0
+        # confidence should come from signals.score()
+        assert item.confidence == item.signals.score()
