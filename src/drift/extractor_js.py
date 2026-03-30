@@ -7,6 +7,8 @@ from .js and .ts files, producing DocClaim objects.
 import re
 from pathlib import Path
 
+from drift.extractors.base import Extractor
+from drift.extractors.registry import register
 from drift.models import ClaimKind, DocClaim, Parameter
 
 
@@ -352,7 +354,8 @@ def _count_newlines_before(content: str, pos: int) -> int:
     return content[:pos].count("\n")
 
 
-class JSDocExtractor:
+@register
+class JSDocExtractor(Extractor):
     """Extract DocClaim objects from JS/TS files via JSDoc comments.
 
     Handles:

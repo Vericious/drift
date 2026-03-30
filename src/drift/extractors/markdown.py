@@ -9,6 +9,8 @@ Extracts DocClaim objects from Markdown files by finding:
 import re
 from pathlib import Path
 
+from drift.extractors.base import Extractor
+from drift.extractors.registry import register
 from drift.models import ClaimKind, DocClaim, Parameter
 
 # Pattern for function signatures in code blocks:
@@ -43,8 +45,43 @@ _TABLE_SEP_RE = re.compile(r"^\|[\s|-]+\|[\s|-]+\|$")
 # Pattern to find a CLI flag in a table cell: --flag or -f (with optional value)
 _TABLE_FLAG_RE = re.compile(r"^(-{1,2}[a-zA-Z0-9_-]+)(?:\s*=\s*(\S+))?$")
 
+# =============================================================================
+# TypeScript extraction patterns
+# =============================================================================
 
-class MarkdownExtractor:
+# Pattern for TypeScript code blocks: ```typescript or ```ts
+_TS_CODE_BLOCK_RE = re.compile(r"^```(?:typescript|ts)\b", re.MULTILINE)
+
+# Pattern for TypeScript interface declarations: interface Name { ... }
+_TS_INTERFACE_RE = re.compile(
+    r"\binterface\s+([A-Z_][a-zA-Z0-9_]*)\s*\{",
+    re.MULTILINE,
+)
+
+# Pattern for TypeScript type aliases: type Name = ...
+_TS_TYPE_ALIAS_RE = re.compile(
+    r"\btype\s+([A-Z_][a-zA-Z0-9_]*)\s*=",
+    re.MULTILINE,
+)
+
+# Pattern for TypeScript enums: enum Name { ... }
+_TS_ENUM_RE = re.compile(
+    r"\benum\s+([A-Z_][a-zA-Z0-9_]*)\s*\{",
+    re.MULTILINE,
+)
+
+# Pattern for inline type references: `TypeName` (backtick-wrapped)
+_TS_INLINE_TYPE_RE = re.compile(r"`([A-Z][a-zA-Z0-9_]+)`")
+
+# Pattern for property table headers (e.g., | Name | Type | Description |)
+_TS_PROPERTY_TABLE_HEADER_RE = re.compile(
+    r"^\|\s*(Name|name|type|property|property\s+name)\s*\|",
+    re.IGNORECASE,
+)
+
+
+@register
+class MarkdownExtractor(Extractor):
     """Extracts DocClaim objects from Markdown files."""
 
     def extract(self, path: Path) -> list[DocClaim]:
@@ -76,6 +113,9 @@ class MarkdownExtractor:
 
         # Extract config/env var references from inline text and tables
         claims.extend(self._extract_config_refs(content, lines, path))
+
+        # Extract TypeScript claims from code blocks, property tables, and inline refs
+        claims.extend(self._extract_typescript_claims(content, lines, path))
 
         return claims
 
@@ -664,5 +704,249 @@ class MarkdownExtractor:
                             metadata=metadata,
                         )
                     )
+
+        return claims
+
+    # =============================================================================
+    # TypeScript extraction
+    # =============================================================================
+
+    def _extract_typescript_claims(
+        self, content: str, lines: list[str], path: Path
+    ) -> list[DocClaim]:
+        """Extract TypeScript claims from code blocks, property tables, and inline refs.
+
+        Handles:
+        - ```typescript and ```ts code blocks → TS_CODE_BLOCK claims
+        - Property tables after interface/type/enum headers → TS_INTERFACE_REF claims
+        - Inline type references like `UserType` → TS_TYPE_REF claims
+        """
+        claims: list[DocClaim] = []
+        seen: set[tuple[int, str, ClaimKind]] = set()
+
+        # ── TypeScript code blocks ─────────────────────────────────────────────
+        claims.extend(self._extract_ts_code_blocks(content, lines, path, seen))
+
+        # ── Property tables after type headers ─────────────────────────────────
+        claims.extend(self._extract_ts_property_tables(content, lines, path, seen))
+
+        # ── Inline type references ──────────────────────────────────────────────
+        claims.extend(self._extract_ts_inline_refs(content, lines, path, seen))
+
+        return claims
+
+    def _extract_ts_code_blocks(
+        self,
+        content: str,
+        lines: list[str],
+        path: Path,
+        seen: set[tuple[int, str, ClaimKind]],
+    ) -> list[DocClaim]:
+        """Extract claims from ```typescript and ```ts code blocks."""
+        claims: list[DocClaim] = []
+        in_ts_block = False
+        ts_block_start_line = 0
+        ts_block_content: list[str] = []
+
+        for i, line in enumerate(lines):
+            if line.strip().startswith("```"):
+                lang = line.strip()[3:].lower()
+                if lang in ("typescript", "ts", "typescript\n", "ts\n") or lang.startswith("typescript") or lang.startswith("ts"):
+                    if in_ts_block:
+                        # End of TS block — parse it
+                        block_text = "\n".join(ts_block_content)
+                        parsed = self._parse_ts_block(block_text, ts_block_start_line + 1, path)
+                        for claim in parsed:
+                            key = (claim.line_number, claim.name, claim.kind)
+                            if key not in seen:
+                                seen.add(key)
+                                claims.append(claim)
+                        ts_block_content = []
+                        in_ts_block = False
+                    else:
+                        # Start of TS block
+                        in_ts_block = True
+                        ts_block_start_line = i
+                elif in_ts_block:
+                    # End of TS block (different language)
+                    block_text = "\n".join(ts_block_content)
+                    parsed = self._parse_ts_block(block_text, ts_block_start_line + 1, path)
+                    for claim in parsed:
+                        key = (claim.line_number, claim.name, claim.kind)
+                        if key not in seen:
+                            seen.add(key)
+                            claims.append(claim)
+                    ts_block_content = []
+                    in_ts_block = False
+            elif in_ts_block:
+                ts_block_content.append(line)
+
+        return claims
+
+    def _parse_ts_block(
+        self, block_text: str, start_line: int, path: Path
+    ) -> list[DocClaim]:
+        """Parse a TypeScript code block for interfaces, types, and enums."""
+        claims: list[DocClaim] = []
+
+        # Find interface declarations
+        for m in _TS_INTERFACE_RE.finditer(block_text):
+            interface_name = m.group(1)
+            offset = block_text[: m.start()].count("\n")
+            claim = DocClaim(
+                raw_text=f"interface {interface_name}",
+                kind=ClaimKind.TS_CODE_BLOCK,
+                doc_file=path,
+                line_number=start_line + offset,
+                name=interface_name,
+                metadata={"ts_kind": "interface"},
+            )
+            claims.append(claim)
+
+        # Find type aliases
+        for m in _TS_TYPE_ALIAS_RE.finditer(block_text):
+            type_name = m.group(1)
+            offset = block_text[: m.start()].count("\n")
+            claim = DocClaim(
+                raw_text=f"type {type_name}",
+                kind=ClaimKind.TS_CODE_BLOCK,
+                doc_file=path,
+                line_number=start_line + offset,
+                name=type_name,
+                metadata={"ts_kind": "type_alias"},
+            )
+            claims.append(claim)
+
+        # Find enum declarations
+        for m in _TS_ENUM_RE.finditer(block_text):
+            enum_name = m.group(1)
+            offset = block_text[: m.start()].count("\n")
+            claim = DocClaim(
+                raw_text=f"enum {enum_name}",
+                kind=ClaimKind.TS_CODE_BLOCK,
+                doc_file=path,
+                line_number=start_line + offset,
+                name=enum_name,
+                metadata={"ts_kind": "enum"},
+            )
+            claims.append(claim)
+
+        return claims
+
+    def _extract_ts_property_tables(
+        self,
+        content: str,
+        lines: list[str],
+        path: Path,
+        seen: set[tuple[int, str, ClaimKind]],
+    ) -> list[DocClaim]:
+        """Extract TS_INTERFACE_REF claims from property tables after type headers."""
+        claims: list[DocClaim] = []
+        in_ts_table = False
+        current_ts_name: str | None = None
+        current_ts_kind: ClaimKind | None = None
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+
+            # Detect TypeScript type/interface/enum header (## InterfaceName or ### type)
+            ts_header = False
+            if stripped.startswith("##") or stripped.startswith("###"):
+                # Check if this is a TypeScript type header
+                header_text = stripped.lstrip("#").strip().lower()
+                if any(k in header_text for k in ("interface ", "type ", "enum ")):
+                    # Extract the name - look for CamelCase identifier after interface/type/enum keyword
+                    for m in re.finditer(r"\b(interface|type|enum)\s+([A-Z][a-zA-Z0-9_]*)", stripped, re.IGNORECASE):
+                        current_ts_name = m.group(2)
+                        keyword = m.group(1).lower()
+                        if keyword == "interface":
+                            current_ts_kind = ClaimKind.TS_INTERFACE_REF
+                        elif keyword == "type":
+                            current_ts_kind = ClaimKind.TS_TYPE_REF
+                        elif keyword == "enum":
+                            current_ts_kind = ClaimKind.TS_ENUM_REF
+                        ts_header = True
+                        in_ts_table = True
+                        break
+
+            # Skip non-TS sections (only skip if not in a table and not a header)
+            if not in_ts_table and not ts_header:
+                continue
+
+            # If we're in a TS table, check for table rows
+            if in_ts_table and stripped.startswith("|"):
+                # Parse the table row
+                cells = [c.strip() for c in stripped.split("|")[1:-1]]
+                if cells:
+                    # First cell typically contains the property name
+                    prop_name = cells[0].strip()
+                    # Skip separator rows (e.g., |------|------|)
+                    if prop_name and not prop_name.startswith("-") and prop_name != "":
+                        if current_ts_name and current_ts_kind:
+                            key = (i + 1, f"{current_ts_name}.{prop_name}", current_ts_kind)
+                            if key not in seen:
+                                seen.add(key)
+                                claims.append(
+                                    DocClaim(
+                                        raw_text=prop_name,
+                                        kind=current_ts_kind,
+                                        doc_file=path,
+                                        line_number=i + 1,
+                                        name=prop_name,
+                                        metadata={
+                                            "ts_parent": current_ts_name,
+                                            "ts_kind": current_ts_kind.value,
+                                        },
+                                    )
+                                )
+                continue
+
+            # Reset if we hit a non-table, non-header, non-empty line while in a TS table
+            # Empty lines after headers are allowed and don't reset the table state
+            if in_ts_table and not stripped.startswith("|") and not ts_header and stripped != "":
+                in_ts_table = False
+                current_ts_name = None
+                current_ts_kind = None
+
+        return claims
+
+    def _extract_ts_inline_refs(
+        self,
+        content: str,
+        lines: list[str],
+        path: Path,
+        seen: set[tuple[int, str, ClaimKind]],
+    ) -> list[DocClaim]:
+        """Extract inline TypeScript type references like `UserType`."""
+        claims: list[DocClaim] = []
+
+        for i, line in enumerate(lines):
+            # Skip inside code blocks (lines starting with ```)
+            if line.strip().startswith("```"):
+                continue
+
+            for m in _TS_INLINE_TYPE_RE.finditer(line):
+                # Group 1 is backtick-wrapped TypeName
+                type_name = m.group(1)
+                if not type_name:
+                    continue
+
+                # Skip if it looks like a regular function call or Python class
+                # Type names are typically PascalCase and not followed by (
+                key = (i + 1, type_name, ClaimKind.TS_TYPE_REF)
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                claims.append(
+                    DocClaim(
+                        raw_text=type_name,
+                        kind=ClaimKind.TS_TYPE_REF,
+                        doc_file=path,
+                        line_number=i + 1,
+                        name=type_name,
+                        metadata={"source": "inline"},
+                    )
+                )
 
         return claims

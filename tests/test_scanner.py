@@ -835,3 +835,145 @@ class TestIncrementalScan:
         r2 = s2.scan()
         assert len(r2.facts) == 0  # b.py was cached and skipped
         assert r2.files_skipped == 1  # b.py unchanged
+
+
+class TestChangedLinesFiltering:
+    """Tests for content-aware diff scanning with changed_lines (DRIFT-151)."""
+
+    def test_distant_facts_filtered_out(self, tmp_path: Path) -> None:
+        """Facts outside the ±5 line context window are filtered out."""
+        py_file = tmp_path / "example.py"
+        # Create functions that are 10 lines apart:
+        # func_0 at line 1
+        # func_1 at line 11 (not within ±5 of line 5)
+        # func_2 at line 21 (not within ±5 of line 5)
+        lines = []
+        for i in range(11):
+            lines.append(f"def func_{i}(x: int) -> None: pass")
+            lines.append("")  # empty line
+            lines.append("")  # empty line
+            lines.append("")  # empty line
+            lines.append("")  # empty line
+            lines.append("")  # empty line
+            lines.append("")  # empty line
+            lines.append("")  # empty line
+            lines.append("")  # empty line
+            lines.append("")  # empty line
+        py_file.write_text("\n".join(lines))
+
+        # Only line 5 is changed (near func_0 at line 1)
+        changed_lines = {py_file.resolve(): {5}}
+
+        scanner = DriftScanner(tmp_path, changed_lines=changed_lines)
+        report = scanner.scan()
+
+        # func_0 at line 1 is within 5 lines of line 5 (abs(1-5)=4 <= 5)
+        # func_1 at line 11 is outside (abs(11-5)=6 > 5)
+        # So only func_0 should remain
+        fact_names = [f.name for f in report.facts]
+        assert "func_0" in fact_names
+        assert "func_1" not in fact_names
+
+    def test_context_window_5_lines(self, tmp_path: Path) -> None:
+        """Facts within ±5 lines of any changed line are kept."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def func_a(x: int) -> None: pass\n"
+            "\n"
+            "\n"
+            "\n"
+            "\n"
+            "\n"
+            "def func_b(y: int) -> None: pass\n"  # line 7, within 5 of line 2
+        )
+
+        # Only line 2 is changed
+        changed_lines = {py_file.resolve(): {2}}
+
+        scanner = DriftScanner(tmp_path, changed_lines=changed_lines)
+        report = scanner.scan()
+
+        # func_a at line 1 is within 5 lines of line 2 (abs(1-2)=1 <= 5)
+        # func_b at line 7 is within 5 lines of line 2 (abs(7-2)=5 <= 5)
+        fact_names = [f.name for f in report.facts]
+        assert "func_a" in fact_names
+        assert "func_b" in fact_names
+
+    def test_none_changed_lines_skips_filter(self, tmp_path: Path) -> None:
+        """When changed_lines is None, no content-aware filtering occurs."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def func_a(x: int) -> None: pass\n"
+            "\n"
+            "\n"
+            "\n"
+            "\n"
+            "\n"
+            "def func_b(y: int) -> None: pass\n"
+        )
+
+        # changed_lines is None — no filtering
+        scanner = DriftScanner(tmp_path, changed_lines=None)
+        report = scanner.scan()
+
+        # Both functions should be present since there's no filtering
+        fact_names = [f.name for f in report.facts]
+        assert "func_a" in fact_names
+        assert "func_b" in fact_names
+
+
+class TestExtractRegistered:
+    """Tests for _extract_registered routing via registry can_handle."""
+
+    def test_extract_registered_handles_py(self, tmp_path: Path) -> None:
+        """_extract_registered handles .py files via registry dispatch."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def my_func(x: int) -> None: pass\n")
+
+        scanner = DriftScanner(tmp_path)
+        facts, claims, errors = scanner._extract_registered(py_file)
+
+        # PythonExtractor should have extracted the function fact
+        fact_names = [f.name for f in facts]
+        assert "my_func" in fact_names, f"Expected 'my_func' in {fact_names}"
+        assert not errors
+
+    def test_extract_registered_handles_ts(self, tmp_path: Path) -> None:
+        """_extract_registered handles .ts files via registry dispatch."""
+        ts_file = tmp_path / "example.ts"
+        ts_file.write_text(
+            "interface User {\n  name: string;\n  age: number;\n}\n"
+        )
+
+        scanner = DriftScanner(tmp_path)
+        facts, claims, errors = scanner._extract_registered(ts_file)
+
+        # TypeScriptExtractor should have extracted the interface fact
+        fact_names = [f.name for f in facts]
+        assert "User" in fact_names, f"Expected 'User' in {fact_names}"
+        assert not errors
+
+    def test_extract_registered_handles_tsx(self, tmp_path: Path) -> None:
+        """_extract_registered handles .tsx files via registry dispatch."""
+        tsx_file = tmp_path / "example.tsx"
+        tsx_file.write_text(
+            "type Props = {\n  children: React.ReactNode;\n};\n"
+        )
+
+        scanner = DriftScanner(tmp_path)
+        facts, claims, errors = scanner._extract_registered(tsx_file)
+
+        # TypeScriptExtractor should have extracted the type fact
+        fact_names = [f.name for f in facts]
+        assert "Props" in fact_names, f"Expected 'Props' in {fact_names}"
+        assert not errors
+
+    def test_extract_py_alias_removed(self) -> None:
+        """_extract_py no longer exists (renamed to _extract_registered)."""
+        scanner = DriftScanner(Path("/fake"))
+        assert not hasattr(scanner, "_extract_py"), (
+            "_extract_py should have been renamed to _extract_registered"
+        )
+        assert hasattr(scanner, "_extract_registered"), (
+            "_extract_registered should exist"
+        )

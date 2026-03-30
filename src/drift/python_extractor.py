@@ -3,10 +3,13 @@
 import ast
 from pathlib import Path
 
+from drift.extractors.base import Extractor
 from drift.models import CodeFact, FactKind, Parameter
+from drift.extractors.registry import register
 
 
-class PythonExtractor:
+@register
+class PythonExtractor(Extractor):
     """Extract CodeFact objects from Python source files using AST."""
 
     def can_handle(self, path: Path) -> bool:

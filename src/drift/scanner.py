@@ -270,24 +270,18 @@ class DriftScanner:
 
         return filtered_facts, filtered_claims
 
-    def _extract_py(
-        self, py_file: Path
+    def _extract_registered(
+        self, file: Path
     ) -> tuple[list[CodeFact], list[DocClaim], list[str]]:
-        """Extract facts and claims from a Python file using all registered extractors."""
+        """Extract facts and claims from a file by routing through the registry.
+
+        Iterates all registered extractors, checks can_handle(file), and dispatches
+        to matching extractors. Handles ALL file types via registry dispatch.
+        """
         facts: list[CodeFact] = []
         claims: list[DocClaim] = []
         errors: list[str] = []
 
-        # Python function/method extractor (not in registry)
-        try:
-            facts.extend(self.py_extractor.extract(py_file))
-        except Exception as e:
-            err = f"[PythonExtractor] {py_file}: {e}"
-            if self.strict:
-                raise
-            errors.append(err)
-
-        # Registered extractors
         for extractor_cls in get_extractors():
             # Per-extractor enable/disable filter
             ext_name = extractor_cls.__name__
@@ -296,9 +290,19 @@ class DriftScanner:
             if self._extractors_enabled and ext_name not in self._extractors_enabled:
                 continue
             try:
-                extracted = extractor_cls().extract(py_file)
+                extractor = extractor_cls()
             except Exception as e:
-                err = f"[{extractor_cls.__name__}] {py_file}: {e}"
+                err = f"[{ext_name}] instantiation failed: {e}"
+                if self.strict:
+                    raise
+                errors.append(err)
+                continue
+            if not extractor.can_handle(file):
+                continue
+            try:
+                extracted = extractor.extract(file)
+            except Exception as e:
+                err = f"[{ext_name}] {file}: {e}"
                 if self.strict:
                     raise
                 errors.append(err)
@@ -439,42 +443,11 @@ class DriftScanner:
         all_facts: list[CodeFact] = []
         all_claims: list[DocClaim] = []
 
-        for py_file in py_files:
-            facts, claims, errs = self._extract_py(py_file)
+        for file in py_files + md_files + config_files + js_files:
+            facts, claims, errs = self._extract_registered(file)
             all_facts.extend(facts)
             all_claims.extend(claims)
             errors.extend(errs)
-
-        for md_file in md_files:
-            try:
-                claims = self.md_extractor.extract(md_file)
-                all_claims.extend(claims)
-            except Exception as e:
-                err = f"[MarkdownExtractor] {md_file}: {e}"
-                if self.strict:
-                    raise
-                errors.append(err)
-
-        for config_file in config_files:
-            try:
-                facts = self.config_extractor.extract(config_file)
-                all_facts.extend(facts)
-            except Exception as e:
-                err = f"[ConfigFileExtractor] {config_file}: {e}"
-                if self.strict:
-                    raise
-                errors.append(err)
-
-        for js_file in js_files:
-            if self.js_extractor:
-                try:
-                    claims = self.js_extractor.extract(js_file)
-                    all_claims.extend(claims)
-                except Exception as e:
-                    err = f"[JSDocExtractor] {js_file}: {e}"
-                    if self.strict:
-                        raise
-                    errors.append(err)
 
         return all_facts, all_claims, errors
 
@@ -496,59 +469,30 @@ class DriftScanner:
 
         max_workers = min(32, (os.cpu_count() or 1) + 4)
 
-        def extract_py(
+        def extract_registered(
             file: Path,
         ) -> tuple[list[CodeFact], list[DocClaim], list[str], Path]:
-            """Wrapper to make _extract_py callable in a thread."""
-            facts, claims, errs = self._extract_py(file)
+            """Wrapper to make _extract_registered callable in a thread."""
+            facts, claims, errs = self._extract_registered(file)
             return facts, claims, errs, file
 
         try:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Submit Python file extractions
-                py_futures = {executor.submit(extract_py, f): f for f in py_files}
-                # Submit Markdown extractions
-                md_futures = {executor.submit(self._extract_md, f): f for f in md_files}
-                # Submit config file extractions
-                cfg_futures = {
-                    executor.submit(self._extract_config, f): f for f in config_files
-                }
-                # Submit JS/TS file extractions
-                js_futures = {
-                    executor.submit(self._extract_js, f): f for f in js_files
-                }
+                all_files = py_files + md_files + config_files + js_files
+                futures = {executor.submit(extract_registered, f): f for f in all_files}
 
-                all_futures: dict[Any, Path] = {**py_futures, **md_futures, **cfg_futures, **js_futures}
-
-                for future in as_completed(all_futures):
-                    file = all_futures[future]
+                for future in as_completed(futures):
+                    file = futures[future]
                     try:
-                        result = future.result()
+                        facts, claims, errs, _ = future.result()
+                        all_facts.extend(facts)
+                        all_claims.extend(claims)
+                        errors.extend(errs)
                     except Exception as e:
                         err = f"[{file}] parallel extraction failed: {e}"
                         if self.strict:
                             raise
                         errors.append(err)
-                        continue
-
-                    if isinstance(result, tuple) and len(result) == 4:
-                        # Python file result: (facts, claims, errors, file)
-                        facts, claims, errs, _ = result
-                        all_facts.extend(facts)
-                        all_claims.extend(claims)
-                        errors.extend(errs)
-                    elif isinstance(result, list):
-                        # Markdown or JS result: list of claims
-                        all_claims.extend(result)
-                    elif isinstance(result, tuple) and len(result) == 2:
-                        # Config result: (facts, file)
-                        cfg_facts, _ = result
-                        all_facts.extend(cfg_facts)
-                    else:
-                        # Unexpected result
-                        errors.append(
-                            f"[{file}] unexpected result type from parallel extraction"
-                        )
 
         except Exception:
             # Fallback to serial on any parallel failure
