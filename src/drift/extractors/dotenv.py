@@ -146,9 +146,15 @@ class DotenvExtractor(Extractor):
             inner = stripped[1:-1]
             return (inner, "single_quoted")
 
-        # Unquoted: strip trailing inline comment
-        # value # comment -> value
+        # Unquoted: strip trailing inline comment only if # is preceded by space
+        # value # comment -> value (space before # indicates comment delimiter)
         # value without comment -> value
-        unquoted = stripped.split("#")[0].rstrip()
+        # URL with fragment like https://example.com#fragment -> keep fragment
+        # (no space before # means it's part of the value)
+        if re.search(r" #", stripped):
+            # Space before # indicates a comment delimiter
+            unquoted = stripped.split(" #")[0].rstrip()
+        else:
+            unquoted = stripped
 
         return (unquoted, "unquoted")
