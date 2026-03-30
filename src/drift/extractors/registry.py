@@ -67,6 +67,9 @@ def _discover_extractors() -> None:
     from drift import extractor_js  # noqa: F401
     from drift.extractors import typescript  # noqa: F401
 
+    # Import PythonExtractor to trigger @register
+    from drift.python_extractor import PythonExtractor  # noqa: F401
+
     # Load plugins via entry_points
     from drift.plugin import load_plugins
     load_plugins()

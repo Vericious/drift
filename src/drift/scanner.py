@@ -278,16 +278,7 @@ class DriftScanner:
         claims: list[DocClaim] = []
         errors: list[str] = []
 
-        # Python function/method extractor (not in registry)
-        try:
-            facts.extend(self.py_extractor.extract(py_file))
-        except Exception as e:
-            err = f"[PythonExtractor] {py_file}: {e}"
-            if self.strict:
-                raise
-            errors.append(err)
-
-        # Registered extractors
+        # Python function/method extractor (now registered via @register)
         for extractor_cls in get_extractors():
             # Per-extractor enable/disable filter
             ext_name = extractor_cls.__name__

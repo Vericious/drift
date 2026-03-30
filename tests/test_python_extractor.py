@@ -247,3 +247,78 @@ def my_function(x: int) -> str:
         facts = extractor.extract(py_file)
         assert len(facts) == 1
         assert facts[0].module == "foo"
+
+
+class TestPythonExtractorRegistry:
+    """Tests for PythonExtractor registration in the registry."""
+
+    def test_python_extractor_in_registry(self):
+        """PythonExtractor is registered in the extractor registry."""
+        from drift.extractors.registry import get_extractors
+
+        extractors = get_extractors()
+        extractor_names = [cls.__name__ for cls in extractors]
+        assert "PythonExtractor" in extractor_names
+
+    def test_python_files_dispatched_via_registry(self, tmp_path: Path):
+        """Python files are processed through the registry dispatch."""
+        from drift.extractors.registry import get_extractors
+
+        # Create a Python file with a function
+        content = """
+def registry_test_func(x: int) -> str:
+    '''A test function.'''
+    return str(x)
+"""
+        py_file = tmp_path / "registry_test.py"
+        py_file.write_text(content)
+
+        # Verify PythonExtractor can handle .py files
+        extractors = get_extractors()
+        python_extractor = next(
+            cls for cls in extractors if cls.__name__ == "PythonExtractor"
+        )
+        assert python_extractor().can_handle(py_file)
+        assert python_extractor().can_handle(tmp_path / "test.py")
+
+        # Verify non-Python files are not handled
+        assert not python_extractor().can_handle(tmp_path / "test.md")
+        assert not python_extractor().can_handle(tmp_path / "test.ts")
+
+    def test_python_extraction_results_unchanged(self, tmp_path: Path):
+        """PythonExtractor via registry produces same results as direct extraction."""
+        from drift.extractors.registry import get_extractors
+
+        # Create a Python file with various constructs
+        content = """
+class TestClass:
+    '''A test class.'''
+
+    def method_one(self, x: int) -> str:
+        '''First method.'''
+        return str(x)
+
+
+def standalone_func(a: str, b: int = 10) -> bool:
+    '''A standalone function.'''
+    return True
+"""
+        py_file = tmp_path / "equivalence_test.py"
+        py_file.write_text(content)
+
+        # Get results via registry
+        extractors = get_extractors()
+        python_extractor_cls = next(
+            cls for cls in extractors if cls.__name__ == "PythonExtractor"
+        )
+        registry_facts = python_extractor_cls().extract(py_file)
+
+        # Get results directly
+        direct_extractor = PythonExtractor()
+        direct_facts = direct_extractor.extract(py_file)
+
+        # Should produce identical results
+        assert len(registry_facts) == len(direct_facts)
+        registry_names = sorted(f.name for f in registry_facts)
+        direct_names = sorted(f.name for f in direct_facts)
+        assert registry_names == direct_names
