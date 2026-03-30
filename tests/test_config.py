@@ -154,6 +154,70 @@ class TestDriftConfig:
         assert config.output_format == "json"
 
 
+class TestPyprojectTomlToolDrift:
+    """Tests for [tool.drift] section in pyproject.toml."""
+
+    def test_config_loads_from_pyproject_toml(self, tmp_path: Path) -> None:
+        """Config loads from pyproject.toml [tool.drift] section."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[project]
+name = "myproject"
+
+[tool.drift]
+ignore_patterns = ["*.py", "test_*"]
+threshold = 0.6
+output_format = "json"
+""")
+
+        config = load_config(pyproject)
+        assert config.ignore_patterns == ["*.py", "test_*"]
+        assert config.threshold == 0.6
+        assert config.output_format == "json"
+
+    def test_config_tool_drift_output_format(self, tmp_path: Path) -> None:
+        """output_format is read from [tool.drift] in pyproject.toml."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[project]
+name = "myproject"
+
+[tool.drift]
+output_format = "json"
+""")
+
+        config = load_config(pyproject)
+        assert config.output_format == "json"
+
+    def test_config_tool_drift_min_confidence(self, tmp_path: Path) -> None:
+        """threshold (min_confidence) is read from [tool.drift] in pyproject.toml."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[project]
+name = "myproject"
+
+[tool.drift]
+threshold = 0.8
+""")
+
+        config = load_config(pyproject)
+        assert config.threshold == 0.8
+
+    def test_config_pyproject_missing_section_uses_defaults(self, tmp_path: Path) -> None:
+        """pyproject.toml without [tool.drift] section returns defaults."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[project]
+name = "myproject"
+version = "1.0.0"
+""")
+
+        config = load_config(pyproject)
+        assert config.ignore_patterns == []
+        assert config.threshold == 0.0
+        assert config.output_format == "text"
+
+
 class TestFailOnConfig:
     """Tests for fail_on field in DriftConfig."""
 

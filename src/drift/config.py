@@ -30,6 +30,7 @@ def load_config(path: Path | None = None) -> DriftConfig:
 
     Args:
         path: Explicit path to a config file. If None, searches CWD for .drift.toml.
+              If the file is pyproject.toml, reads from [tool.drift] section.
 
     Returns:
         DriftConfig with loaded values or defaults if file is missing/invalid.
@@ -39,16 +40,20 @@ def load_config(path: Path | None = None) -> DriftConfig:
         ValueError: If the TOML file is malformed.
     """
     if path is None:
-        # Search CWD for .drift.toml
-        candidate = Path.cwd() / ".drift.toml"
-        if candidate.exists():
-            path = candidate
+        # Search CWD for .drift.toml, then pyproject.toml
+        drift_candidate = Path.cwd() / ".drift.toml"
+        if drift_candidate.exists():
+            path = drift_candidate
         else:
-            # No config file found, return defaults
-            return DriftConfig()
+            pyproject_candidate = Path.cwd() / "pyproject.toml"
+            if pyproject_candidate.exists():
+                path = pyproject_candidate
+            else:
+                # No config file found, return defaults
+                return DriftConfig()
 
     if not path.exists():
-        if path == Path.cwd() / ".drift.toml":
+        if path in (Path.cwd() / ".drift.toml", Path.cwd() / "pyproject.toml"):
             # Search didn't find it, return defaults
             return DriftConfig()
         raise FileNotFoundError(f"Config file not found: {path}")
@@ -58,23 +63,33 @@ def load_config(path: Path | None = None) -> DriftConfig:
     except Exception as e:
         raise ValueError(f"Invalid TOML in {path}: {e}") from e
 
+    # For pyproject.toml, prefer [tool.drift] section
+    is_pyproject = path.name == "pyproject.toml"
+    tool_drift = data.get("tool", {}).get("drift", {}) if is_pyproject else {}
+
+    # Determine which dict to read from: tool.drift if available, else top-level
+    if tool_drift:
+        cfg_data = tool_drift
+    else:
+        cfg_data = data
+
     # Extract known keys with defaults
-    ignore_patterns = data.get("ignore_patterns", [])
+    ignore_patterns = cfg_data.get("ignore_patterns", [])
     if not isinstance(ignore_patterns, list):
         raise ValueError(f"ignore_patterns must be a list in {path}")
 
-    threshold = data.get("threshold", 0.0)
+    threshold = cfg_data.get("threshold", 0.0)
     if not isinstance(threshold, (int, float)):
         raise ValueError(f"threshold must be a number in {path}")
     threshold = float(threshold)
     if not (0.0 <= threshold <= 1.0):
         raise ValueError(f"threshold must be between 0.0 and 1.0 in {path}")
 
-    output_format = data.get("output_format", "text")
+    output_format = cfg_data.get("output_format", "text")
     if output_format not in ("text", "json"):
         raise ValueError(f"output_format must be 'text' or 'json' in {path}")
 
-    fail_on = data.get("fail_on", "error")
+    fail_on = cfg_data.get("fail_on", "error")
     if fail_on not in ("error", "warning", "info", "none"):
         raise ValueError(
             f"fail_on must be 'error', 'warning', 'info', or 'none' in {path}"
@@ -83,7 +98,7 @@ def load_config(path: Path | None = None) -> DriftConfig:
     # Parse [extractors] section
     extractors_enabled: list[str] | None = None
     extractors_disabled: list[str] = []
-    extractors_section = data.get("extractors", {})
+    extractors_section = cfg_data.get("extractors", {})
     if isinstance(extractors_section, dict):
         if "enabled" in extractors_section:
             enabled_val = extractors_section["enabled"]
