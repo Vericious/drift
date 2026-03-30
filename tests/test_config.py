@@ -219,3 +219,87 @@ fail_on = "invalid_level"
             config_file.write_text(f'fail_on = "{level}"\n')
             config = load_config(config_file)
             assert config.fail_on == level
+
+
+class TestPyprojectTomlToolDrift:
+    """Tests for [tool.drift] section in pyproject.toml (Appendix C).
+
+    These tests verify that drift config can be loaded from pyproject.toml's
+    [tool.drift] section, enabling users to consolidate drift config with
+    their project's pyproject.toml.
+    """
+
+    def test_config_loads_from_pyproject_toml(self, tmp_path: Path):
+        """Test that load_config can read from pyproject.toml [tool.drift] section."""
+        # Create a minimal pyproject.toml with [tool.drift] section
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[project]
+name = "test-project"
+
+[tool.drift]
+ignore_patterns = ["tests/*", "*.pyc"]
+""")
+        config = load_config(pyproject)
+        assert "tests/*" in config.ignore_patterns
+        assert "*.pyc" in config.ignore_patterns
+
+    def test_config_tool_drift_output_format(self, tmp_path: Path):
+        """Test output_format is read from [tool.drift] section."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[project]
+name = "test-project"
+
+[tool.drift]
+output_format = "json"
+""")
+        config = load_config(pyproject)
+        assert config.output_format == "json"
+
+    def test_config_tool_drift_min_confidence(self, tmp_path: Path):
+        """Test threshold (min_confidence) is read from [tool.drift] section."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[project]
+name = "test-project"
+
+[tool.drift]
+threshold = 0.8
+""")
+        config = load_config(pyproject)
+        assert config.threshold == 0.8
+
+    def test_config_pyproject_missing_section_uses_defaults(self, tmp_path: Path):
+        """Test that missing [tool.drift] section uses defaults."""
+        pyproject = tmp_path / "pyproject.toml"
+        # pyproject.toml without [tool.drift] section
+        pyproject.write_text("""
+[project]
+name = "test-project"
+""")
+        config = load_config(pyproject)
+        # Should use defaults
+        assert config.ignore_patterns == []
+        assert config.threshold == 0.0
+        assert config.output_format == "text"
+        assert config.fail_on == "error"
+
+    def test_config_pyproject_with_all_sections(self, tmp_path: Path):
+        """Test all config options from [tool.drift] section."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("""
+[project]
+name = "test-project"
+
+[tool.drift]
+ignore_patterns = ["build/*", "dist/*"]
+threshold = 0.75
+output_format = "json"
+fail_on = "warning"
+""")
+        config = load_config(pyproject)
+        assert config.ignore_patterns == ["build/*", "dist/*"]
+        assert config.threshold == 0.75
+        assert config.output_format == "json"
+        assert config.fail_on == "warning"
