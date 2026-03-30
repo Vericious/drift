@@ -1,6 +1,6 @@
 # Coverage Baseline
 
-**Date:** 2026-03-26
+**Date:** 2026-03-30
 **pytest:** 9.0.2
 **Python:** 3.13.5
 
@@ -34,3 +34,48 @@
 - Run `python3 -m pytest --cov=drift --cov-report=term-missing tests/` to reproduce
 - Low-coverage modules (registry, pydantic, python_extractor) reflect areas for additional testing
 - The `__main__.py` 0% is expected as it's an import-only entry point
+
+---
+
+## Extractor Metadata Audit (DRIFT-167)
+
+**Date:** 2026-03-30
+**Test:** `tests/test_extractor_metadata.py`
+
+### Required Fields
+
+| Object | Required Fields |
+|--------|-----------------|
+| `CodeFact` | `source_file`, `name`, `kind`, `line_number` |
+| `DocClaim` | `doc_file`, `name`, `kind`, `line_number` |
+
+### Findings
+
+#### ✅ All extractors pass metadata schema
+
+All extractors (registry + direct-import) produce items with the required metadata fields. No missing `source_file`, `name`, `kind`, or `line_number` fields were found.
+
+#### ⚠️ Known Inconsistencies
+
+| Extractor | Issue | Severity | Notes |
+|-----------|-------|----------|-------|
+| `TerraformExtractor` | `line_number=0` for all items | Low | HCL2 parser does not preserve line numbers in the parsed dict AST. This is a HCL library limitation, not a code bug. All Terraform facts return `line_number=0`. |
+
+#### 🔶 Registry Discovery Gaps
+
+Four extractors have `@register` decorators but are **not imported** in `drift.extractors.registry._discover_extractors()`. They are loaded via the plugin mechanism (`entry_points`) or manually imported:
+
+| Extractor | Status |
+|-----------|--------|
+| `DotenvExtractor` | Gap — has `@register`; not auto-discovered |
+| `ProtocolExtractor` | Gap — has `@register`; not auto-discovered |
+| `PyprojectExtractor` | Gap — has `@register`; not auto-discovered |
+| `RSTDocsExtractor` | Gap — has `@register`; not auto-discovered |
+
+These extractors are functional when loaded via plugins or direct imports but won't appear in `get_extractors()` until added to the registry discovery list.
+
+### Tested Extractors
+
+**Registry (via `get_extractors()`):** ArgparseExtractor, ClickExtractor, TyperExtractor, ConfigFileExtractor, DataclassFieldsExtractor, DecoratorExtractor, DeprecatedExtractor, DjangoURLsExtractor, DocstringExtractor, EnvVarExtractor, FastAPIRoutesExtractor, FlaskRoutesExtractor, PydanticExtractor, TerraformExtractor, SQLAlchemyExtractor, GraphQLExtractor, OpenAPIExtractor, RSTDocsExtractor, YamlConfigExtractor, DockerfileExtractor, MakefileExtractor, TypeScriptExtractor
+
+**Direct-import (scanner.py):** PythonExtractor, MarkdownExtractor, JSDocExtractor
