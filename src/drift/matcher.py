@@ -8,6 +8,7 @@ from pathlib import Path
 from drift.models import (
     ClaimKind,
     CodeFact,
+    ConfidenceSignals,
     DocClaim,
     DriftItem,
     DriftReport,
@@ -287,6 +288,12 @@ class SignatureMatcher:
                 else:
                     # Both have the param — check defaults and types
                     if f_param.default != c_param.default:
+                        # Compute param_overlap: ratio of shared param names
+                        fact_param_names = set(fact_params.keys())
+                        claim_param_names = set(claim_params.keys())
+                        shared = len(fact_param_names & claim_param_names)
+                        total = len(fact_param_names | claim_param_names)
+                        param_overlap = shared / total if total > 0 else 0.0
                         drift_items.append(
                             DriftItem(
                                 fact=fact,
@@ -299,9 +306,20 @@ class SignatureMatcher:
                             ),
                                 suggestion=f"Update docs for '{param_name}' to default={f_param.default!r}",
                                 confidence=1.0,
+                                signals=ConfidenceSignals(
+                                    name_similarity=1.0,
+                                    param_overlap=param_overlap,
+                                    type_match=0.0,
+                                ),
                             )
                         )
                     if f_param.type_annotation != c_param.type_annotation:
+                        # Compute param_overlap: ratio of shared param names
+                        fact_param_names = set(fact_params.keys())
+                        claim_param_names = set(claim_params.keys())
+                        shared = len(fact_param_names & claim_param_names)
+                        total = len(fact_param_names | claim_param_names)
+                        param_overlap = shared / total if total > 0 else 0.0
                         drift_items.append(
                             DriftItem(
                                 fact=fact,
@@ -314,11 +332,23 @@ class SignatureMatcher:
                             ),
                                 suggestion=f"Update docs for '{param_name}' type to {f_param.type_annotation!r}",
                                 confidence=1.0,
+                                signals=ConfidenceSignals(
+                                    name_similarity=1.0,
+                                    param_overlap=param_overlap,
+                                    type_match=1.0,
+                                ),
                             )
                         )
 
             # Check return type
             if fact.return_type != claim.return_type:
+                # For return type mismatch, all params match (otherwise it would be
+                # missing_param/extra_param), so param_overlap is 1.0
+                fact_param_names = set(fact_params.keys())
+                claim_param_names = set(claim_params.keys())
+                shared = len(fact_param_names & claim_param_names)
+                total = len(fact_param_names | claim_param_names)
+                param_overlap = shared / total if total > 0 else 1.0
                 drift_items.append(
                     DriftItem(
                         fact=fact,
@@ -328,6 +358,11 @@ class SignatureMatcher:
                         message=f"Return type differs: {claim.return_type!r} (docs) vs {fact.return_type!r} (code)",
                         suggestion=f"Update return type to {fact.return_type!r}",
                         confidence=1.0,
+                        signals=ConfidenceSignals(
+                            name_similarity=1.0,
+                            param_overlap=param_overlap,
+                            type_match=0.0,
+                        ),
                     )
                 )
 

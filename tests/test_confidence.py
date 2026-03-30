@@ -164,6 +164,33 @@ class TestConfidence:
         assert items[0].confidence == 1.0
         assert items[0].category == "wrong_default"
 
+    def test_confidence_signals_exact_match(self):
+        """Exact match with drift (wrong_default) has name_similarity=1.0 and signals set."""
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("code.py"),
+            line_number=10,
+            parameters=[Parameter(name="x", default="1")],
+        )
+        claim = DocClaim(
+            raw_text="foo(x=0)",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("docs.md"),
+            line_number=1,
+            name="foo",
+            parameters=[Parameter(name="x", default="0")],
+        )
+        matcher = SignatureMatcher()
+        items = matcher.match([fact], [claim])
+        assert len(items) == 1
+        item = items[0]
+        assert item.category == "wrong_default"
+        assert item.signals is not None
+        assert item.signals.name_similarity == 1.0
+        assert item.signals.param_overlap == 1.0  # single param matches
+        assert item.signals.type_match == 0.0  # wrong_default, not wrong_type
+
     def test_drift_item_confidence_field_exists(self):
         """DriftItem has a confidence field with correct default."""
         item = DriftItem(
