@@ -96,6 +96,46 @@ class SignatureMatcher:
         )
         return matching / len(comparable)
 
+    def _location_proximity(self, fact: CodeFact, claim: DocClaim) -> float:
+        """Compute proximity score based on file path relationship.
+
+        Returns 1.0 if same directory, 0.5 for sibling directories,
+        decaying further for distant paths. Per §10.5.2.
+        """
+        fact_dir = fact.source_file.parent
+        claim_dir = claim.doc_file.parent
+
+        if fact_dir == claim_dir:
+            return 1.0
+
+        # Find common ancestor
+        fact_parts = fact_dir.parts
+        claim_parts = claim_dir.parts
+
+        common_length = 0
+        for f, c in zip(fact_parts, claim_parts):
+            if f == c:
+                common_length += 1
+            else:
+                break
+
+        if common_length == 0:
+            # No common path at all — distant
+            return 0.0
+
+        # Depth of the common ancestor relative to root
+        depth = common_length
+
+        # The further apart the directories, the lower the score
+        # Same dir = 1.0, sibling = 0.5, parent/child = 0.75, deeper = lower
+        max_depth = max(len(fact_parts), len(claim_parts))
+        if max_depth == 0:
+            return 1.0
+
+        # Ratio of common path to total path length gives proximity
+        ratio = depth / max_depth
+        return round(ratio, 3)
+
     def _cli_flag_matches(self, fact: CodeFact, claim: DocClaim) -> bool:
         """Return True if a CLI_FLAG fact matches a CLI_FLAG_REF claim.
 

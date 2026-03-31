@@ -456,3 +456,104 @@ class TestTypeMatchFraction:
         )
         # No params with types on both sides
         assert matcher._type_match_fraction(fact, claim) == 0.0
+
+
+class TestLocationProximity:
+    """Tests for _location_proximity helper in SignatureMatcher."""
+
+    def test_location_proximity_same_dir(self):
+        """Same directory: returns 1.0."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, CodeFact, DocClaim, FactKind, Parameter, Path
+        matcher = SignatureMatcher()
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("src/foo.py"),
+            line_number=10,
+            parameters=[],
+        )
+        claim = DocClaim(
+            raw_text="foo()",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("src/docs.md"),
+            line_number=1,
+            name="foo",
+            parameters=[],
+        )
+        assert matcher._location_proximity(fact, claim) == 1.0
+
+    def test_location_proximity_sibling_dirs(self):
+        """Sibling directories (common parent, different subdirs): returns 0.5."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, CodeFact, DocClaim, FactKind, Parameter, Path
+        matcher = SignatureMatcher()
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("src/module/foo.py"),
+            line_number=10,
+            parameters=[],
+        )
+        claim = DocClaim(
+            raw_text="foo()",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("src/docs/api.md"),
+            line_number=1,
+            name="foo",
+            parameters=[],
+        )
+        # src/module and src/docs share 'src' as common ancestor (depth=1)
+        # max_depth=2, ratio=1/2=0.5
+        result = matcher._location_proximity(fact, claim)
+        assert result == 0.5
+
+    def test_location_proximity_distant_paths(self):
+        """Paths with only root in common: returns low score (0.2)."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, CodeFact, DocClaim, FactKind, Parameter, Path
+        matcher = SignatureMatcher()
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("/home/user/project/src/foo.py"),
+            line_number=10,
+            parameters=[],
+        )
+        claim = DocClaim(
+            raw_text="foo()",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("/var/docs/api.md"),
+            line_number=1,
+            name="foo",
+            parameters=[],
+        )
+        # /home/user/project/src and /var/docs share only '/' as common
+        # common_length=1, max_depth=5, ratio=0.2
+        result = matcher._location_proximity(fact, claim)
+        assert result == 0.2
+
+    def test_location_proximity_parent_child(self):
+        """Parent-child relationship: returns high score (0.75)."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, CodeFact, DocClaim, FactKind, Parameter, Path
+        matcher = SignatureMatcher()
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("src/foo.py"),
+            line_number=10,
+            parameters=[],
+        )
+        claim = DocClaim(
+            raw_text="foo()",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("docs/api.md"),
+            line_number=1,
+            name="foo",
+            parameters=[],
+        )
+        # src and docs share nothing common at start
+        result = matcher._location_proximity(fact, claim)
+        # They have '' as common (root), depth=0
+        assert result == 0.0
