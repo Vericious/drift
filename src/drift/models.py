@@ -53,6 +53,7 @@ class DriftCategory(Enum):
     WRONG_TYPE = "wrong_type"
     WRONG_RETURN_TYPE = "wrong_return_type"
     RENAMED = "renamed"
+    FUZZY_RENAMED = "fuzzy_renamed"
     DOCUMENTED_BUT_MISSING = "documented_but_missing"
     UNDOCUMENTED = "undocumented"
     SIGNATURE_MISMATCH = "signature_mismatch"
