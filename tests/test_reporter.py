@@ -742,3 +742,9 @@ class TestReportHtml:
         reporter = DriftReporter(populated_report)
         output = reporter.report_html()
         assert "Drift v0.5.0-dev" in output
+
+    def test_html_output_has_exactly_one_closing_tag(self, populated_report):
+        """HTML output contains exactly one </html> closing tag (no duplicates)."""
+        reporter = DriftReporter(populated_report)
+        output = reporter.report_html()
+        assert output.count("</html>") == 1
