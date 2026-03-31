@@ -203,8 +203,10 @@ class DriftReporter:
                 "ruleId": rule_id,
                 "level": level,
                 "message": {"text": item.message or f"[{item.category}]"},
-                "rank": item.confidence * 100,
-                "properties": {"confidence": item.confidence},
+                "properties": {
+                    "rank": item.confidence * 100,
+                    "confidence": item.signals.to_dict() if item.signals else item.confidence,
+                },
             }
             if locations:
                 result["locations"] = locations
