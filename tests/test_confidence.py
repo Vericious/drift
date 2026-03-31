@@ -308,3 +308,151 @@ class TestJaccardParamOverlap:
         from drift.matcher import SignatureMatcher
         matcher = SignatureMatcher()
         assert matcher._jaccard_param_overlap({}, {}) == 0.0
+
+
+class TestTypeMatchFraction:
+    """Tests for _type_match_fraction helper in SignatureMatcher."""
+
+    def test_type_match_fraction_all_match(self):
+        """All shared params with types match: returns 1.0."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, CodeFact, DocClaim, FactKind, Parameter, Path
+        matcher = SignatureMatcher()
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("code.py"),
+            line_number=10,
+            parameters=[
+                Parameter(name="x", type_annotation="int"),
+                Parameter(name="y", type_annotation="str"),
+            ],
+        )
+        claim = DocClaim(
+            raw_text="foo(x: int, y: str)",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("docs.md"),
+            line_number=1,
+            name="foo",
+            parameters=[
+                Parameter(name="x", type_annotation="int"),
+                Parameter(name="y", type_annotation="str"),
+            ],
+        )
+        assert matcher._type_match_fraction(fact, claim) == 1.0
+
+    def test_type_match_fraction_partial_match(self):
+        """Some params match: returns correct fraction."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, CodeFact, DocClaim, FactKind, Parameter, Path
+        matcher = SignatureMatcher()
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("code.py"),
+            line_number=10,
+            parameters=[
+                Parameter(name="x", type_annotation="int"),
+                Parameter(name="y", type_annotation="str"),
+            ],
+        )
+        claim = DocClaim(
+            raw_text="foo(x: int, y: bool)",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("docs.md"),
+            line_number=1,
+            name="foo",
+            parameters=[
+                Parameter(name="x", type_annotation="int"),
+                Parameter(name="y", type_annotation="bool"),
+            ],
+        )
+        # 1 out of 2 comparable params match = 0.5
+        assert matcher._type_match_fraction(fact, claim) == 0.5
+
+    def test_type_match_fraction_none_match(self):
+        """No params match: returns 0.0."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, CodeFact, DocClaim, FactKind, Parameter, Path
+        matcher = SignatureMatcher()
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("code.py"),
+            line_number=10,
+            parameters=[
+                Parameter(name="x", type_annotation="int"),
+                Parameter(name="y", type_annotation="str"),
+            ],
+        )
+        claim = DocClaim(
+            raw_text="foo(x: str, y: bool)",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("docs.md"),
+            line_number=1,
+            name="foo",
+            parameters=[
+                Parameter(name="x", type_annotation="str"),
+                Parameter(name="y", type_annotation="bool"),
+            ],
+        )
+        assert matcher._type_match_fraction(fact, claim) == 0.0
+
+    def test_type_match_fraction_ignores_missing_types(self):
+        """Params without types on both sides are ignored."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, CodeFact, DocClaim, FactKind, Parameter, Path
+        matcher = SignatureMatcher()
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("code.py"),
+            line_number=10,
+            parameters=[
+                Parameter(name="x", type_annotation="int"),
+                Parameter(name="y"),  # no type annotation
+            ],
+        )
+        claim = DocClaim(
+            raw_text="foo(x: int, y)",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("docs.md"),
+            line_number=1,
+            name="foo",
+            parameters=[
+                Parameter(name="x", type_annotation="int"),
+                Parameter(name="y"),  # no type annotation
+            ],
+        )
+        # Only x is comparable (both have types); y is ignored
+        # x matches, so 1/1 = 1.0
+        assert matcher._type_match_fraction(fact, claim) == 1.0
+
+    def test_type_match_fraction_no_comparable_params(self):
+        """No params with types on both sides: returns 0.0."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, CodeFact, DocClaim, FactKind, Parameter, Path
+        matcher = SignatureMatcher()
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("code.py"),
+            line_number=10,
+            parameters=[
+                Parameter(name="x"),  # no type annotation
+                Parameter(name="y"),  # no type annotation
+            ],
+        )
+        claim = DocClaim(
+            raw_text="foo(x, y)",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("docs.md"),
+            line_number=1,
+            name="foo",
+            parameters=[
+                Parameter(name="x"),
+                Parameter(name="y"),
+            ],
+        )
+        # No params with types on both sides
+        assert matcher._type_match_fraction(fact, claim) == 0.0

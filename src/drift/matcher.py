@@ -66,6 +66,36 @@ class SignatureMatcher:
         union = len(fact_names | claim_names)
         return intersection / union if union > 0 else 0.0
 
+    def _type_match_fraction(
+        self, fact: CodeFact, claim: DocClaim
+    ) -> float:
+        """Compute fraction of shared params with matching type annotations.
+
+        Only considers parameters that exist in both fact and claim AND have
+        type annotations on both sides. Returns 0.0 if no comparable params.
+        Per §10.5.2.
+        """
+        fact_param_map = {p.name: p for p in fact.parameters}
+        claim_param_map = {p.name: p for p in claim.parameters}
+        shared_names = set(fact_param_map.keys()) & set(claim_param_map.keys())
+
+        comparable = [
+            name
+            for name in shared_names
+            if fact_param_map[name].type_annotation is not None
+            and claim_param_map[name].type_annotation is not None
+        ]
+
+        if not comparable:
+            return 0.0
+
+        matching = sum(
+            1
+            for name in comparable
+            if fact_param_map[name].type_annotation == claim_param_map[name].type_annotation
+        )
+        return matching / len(comparable)
+
     def _cli_flag_matches(self, fact: CodeFact, claim: DocClaim) -> bool:
         """Return True if a CLI_FLAG fact matches a CLI_FLAG_REF claim.
 
