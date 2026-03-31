@@ -136,6 +136,28 @@ class SignatureMatcher:
         ratio = depth / max_depth
         return round(ratio, 3)
 
+    def _context_match(self, fact: CodeFact, claim: DocClaim) -> float:
+        """Compute module/class namespace overlap between fact and claim.
+
+        Uses path component overlap ratio between fact.source_file and
+        claim.doc_file, excluding the filename. Per §10.5.2.
+        """
+        fact_parts = fact.source_file.parent.parts
+        claim_parts = claim.doc_file.parent.parts
+
+        if not fact_parts and not claim_parts:
+            return 1.0
+
+        fact_set = set(fact_parts)
+        claim_set = set(claim_parts)
+        overlap = len(fact_set & claim_set)
+        union = len(fact_set | claim_set)
+
+        if union == 0:
+            return 1.0
+
+        return round(overlap / union, 3)
+
     def _cli_flag_matches(self, fact: CodeFact, claim: DocClaim) -> bool:
         """Return True if a CLI_FLAG fact matches a CLI_FLAG_REF claim.
 

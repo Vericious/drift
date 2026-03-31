@@ -557,3 +557,80 @@ class TestLocationProximity:
         result = matcher._location_proximity(fact, claim)
         # They have '' as common (root), depth=0
         assert result == 0.0
+
+
+class TestContextMatch:
+    """Tests for _context_match helper in SignatureMatcher."""
+
+    def test_context_match_same_module(self):
+        """Same module: returns 1.0."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, CodeFact, DocClaim, FactKind, Parameter, Path
+        matcher = SignatureMatcher()
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("src/module/foo.py"),
+            line_number=10,
+            parameters=[],
+        )
+        claim = DocClaim(
+            raw_text="foo()",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("src/module/docs.md"),
+            line_number=1,
+            name="foo",
+            parameters=[],
+        )
+        # src/module vs src/module -> all parts overlap
+        assert matcher._context_match(fact, claim) == 1.0
+
+    def test_context_match_cross_module(self):
+        """Different modules: returns fraction of overlapping path components."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, CodeFact, DocClaim, FactKind, Parameter, Path
+        matcher = SignatureMatcher()
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("src/module_a/foo.py"),
+            line_number=10,
+            parameters=[],
+        )
+        claim = DocClaim(
+            raw_text="foo()",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("src/module_b/docs.md"),
+            line_number=1,
+            name="foo",
+            parameters=[],
+        )
+        # src/module_a vs src/module_b
+        # set('src', 'module_a') vs set('src', 'module_b')
+        # overlap = {src} = 1, union = {src, module_a, module_b} = 3
+        # ratio = 1/3 ≈ 0.333 (rounded to 3 decimal places)
+        result = matcher._context_match(fact, claim)
+        assert result == 0.333
+
+    def test_context_match_no_overlap(self):
+        """No path overlap: returns 0.0."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, CodeFact, DocClaim, FactKind, Parameter, Path
+        matcher = SignatureMatcher()
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("src/alpha/foo.py"),
+            line_number=10,
+            parameters=[],
+        )
+        claim = DocClaim(
+            raw_text="foo()",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("docs/beta/readme.md"),
+            line_number=1,
+            name="foo",
+            parameters=[],
+        )
+        # src/alpha vs docs/beta -> no overlap
+        assert matcher._context_match(fact, claim) == 0.0
