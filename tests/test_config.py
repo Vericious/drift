@@ -96,13 +96,13 @@ threshold = 1.5
             load_config(config_file)
 
     def test_invalid_output_format(self, tmp_path: Path):
-        """Test that output_format must be 'text' or 'json'."""
+        """Test that output_format must be one of text, json, sarif, html, diff."""
         config_file = tmp_path / ".drift.toml"
         config_file.write_text("""
 output_format = "yaml"
 """)
 
-        with pytest.raises(ValueError, match="must be 'text' or 'json'"):
+        with pytest.raises(ValueError, match="output_format must be one of"):
             load_config(config_file)
 
     def test_partial_config_uses_defaults(self, tmp_path: Path):
@@ -152,6 +152,25 @@ class TestDriftConfig:
         assert config.ignore_patterns == ["*.py", "*.md"]
         assert config.threshold == 0.7
         assert config.output_format == "json"
+
+    def test_post_init_rejects_invalid_output_format_xml(self):
+        """__post_init__ raises ValueError for output_format='xml'."""
+        with pytest.raises(ValueError, match="output_format must be one of"):
+            DriftConfig(output_format="xml")  # type: ignore[arg-type]
+
+    def test_post_init_rejects_empty_output_format(self):
+        """__post_init__ raises ValueError for output_format=''."""
+        with pytest.raises(ValueError, match="output_format must be one of"):
+            DriftConfig(output_format="")  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        "fmt",
+        ["text", "json", "sarif", "html", "diff"],
+    )
+    def test_post_init_accepts_all_valid_formats(self, fmt):
+        """All five valid output formats pass __post_init__ validation."""
+        config = DriftConfig(output_format=fmt)  # type: ignore[arg-type]
+        assert config.output_format == fmt
 
 
 class TestFailOnConfig:
