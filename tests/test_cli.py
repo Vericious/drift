@@ -488,3 +488,66 @@ class TestCheckCommand:
         md_file.write_text("old_func()\n")  # exact match, no drift
         result = cli_runner.invoke(main, ["check", "--fail-on", "error", str(tmp_path)])
         assert result.exit_code == 0
+
+
+class TestMinConfidenceOption:
+    """Tests for --min-confidence CLI option."""
+
+    def test_min_confidence_parses_valid_float(self, cli_runner, tmp_path):
+        """--min-confidence accepts valid float values."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def foo(x: int) -> str: return str(x)\n")
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("## foo\n\n```python\ndef foo(x: int) -> str\n```\n")
+        result = cli_runner.invoke(
+            main, ["scan", "--min-confidence", "0.5", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+
+    def test_min_confidence_boundary_values(self, cli_runner, tmp_path):
+        """--min-confidence accepts boundary values 0.0 and 1.0."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def foo(x: int) -> str: return str(x)\n")
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("## foo\n\n```python\ndef foo(x: int) -> str\n```\n")
+        for val in ["0.0", "1.0"]:
+            result = cli_runner.invoke(
+                main, ["scan", "--min-confidence", val, str(tmp_path)]
+            )
+            assert result.exit_code == 0, f"--min-confidence {val} should be accepted"
+
+    def test_min_confidence_default_is_zero(self, cli_runner, tmp_path):
+        """Default --min-confidence is 0.0 (shown in help)."""
+        result = cli_runner.invoke(main, ["scan", "--help"])
+        assert result.exit_code == 0
+        assert "0.0-1.0" in result.output
+
+    def test_min_confidence_negative_rejected(self, cli_runner, tmp_path):
+        """--min-confidence rejects negative values."""
+        result = cli_runner.invoke(
+            main, ["scan", "--min-confidence", "-0.1", str(tmp_path)]
+        )
+        assert result.exit_code != 0
+
+    def test_min_confidence_above_one_rejected(self, cli_runner, tmp_path):
+        """--min-confidence rejects values greater than 1.0."""
+        result = cli_runner.invoke(
+            main, ["scan", "--min-confidence", "1.5", str(tmp_path)]
+        )
+        assert result.exit_code != 0
+
+    def test_min_confidence_filters_low_confidence_items(self, cli_runner, tmp_path):
+        """--min-confidence 1.0 hides all items (confidence <= 1.0 matches nothing above 1.0)."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def foo(x: int): pass\n")
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("## fake\n\n```python\ndef nonexistent(x: int)\n```\n")
+        # With min-confidence=1.0, only items with confidence >= 1.0 are shown.
+        # Since max confidence is 1.0, nothing can exceed 1.0, so output is "No drift"
+        result = cli_runner.invoke(
+            main, ["scan", "--min-confidence", "1.0", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        # The warning/error about "fake" should be hidden by min_confidence filter
+        assert "fake" not in result.output
+

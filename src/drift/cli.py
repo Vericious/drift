@@ -90,8 +90,8 @@ def main() -> None:
 )
 @click.option(
     "--min-confidence",
-    type=float,
-    default=None,
+    type=click.FloatRange(0.0, 1.0),
+    default=0.0,
     help="Only show drift items with confidence >= this value (0.0-1.0).",
 )
 @click.option(
