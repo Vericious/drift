@@ -250,3 +250,11 @@ class TestDriftCategoryTS:
     def test_ts_member_extra_exists(self):
         assert hasattr(DriftCategory, "TS_MEMBER_EXTRA")
         assert DriftCategory.TS_MEMBER_EXTRA.value == "ts_member_extra"
+
+
+class TestDriftCategoryFuzzy:
+    """Tests for fuzzy rename drift category."""
+
+    def test_fuzzy_renamed_exists(self):
+        assert hasattr(DriftCategory, "FUZZY_RENAMED")
+        assert DriftCategory.FUZZY_RENAMED.value == "fuzzy_renamed"
