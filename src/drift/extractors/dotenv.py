@@ -58,15 +58,25 @@ class DotenvExtractor(Extractor):
         return facts
 
     def _join_continued_lines(self, content: str) -> str:
-        """Join lines ending with backslash continuation."""
+        """Join lines ending with backslash continuation.
+
+        Handles shell-style line continuation where a backslash at the end of a line
+        means the next line continues the current one. Multiple lines can be chained.
+        The backslash and following newline are removed, and a single space is inserted
+        between joined parts. Leading whitespace on continuation lines is stripped.
+        """
         result_lines: list[str] = []
         current = ""
 
         for line in content.splitlines():
             stripped = line.rstrip()
             if stripped.endswith("\\"):
-                current += stripped[:-1] + " "
+                # Remove the backslash, then strip any trailing whitespace
+                continuation = stripped[:-1].rstrip()
+                current += continuation + " "
             else:
+                # Strip leading whitespace from continuation lines
+                stripped = stripped.lstrip()
                 current += stripped
                 result_lines.append(current)
                 current = ""
@@ -146,9 +156,15 @@ class DotenvExtractor(Extractor):
             inner = stripped[1:-1]
             return (inner, "single_quoted")
 
-        # Unquoted: strip trailing inline comment
-        # value # comment -> value
+        # Unquoted: strip trailing inline comment only if # is preceded by space
+        # value # comment -> value (space before # indicates comment delimiter)
         # value without comment -> value
-        unquoted = stripped.split("#")[0].rstrip()
+        # URL with fragment like https://example.com#fragment -> keep fragment
+        # (no space before # means it's part of the value)
+        if re.search(r" #", stripped):
+            # Space before # indicates a comment delimiter
+            unquoted = stripped.split(" #")[0].rstrip()
+        else:
+            unquoted = stripped
 
         return (unquoted, "unquoted")
