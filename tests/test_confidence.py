@@ -662,3 +662,40 @@ class TestConfidenceSignalsDocumentedButMissing:
         assert item.signals.type_match == 0.0
         assert item.signals.location_proximity == 0.0
         assert item.signals.context_match == 0.0
+
+
+class TestConfidenceJsonOutput:
+    """Tests for JSON output including signals."""
+
+    def test_confidence_json_output_signals(self):
+        """JSON output includes signals dict with all signal fields."""
+        import json
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, CodeFact, DocClaim, FactKind, Parameter, Path
+        matcher = SignatureMatcher()
+        fact = CodeFact(
+            name="foo",
+            kind=FactKind.FUNCTION,
+            source_file=Path("src/foo.py"),
+            line_number=10,
+            parameters=[Parameter(name="x", default="1")],
+        )
+        claim = DocClaim(
+            raw_text="foo(x=0)",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("docs/api.md"),
+            line_number=1,
+            name="foo",
+            parameters=[Parameter(name="x", default="0")],
+        )
+        items = matcher.match([fact], [claim])
+        assert len(items) == 1
+        item = items[0]
+        # Verify signals dict has all required fields
+        assert item.signals is not None
+        signals_dict = item.signals.to_dict()
+        assert "name_similarity" in signals_dict
+        assert "param_overlap" in signals_dict
+        assert "type_match" in signals_dict
+        assert "location_proximity" in signals_dict
+        assert "context_match" in signals_dict
