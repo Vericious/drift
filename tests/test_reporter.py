@@ -683,7 +683,101 @@ class TestReportSarif:
         report = DriftReport(scanned_path=Path("."), drift_items=[item])
         reporter = DriftReporter(report)
         parsed = json.loads(reporter.report_sarif())
-        assert parsed["runs"][0]["results"][0]["rank"] == 75.0
+        assert parsed["runs"][0]["results"][0]["properties"]["rank"] == 75.0
+
+
+class TestFormatSarif:
+    """Tests for the standalone format_sarif() function."""
+
+    def test_format_sarif_returns_valid_json(self):
+        """format_sarif() returns a string that parses as JSON."""
+        from drift.reporter import format_sarif
+
+        sarif_str = format_sarif([])
+        parsed = json.loads(sarif_str)  # should not raise
+        assert isinstance(parsed, dict)
+
+    def test_format_sarif_has_required_sarif_fields(self):
+        """format_sarif() output has required SARIF fields: $schema, version, runs."""
+        from drift.reporter import format_sarif
+
+        sarif_str = format_sarif([])
+        parsed = json.loads(sarif_str)
+        assert "$schema" in parsed
+        assert "version" in parsed
+        assert "runs" in parsed
+        assert isinstance(parsed["runs"], list)
+        assert len(parsed["runs"]) == 1
+
+    def test_format_sarif_result_count_matches_input_items(self):
+        """format_sarif() result count equals number of input DriftItems."""
+        from drift.reporter import format_sarif
+
+        items = [
+            DriftItem(
+                fact=CodeFact(
+                    name="func1",
+                    kind=FactKind.FUNCTION,
+                    source_file=Path("a.py"),
+                    line_number=1,
+                ),
+                severity=Severity.WARNING,
+                category="undocumented",
+                message="test1",
+                confidence=0.5,
+            ),
+            DriftItem(
+                fact=CodeFact(
+                    name="func2",
+                    kind=FactKind.FUNCTION,
+                    source_file=Path("b.py"),
+                    line_number=2,
+                ),
+                severity=Severity.ERROR,
+                category="missing_param",
+                message="test2",
+                confidence=0.8,
+            ),
+        ]
+        sarif_str = format_sarif(items)
+        parsed = json.loads(sarif_str)
+        assert len(parsed["runs"][0]["results"]) == 2
+
+    def test_format_sarif_includes_tool_version(self):
+        """format_sarif() tool driver includes drift version."""
+        from drift.reporter import format_sarif
+
+        sarif_str = format_sarif([])
+        parsed = json.loads(sarif_str)
+        tool = parsed["runs"][0]["tool"]["driver"]
+        assert tool["name"] == "drift"
+        assert "version" in tool
+
+    def test_format_sarif_single_item_maps_correctly(self):
+        """A single DriftItem produces a SARIF result with correct fields."""
+        from drift.reporter import format_sarif
+
+        item = DriftItem(
+            fact=CodeFact(
+                name="my_func",
+                kind=FactKind.FUNCTION,
+                source_file=Path("src/foo.py"),
+                line_number=42,
+            ),
+            severity=Severity.ERROR,
+            category="undocumented",
+            message="'my_func' exists but is not documented",
+            suggestion="Add documentation for my_func",
+            confidence=0.9,
+        )
+        sarif_str = format_sarif([item])
+        parsed = json.loads(sarif_str)
+        results = parsed["runs"][0]["results"]
+        assert len(results) == 1
+        result = results[0]
+        assert result["ruleId"] == "drift/undocumented"
+        assert result["level"] == "error"
+        assert "my_func" in result["message"]["text"]
 
 
 class TestReportHtml:

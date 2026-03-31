@@ -27,6 +27,94 @@ def _severity_to_sarif_level(severity: Severity) -> str:
     return mapping.get(severity, "warning")
 
 
+def format_sarif(items: list[DriftItem]) -> str:
+    """Format a list of DriftItems as a SARIF v2.1.0 JSON string.
+
+    Args:
+        items: List of DriftItems to format.
+
+    Returns:
+        A JSON string conforming to SARIF v2.1.0 schema.
+    """
+    rules: dict[str, dict[str, object]] = {}
+    results: list[dict[str, object]] = []
+
+    for item in items:
+        rule_id = f"drift/{item.category}"
+        if rule_id not in rules:
+            rules[rule_id] = {
+                "id": rule_id,
+                "name": item.category,
+                "shortDescription": {"text": item.message or item.category},
+                "properties": {"category": item.category},
+            }
+
+        level = _severity_to_sarif_level(item.severity)
+        locations = []
+
+        if item.fact:
+            code_loc = {
+                "physicalLocation": {
+                    "artifactLocation": {"uri": str(item.fact.source_file)},
+                    "region": {"startLine": item.fact.line_number},
+                }
+            }
+            if item.fact.name:
+                code_loc["physicalLocation"]["displayName"] = item.fact.name
+            locations.append(code_loc)
+
+        if item.claim:
+            doc_loc = {
+                "physicalLocation": {
+                    "artifactLocation": {"uri": str(item.claim.doc_file)},
+                    "region": {"startLine": item.claim.line_number},
+                }
+            }
+            if item.claim.name:
+                doc_loc["physicalLocation"]["displayName"] = item.claim.name
+            locations.append(doc_loc)
+
+        result: dict[str, object] = {
+            "ruleId": rule_id,
+            "level": level,
+            "message": {"text": item.message or f"[{item.category}]"},
+            "properties": {
+                "rank": item.confidence * 100,
+                "confidence": (
+                    item.signals.to_dict() if item.signals else item.confidence
+                ),
+            },
+        }
+        if locations:
+            result["locations"] = locations
+        if item.suggestion:
+            result["suggestion"] = {"text": item.suggestion}
+
+        results.append(result)
+
+    rules_list = [{"id": rid, **r} for rid, r in rules.items()]
+
+    run = {
+        "tool": {
+            "driver": {
+                "name": "drift",
+                "version": __version__,
+                "informationUri": "https://github.com/Vericious/drift",
+                "rules": rules_list,
+            }
+        },
+        "results": results,
+    }
+
+    sarif_output = {
+        "version": "2.1.0",
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "runs": [run],
+    }
+
+    return json.dumps(sarif_output, indent=2)
+
+
 class DriftReporter:
     """Render a DriftReport as console text or JSON."""
 
@@ -203,8 +291,10 @@ class DriftReporter:
                 "ruleId": rule_id,
                 "level": level,
                 "message": {"text": item.message or f"[{item.category}]"},
-                "rank": item.confidence * 100,
-                "properties": {"confidence": item.confidence},
+                "properties": {
+                    "rank": item.confidence * 100,
+                    "confidence": item.signals.to_dict() if item.signals else item.confidence,
+                },
             }
             if locations:
                 result["locations"] = locations
@@ -220,7 +310,8 @@ class DriftReporter:
             "tool": {
                 "driver": {
                     "name": "drift",
-                    "informationUri": "https://github.com/your-org/drift",
+                    "version": __version__,
+                    "informationUri": "https://github.com/Vericious/drift",
                     "rules": rules_list,
                 }
             },
