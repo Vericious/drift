@@ -268,3 +268,43 @@ class TestConfidenceSignalsScore:
         )
         # 0.333*0.35 + 0.333*0.30 + 0.333*0.15 = 0.11655 + 0.0999 + 0.04995 = 0.2664
         assert signals.score() == 0.266
+
+
+class TestJaccardParamOverlap:
+    """Tests for _jaccard_param_overlap helper in SignatureMatcher."""
+
+    def test_confidence_param_overlap_jaccard_full_overlap(self):
+        """Full overlap: identical param names returns 1.0."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import Parameter
+        matcher = SignatureMatcher()
+        fact_params = {"x": Parameter("x"), "y": Parameter("y")}
+        claim_params = {"x": Parameter("x"), "y": Parameter("y")}
+        # intersection={x,y}, union={x,y} -> 2/2 = 1.0
+        assert matcher._jaccard_param_overlap(fact_params, claim_params) == 1.0
+
+    def test_confidence_param_overlap_jaccard_partial_overlap(self):
+        """Partial overlap: shared + unique returns correct Jaccard."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import Parameter
+        matcher = SignatureMatcher()
+        fact_params = {"x": Parameter("x"), "y": Parameter("y")}
+        claim_params = {"x": Parameter("x"), "z": Parameter("z")}
+        # intersection={x}, union={x,y,z} -> 1/3
+        assert matcher._jaccard_param_overlap(fact_params, claim_params) == pytest.approx(1 / 3)
+
+    def test_confidence_param_overlap_jaccard_no_overlap(self):
+        """No overlap: disjoint sets returns 0.0."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import Parameter
+        matcher = SignatureMatcher()
+        fact_params = {"x": Parameter("x")}
+        claim_params = {"y": Parameter("y")}
+        # intersection={}, union={x,y} -> 0/2 = 0.0
+        assert matcher._jaccard_param_overlap(fact_params, claim_params) == 0.0
+
+    def test_confidence_param_overlap_jaccard_empty_both(self):
+        """Both empty: returns 0.0."""
+        from drift.matcher import SignatureMatcher
+        matcher = SignatureMatcher()
+        assert matcher._jaccard_param_overlap({}, {}) == 0.0

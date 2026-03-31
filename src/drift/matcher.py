@@ -13,6 +13,7 @@ from drift.models import (
     DriftItem,
     DriftReport,
     FactKind,
+    Parameter,
     Severity,
 )
 
@@ -50,6 +51,20 @@ class SignatureMatcher:
         fact_param_names = {p.name for p in fact.parameters}
         claim_param_names = {p.name for p in claim.parameters}
         return fact_param_names == claim_param_names
+
+    def _jaccard_param_overlap(
+        self, fact_params: dict[str, Parameter], claim_params: dict[str, Parameter]
+    ) -> float:
+        """Compute Jaccard similarity (intersection/union) of parameter name sets.
+
+        Returns 0.0 if both sets are empty.
+        Per §10.5.2.
+        """
+        fact_names = set(fact_params.keys())
+        claim_names = set(claim_params.keys())
+        intersection = len(fact_names & claim_names)
+        union = len(fact_names | claim_names)
+        return intersection / union if union > 0 else 0.0
 
     def _cli_flag_matches(self, fact: CodeFact, claim: DocClaim) -> bool:
         """Return True if a CLI_FLAG fact matches a CLI_FLAG_REF claim.
@@ -288,12 +303,7 @@ class SignatureMatcher:
                 else:
                     # Both have the param — check defaults and types
                     if f_param.default != c_param.default:
-                        # Compute param_overlap: ratio of shared param names
-                        fact_param_names = set(fact_params.keys())
-                        claim_param_names = set(claim_params.keys())
-                        shared = len(fact_param_names & claim_param_names)
-                        total = len(fact_param_names | claim_param_names)
-                        param_overlap = shared / total if total > 0 else 0.0
+                        param_overlap = self._jaccard_param_overlap(fact_params, claim_params)
                         drift_items.append(
                             DriftItem(
                                 fact=fact,
@@ -314,12 +324,7 @@ class SignatureMatcher:
                             )
                         )
                     if f_param.type_annotation != c_param.type_annotation:
-                        # Compute param_overlap: ratio of shared param names
-                        fact_param_names = set(fact_params.keys())
-                        claim_param_names = set(claim_params.keys())
-                        shared = len(fact_param_names & claim_param_names)
-                        total = len(fact_param_names | claim_param_names)
-                        param_overlap = shared / total if total > 0 else 0.0
+                        param_overlap = self._jaccard_param_overlap(fact_params, claim_params)
                         drift_items.append(
                             DriftItem(
                                 fact=fact,
@@ -342,13 +347,7 @@ class SignatureMatcher:
 
             # Check return type
             if fact.return_type != claim.return_type:
-                # For return type mismatch, all params match (otherwise it would be
-                # missing_param/extra_param), so param_overlap is 1.0
-                fact_param_names = set(fact_params.keys())
-                claim_param_names = set(claim_params.keys())
-                shared = len(fact_param_names & claim_param_names)
-                total = len(fact_param_names | claim_param_names)
-                param_overlap = shared / total if total > 0 else 1.0
+                param_overlap = self._jaccard_param_overlap(fact_params, claim_params)
                 drift_items.append(
                     DriftItem(
                         fact=fact,
