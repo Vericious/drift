@@ -634,3 +634,31 @@ class TestContextMatch:
         )
         # src/alpha vs docs/beta -> no overlap
         assert matcher._context_match(fact, claim) == 0.0
+
+
+class TestConfidenceSignalsDocumentedButMissing:
+    """Tests for ConfidenceSignals on documented_but_missing items."""
+
+    def test_confidence_signals_documented_but_missing(self):
+        """documented_but_missing items have all-zero ConfidenceSignals."""
+        from drift.matcher import SignatureMatcher
+        from drift.models import ClaimKind, DocClaim, Path
+        matcher = SignatureMatcher()
+        claim = DocClaim(
+            raw_text="missing_func(x)",
+            kind=ClaimKind.FUNCTION_SIGNATURE,
+            doc_file=Path("docs.md"),
+            line_number=1,
+            name="missing_func",
+            parameters=[],
+        )
+        items = matcher.match([], [claim])
+        assert len(items) == 1
+        item = items[0]
+        assert item.category == "documented_but_missing"
+        assert item.signals is not None
+        assert item.signals.name_similarity == 0.0
+        assert item.signals.param_overlap == 0.0
+        assert item.signals.type_match == 0.0
+        assert item.signals.location_proximity == 0.0
+        assert item.signals.context_match == 0.0

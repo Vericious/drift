@@ -340,6 +340,7 @@ class SignatureMatcher:
                             message=f"'{claim.name}' is documented but not found in code",
                             suggestion=f"Add implementation for '{claim.name}' or update docs",
                             confidence=0.0,
+                            signals=ConfidenceSignals(),
                         )
                     )
                 continue
