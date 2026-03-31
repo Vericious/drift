@@ -7,7 +7,7 @@ import click
 from drift import __version__
 from drift.baseline import filter_new_drift, load_baseline, save_baseline
 from drift.config import load_config
-from drift.git_utils import get_changed_files, get_merge_base, is_git_repo, ref_exists
+from drift.git_utils import get_changed_files, get_changed_lines, get_merge_base, is_git_repo, ref_exists
 from drift.models import CodeFact, DocClaim, DriftItem, DriftReport
 from drift.reporter import DriftReporter
 from drift.scanner import DriftScanner
@@ -268,6 +268,7 @@ def scan(
 
         # Handle --diff flag per path
         changed_files: list[Path] | None = None
+        changed_lines: dict[Path, set[int]] | None = None
         diff_ref_to_use: str | None = diff_ref
 
         # Resolve --diff-branch to merge-base commit
@@ -303,6 +304,7 @@ def scan(
                     )
                 else:
                     changed_files = get_changed_files(diff_ref_to_use, scan_path)
+                    changed_lines = get_changed_lines(diff_ref_to_use, scan_path)
                     if changed_files is None:
                         click.secho(
                             f"WARNING: Could not get changed files for ref '{diff_ref_to_use}'. "
@@ -335,6 +337,7 @@ def scan(
             no_cache=no_cache,
             clear_cache=clear_cache,
             changed_files=changed_files,
+            changed_lines=changed_lines,
             extractors_enabled=extractors_enabled,
             extractors_disabled=extractors_disabled,
         )
