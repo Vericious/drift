@@ -69,6 +69,7 @@ def _discover_extractors() -> None:
         dockerfile,  # noqa: F401
         makefile,  # noqa: F401
     )
+    from drift import python_extractor  # noqa: F401
     from drift import extractor_js  # noqa: F401
     from drift.extractors import typescript  # noqa: F401
 

@@ -51,6 +51,33 @@ class TestExtractorRegistry:
         }
         assert expected.issubset(names), f"Missing: {expected - names}"
 
+    def test_python_extractor_in_registry(self):
+        """PythonExtractor is registered and discovered via the registry."""
+        extractors = get_extractors()
+        names = {cls.__name__ for cls in extractors}
+        assert "PythonExtractor" in names, "PythonExtractor should be in registry"
+
+    def test_python_extractor_in_registry_has_required_methods(self):
+        """PythonExtractor from registry has extract() and can_handle()."""
+        extractors = get_extractors()
+        python_extractors = [cls for cls in extractors if cls.__name__ == "PythonExtractor"]
+        assert len(python_extractors) == 1
+        cls = python_extractors[0]
+        instance = cls()
+        assert callable(instance.extract)
+        assert callable(instance.can_handle)
+
+    def test_python_extractor_routes_py_files(self):
+        """PythonExtractor.can_handle returns True for .py files."""
+        extractors = get_extractors()
+        python_extractors = [cls for cls in extractors if cls.__name__ == "PythonExtractor"]
+        instance = python_extractors[0]()
+        from pathlib import Path
+        assert instance.can_handle(Path("foo.py"))
+        assert instance.can_handle(Path("bar.PY"))  # case-insensitive
+        assert not instance.can_handle(Path("foo.md"))
+        assert not instance.can_handle(Path("foo.js"))
+
 
 class TestRegistryThreadSafety:
     """Test thread-safety of the extractor registry."""

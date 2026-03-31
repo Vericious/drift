@@ -12,7 +12,6 @@ from drift.extractors.markdown import MarkdownExtractor
 from drift.extractors.registry import get_extractors
 from drift.matcher import SignatureMatcher
 from drift.models import CodeFact, DocClaim, DriftReport
-from drift.python_extractor import PythonExtractor
 
 # JSDocExtractor imported lazily when include_js is True
 
@@ -46,7 +45,6 @@ class DriftScanner:
         # Per-extractor enable/disable: None/[] = run all; list = only run these
         self._extractors_enabled = extractors_enabled
         self._extractors_disabled = extractors_disabled or []
-        self.py_extractor = PythonExtractor()
         self.md_extractor = MarkdownExtractor()
         self.config_extractor = ConfigFileExtractor()
         self.js_extractor: JSDocExtractor | None = None
@@ -278,17 +276,12 @@ class DriftScanner:
         claims: list[DocClaim] = []
         errors: list[str] = []
 
-        # Python function/method extractor (not in registry)
-        try:
-            facts.extend(self.py_extractor.extract(py_file))
-        except Exception as e:
-            err = f"[PythonExtractor] {py_file}: {e}"
-            if self.strict:
-                raise
-            errors.append(err)
-
-        # Registered extractors
+        # Registered extractors (PythonExtractor is now in the registry)
         for extractor_cls in get_extractors():
+            # Skip extractors that don't claim to handle this file type
+            extractor = extractor_cls()
+            if not extractor.can_handle(py_file):
+                continue
             # Per-extractor enable/disable filter
             ext_name = extractor_cls.__name__
             if self._extractors_disabled and ext_name in self._extractors_disabled:
@@ -296,7 +289,7 @@ class DriftScanner:
             if self._extractors_enabled and ext_name not in self._extractors_enabled:
                 continue
             try:
-                extracted = extractor_cls().extract(py_file)
+                extracted = extractor.extract(py_file)
             except Exception as e:
                 err = f"[{extractor_cls.__name__}] {py_file}: {e}"
                 if self.strict:
@@ -321,7 +314,7 @@ class DriftScanner:
 
         # Determine files to scan
         if self.path.is_file():
-            py_files = [self.path] if self.py_extractor.can_handle(self.path) else []
+            py_files = [self.path] if self.path.suffix.lower() == ".py" else []
             md_files = [self.path] if self.md_extractor.can_handle(self.path) else []
             config_files = (
                 [self.path] if self.config_extractor.can_handle(self.path) else []
