@@ -6,6 +6,7 @@ from drift.matcher import SignatureMatcher
 from drift.models import (
     ClaimKind,
     CodeFact,
+    ConfidenceSignals,
     DocClaim,
     DriftItem,
     FactKind,
@@ -214,3 +215,56 @@ class TestConfidence:
             confidence=0.0,
         )
         assert item.confidence == 0.0
+
+
+class TestConfidenceSignalsScore:
+    """Tests for ConfidenceSignals.score() weighted combination."""
+
+    def test_confidence_signals_score_weights(self):
+        """score() returns correct weighted sum with weights:
+        name_similarity=0.35, param_overlap=0.30, type_match=0.15,
+        location_proximity=0.10, context_match=0.10."""
+        signals = ConfidenceSignals(
+            name_similarity=1.0,
+            param_overlap=1.0,
+            type_match=1.0,
+            location_proximity=1.0,
+            context_match=1.0,
+        )
+        # 0.35 + 0.30 + 0.15 + 0.10 + 0.10 = 1.0
+        assert signals.score() == 1.0
+
+    def test_confidence_signals_score_partial(self):
+        """score() with partial signals returns weighted sum."""
+        signals = ConfidenceSignals(
+            name_similarity=0.5,
+            param_overlap=0.5,
+            type_match=0.0,
+            location_proximity=0.0,
+            context_match=0.0,
+        )
+        # 0.5*0.35 + 0.5*0.30 = 0.175 + 0.15 = 0.325
+        assert signals.score() == 0.325
+
+    def test_confidence_signals_score_clamp_low(self):
+        """score() clamps to 0.0 when weighted sum is negative (all zeros)."""
+        signals = ConfidenceSignals(
+            name_similarity=0.0,
+            param_overlap=0.0,
+            type_match=0.0,
+            location_proximity=0.0,
+            context_match=0.0,
+        )
+        assert signals.score() == 0.0
+
+    def test_confidence_signals_score_rounds_to_3_decimal_places(self):
+        """score() rounds result to 3 decimal places."""
+        signals = ConfidenceSignals(
+            name_similarity=0.333,
+            param_overlap=0.333,
+            type_match=0.333,
+            location_proximity=0.0,
+            context_match=0.0,
+        )
+        # 0.333*0.35 + 0.333*0.30 + 0.333*0.15 = 0.11655 + 0.0999 + 0.04995 = 0.2664
+        assert signals.score() == 0.266
