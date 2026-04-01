@@ -31,6 +31,7 @@ class DriftScanner:
         changed_lines: dict[Path, set[int]] | None = None,
         extractors_enabled: list[str] | None = None,
         extractors_disabled: list[str] | None = None,
+        ignore_patterns: list[str] | None = None,
     ) -> None:
         self.path = path
         self.strict = strict
@@ -45,6 +46,8 @@ class DriftScanner:
         # Per-extractor enable/disable: None/[] = run all; list = only run these
         self._extractors_enabled = extractors_enabled
         self._extractors_disabled = extractors_disabled or []
+        # Config ignore_patterns: fnmatch-style glob patterns from .drift.toml [scan] section
+        self._config_ignore_patterns = ignore_patterns or []
         self.md_extractor = MarkdownExtractor()
         self.config_extractor = ConfigFileExtractor()
         self.js_extractor: JSDocExtractor | None = None
@@ -96,15 +99,42 @@ class DriftScanner:
                 self._ignore_patterns = []
 
     def _is_ignored(self, file_path: Path) -> bool:
-        """Return True if the file matches any .driftignore pattern.
+        """Return True if the file matches any ignore pattern.
+
+        Checks two sources:
+        1. ignore_patterns from config (.drift.toml [scan] section) — fnmatch glob patterns
+        2. .driftignore patterns — gitignore-style patterns with negation (!prefix)
 
         Uses gitignore-style matching where:
         - Patterns without a slash match only the filename
         - Patterns with a slash match relative to .driftignore location
         - ** matches any number of directories
         - dir/ matches a directory and all its contents
-        - !prefix negates the match
+        - !prefix negates the match (only for .driftignore)
         """
+        import fnmatch
+
+        # Check config ignore_patterns first (fnmatch-style glob patterns)
+        if self._config_ignore_patterns:
+            rel_path = file_path
+            try:
+                rel_path = file_path.relative_to(self.path)
+            except ValueError:
+                pass
+            path_str = str(rel_path)
+            name_str = file_path.name
+
+            for pattern in self._config_ignore_patterns:
+                # Pattern with slash matches relative path
+                if "/" in pattern:
+                    if fnmatch.fnmatch(path_str, pattern):
+                        return True
+                # Pattern without slash matches filename only
+                else:
+                    if fnmatch.fnmatch(name_str, pattern):
+                        return True
+
+        # Check .driftignore patterns (gitignore-style)
         from pathlib import PurePath
 
         rel_path = file_path

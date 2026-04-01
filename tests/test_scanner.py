@@ -835,3 +835,113 @@ class TestIncrementalScan:
         r2 = s2.scan()
         assert len(r2.facts) == 0  # b.py was cached and skipped
         assert r2.files_skipped == 1  # b.py unchanged
+
+
+class TestConfigIgnorePatterns:
+    """Tests for ignore_patterns from .drift.toml [scan] section passed to DriftScanner."""
+
+    def _make_project(self, tmp_path: Path, structure: dict) -> Path:
+        """Create a project structure from a dict like {'src/foo.py': 'code', 'tests/test.py': 'code'}."""
+        for rel_path, content in structure.items():
+            f = tmp_path / rel_path
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(content)
+        return tmp_path
+
+    def test_basic_glob_pattern_skips_matching_files(self, tmp_path: Path) -> None:
+        """Files matching ignore_patterns glob produce no DriftItems."""
+        self._make_project(
+            tmp_path,
+            {
+                "src/main.py": "def documented_func(x: int) -> None:\n    '''Docstring.'''\n    pass\n",
+                "src/utils.py": "def helper_func(y: str) -> None:\n    pass\n",
+                "src/main.generated.py": "def generated_code(z: float) -> None:\n    pass\n",
+            },
+        )
+        # Ignore *.generated.py files
+        scanner = DriftScanner(tmp_path, ignore_patterns=["*.generated.py"])
+        report = scanner.scan()
+
+        fact_names = {f.name for f in report.facts}
+        assert "documented_func" in fact_names
+        assert "helper_func" in fact_names
+        assert "generated_code" not in fact_names
+
+    def test_vendor_directory_pattern(self, tmp_path: Path) -> None:
+        """Files under */vendor/* are skipped when pattern is set."""
+        self._make_project(
+            tmp_path,
+            {
+                "src/main.py": "def main_func() -> None:\n    '''Main.'''\n    pass\n",
+                "lib/vendor/pkg/code.py": "def vendor_func() -> None:\n    pass\n",
+                "third_party/vendor/module.py": "def another_vendor() -> None:\n    pass\n",
+            },
+        )
+        # Ignore */vendor/* patterns
+        scanner = DriftScanner(tmp_path, ignore_patterns=["*/vendor/*"])
+        report = scanner.scan()
+
+        fact_names = {f.name for f in report.facts}
+        assert "main_func" in fact_names
+        assert "vendor_func" not in fact_names
+        assert "another_vendor" not in fact_names
+
+    def test_multiple_ignore_patterns(self, tmp_path: Path) -> None:
+        """Multiple ignore patterns are all applied."""
+        self._make_project(
+            tmp_path,
+            {
+                "src/main.py": "def main_func() -> None:\n    '''Main.'''\n    pass\n",
+                "src/test_helpers.py": "def test_helper() -> None:\n    pass\n",
+                "generated/stub.py": "def generated_stub() -> None:\n    pass\n",
+            },
+        )
+        scanner = DriftScanner(
+            tmp_path,
+            ignore_patterns=["test_*.py", "generated/stub.py"],
+        )
+        report = scanner.scan()
+
+        fact_names = {f.name for f in report.facts}
+        assert "main_func" in fact_names
+        assert "test_helper" not in fact_names
+        assert "generated_stub" not in fact_names
+
+    def test_empty_ignore_patterns_processes_all(self, tmp_path: Path) -> None:
+        """Empty ignore_patterns list processes all files normally."""
+        self._make_project(
+            tmp_path,
+            {
+                "src/main.py": "def main_func() -> None:\n    '''Main.'''\n    pass\n",
+                "src/helper.py": "def helper() -> None:\n    pass\n",
+            },
+        )
+        scanner = DriftScanner(tmp_path, ignore_patterns=[])
+        report = scanner.scan()
+
+        fact_names = {f.name for f in report.facts}
+        assert "main_func" in fact_names
+        assert "helper" in fact_names
+
+    def test_ignored_files_produce_no_drift_items(self, tmp_path: Path) -> None:
+        """Files matching ignore_patterns don't contribute to drift detection."""
+        self._make_project(
+            tmp_path,
+            {
+                "src/main.py": "def main_func() -> None:\n    '''Main.'''\n    pass\n",
+                "generated/autogen.py": "def missing_doc() -> None:\n    pass\n",
+            },
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# Docs\n\n```python\ndef main_func() -> None\n```\n"
+        )
+        # Ignore the generated file - it should not produce drift
+        scanner = DriftScanner(tmp_path, ignore_patterns=["*/autogen.py"])
+        report = scanner.scan()
+
+        fact_names = {f.name for f in report.facts}
+        assert "main_func" in fact_names
+        assert "missing_doc" not in fact_names
+        # No drift since main_func is documented
+        assert len(report.drift_items) == 0

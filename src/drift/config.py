@@ -58,8 +58,12 @@ def load_config(path: Path | None = None) -> DriftConfig:
     except Exception as e:
         raise ValueError(f"Invalid TOML in {path}: {e}") from e
 
-    # Extract known keys with defaults
-    ignore_patterns = data.get("ignore_patterns", [])
+    # Extract [scan] section
+    scan_section = data.get("scan", {})
+    if not isinstance(scan_section, dict):
+        raise ValueError(f"[scan] must be a table in {path}")
+
+    ignore_patterns = scan_section.get("ignore_patterns", [])
     if not isinstance(ignore_patterns, list):
         raise ValueError(f"ignore_patterns must be a list in {path}")
 

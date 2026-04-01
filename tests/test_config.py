@@ -14,15 +14,38 @@ class TestLoadConfig:
         """Test loading a config file with all values set."""
         config_file = tmp_path / ".drift.toml"
         config_file.write_text("""
-ignore_patterns = ["*.py", "test_*"]
 threshold = 0.5
 output_format = "json"
+
+[scan]
+ignore_patterns = ["*.py", "*/vendor/*"]
 """)
 
         config = load_config(config_file)
-        assert config.ignore_patterns == ["*.py", "test_*"]
+        assert config.ignore_patterns == ["*.py", "*/vendor/*"]
         assert config.threshold == 0.5
         assert config.output_format == "json"
+
+    def test_ignore_patterns_from_scan_section(self, tmp_path: Path):
+        """Test ignore_patterns loaded from [scan] section."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text("""
+[scan]
+ignore_patterns = ["*.generated.py", "*/vendor/*", "test_*"]
+""")
+
+        config = load_config(config_file)
+        assert config.ignore_patterns == ["*.generated.py", "*/vendor/*", "test_*"]
+
+    def test_ignore_patterns_empty_when_scan_section_absent(self, tmp_path: Path):
+        """Test ignore_patterns defaults to [] when [scan] section is absent."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text("""
+threshold = 0.5
+""")
+
+        config = load_config(config_file)
+        assert config.ignore_patterns == []
 
     def test_config_missing_raises_file_not_found(self, tmp_path: Path):
         """Test that explicit missing config file raises FileNotFoundError."""
@@ -34,9 +57,11 @@ output_format = "json"
         """Test that load_config(None) finds .drift.toml in CWD."""
         config_file = tmp_path / ".drift.toml"
         config_file.write_text("""
-ignore_patterns = ["*.md"]
 threshold = 0.8
 output_format = "json"
+
+[scan]
+ignore_patterns = ["*.md"]
 """)
 
         old_cwd = Path.cwd()
@@ -69,6 +94,7 @@ output_format = "json"
         """Test that invalid TOML produces a helpful error message."""
         config_file = tmp_path / ".drift.toml"
         config_file.write_text("""
+[scan]
 ignore_patterns = "not a list"
 """)
 
@@ -109,6 +135,7 @@ output_format = "yaml"
         """Test that missing keys use defaults."""
         config_file = tmp_path / ".drift.toml"
         config_file.write_text("""
+[scan]
 ignore_patterns = ["*.py"]
 """)
 
@@ -198,6 +225,7 @@ fail_on = "info"
         """Test fail_on defaults to 'error' when not in config."""
         config_file = tmp_path / ".drift.toml"
         config_file.write_text("""
+[scan]
 ignore_patterns = []
 """)
         config = load_config(config_file)

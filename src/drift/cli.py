@@ -340,6 +340,7 @@ def scan(
             changed_lines=changed_lines,
             extractors_enabled=extractors_enabled,
             extractors_disabled=extractors_disabled,
+            ignore_patterns=config.ignore_patterns,
         )
         report = scanner.scan()
         all_reports.append(report)
