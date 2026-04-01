@@ -20,7 +20,17 @@ class DriftConfig:
     ignore_patterns: list[str] = field(default_factory=list)
     threshold: float = 0.0
     output_format: Literal["text", "json"] = "text"
-    fail_on: Literal["error", "warning", "info", "none"] = "error"
+    # fail_on: comma-separated string of category names, or legacy severity keyword
+    # Category names: undocumented, missing_param, renamed, fuzzy_renamed,
+    #   wrong_default, wrong_type, wrong_return_type, documented_but_missing,
+    #   extra_param, signature_mismatch
+    # Legacy severity keywords (map to category sets):
+    #   error  -> undocumented, missing_param, renamed, fuzzy_renamed,
+    #             wrong_default, wrong_type, wrong_return_type
+    #   warning -> above + documented_but_missing
+    #   info   -> all categories
+    #   none   -> no categories (always exit 0)
+    fail_on: str = "error"  # backward compat default
     extractors_enabled: list[str] | None = None  # None = all enabled
     extractors_disabled: list[str] = field(default_factory=list)
 
@@ -78,11 +88,11 @@ def load_config(path: Path | None = None) -> DriftConfig:
     if output_format not in ("text", "json"):
         raise ValueError(f"output_format must be 'text' or 'json' in {path}")
 
+    # fail_on: comma-separated category names, or legacy severity keyword
+    # (validated in CLI where the actual category expansion happens)
     fail_on = data.get("fail_on", "error")
-    if fail_on not in ("error", "warning", "info", "none"):
-        raise ValueError(
-            f"fail_on must be 'error', 'warning', 'info', or 'none' in {path}"
-        )
+    if not isinstance(fail_on, str):
+        raise ValueError(f"fail_on must be a string in {path}")
 
     # Parse [extractors] section
     extractors_enabled: list[str] | None = None
