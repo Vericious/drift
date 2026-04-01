@@ -373,7 +373,7 @@ class TestFailOnOption:
             "    return str(x)\n"
         )
         md_file = tmp_path / "docs.md"
-        md_file.write_text("```bash\ndocumented_func(x: int) -> str\n```\n")
+        md_file.write_text("```python\ndef documented_func(x: int) -> str\n```\n")
         output_file = tmp_path / "report.json"
         result = cli_runner.invoke(
             main, ["scan", "--json", "-o", str(output_file), str(tmp_path)]
@@ -394,7 +394,7 @@ class TestFailOnOption:
             "    return str(x)\n"
         )
         md_file = tmp_path / "docs.md"
-        md_file.write_text("```bash\ndocumented_func(x: int) -> str\n```\n")
+        md_file.write_text("```python\ndef documented_func(x: int) -> str\n```\n")
         output_file = tmp_path / "report.txt"
         result = cli_runner.invoke(
             main, ["scan", "-o", str(output_file), str(tmp_path)]
@@ -444,7 +444,7 @@ class TestCheckCommand:
         py_file = tmp_path / "example.py"
         py_file.write_text("def func(): pass\n")
         md_file = tmp_path / "docs.md"
-        md_file.write_text("func()\n")
+        md_file.write_text("```python\ndef func()\n```\n")
         result = cli_runner.invoke(main, ["check", str(tmp_path)])
         assert result.exit_code == 0
 
@@ -463,7 +463,7 @@ class TestCheckCommand:
         py_file = tmp_path / "example.py"
         py_file.write_text("def func(): pass\n")
         md_file = tmp_path / "docs.md"
-        md_file.write_text("func()\n")  # no drift
+        md_file.write_text("```python\ndef func()\n```\n")  # proper doc, no drift
         result = cli_runner.invoke(main, ["check", "--quiet", str(tmp_path)])
         assert result.exit_code == 0
         assert result.output.strip() == ""  # no output
@@ -485,6 +485,7 @@ class TestCheckCommand:
         py_file = tmp_path / "example.py"
         py_file.write_text("def old_func(): pass\n")
         md_file = tmp_path / "docs.md"
-        md_file.write_text("old_func()\n")  # exact match, no drift
+        # Proper code block with function signature - exact match, no drift
+        md_file.write_text("```python\ndef old_func()\n```\n")
         result = cli_runner.invoke(main, ["check", "--fail-on", "error", str(tmp_path)])
         assert result.exit_code == 0

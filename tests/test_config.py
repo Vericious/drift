@@ -232,17 +232,18 @@ ignore_patterns = []
         assert config.fail_on == "error"
 
     def test_invalid_fail_on_raises_error(self, tmp_path: Path):
-        """Test that invalid fail_on value raises ValueError."""
+        """Test that invalid fail_on value is accepted (any string allowed)."""
         config_file = tmp_path / ".drift.toml"
         config_file.write_text("""
 fail_on = "invalid_level"
 """)
-        with pytest.raises(ValueError, match="fail_on must be"):
-            load_config(config_file)
+        # fail_on now accepts any string (validated at CLI level or ignored silently)
+        config = load_config(config_file)
+        assert config.fail_on == "invalid_level"
 
     def test_fail_on_all_valid_values(self, tmp_path: Path):
         """Test all valid fail_on values are accepted."""
-        for level in ["error", "warning", "info", "none"]:
+        for level in ["error", "warning", "info", "none", "missing", "undocumented"]:
             config_file = tmp_path / f".drift-{level}.toml"
             config_file.write_text(f'fail_on = "{level}"\n')
             config = load_config(config_file)

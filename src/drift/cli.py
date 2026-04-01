@@ -84,9 +84,15 @@ def main() -> None:
 )
 @click.option(
     "--fail-on",
-    type=click.Choice(["error", "warning", "info", "none"]),
+    type=str,
     default=None,
-    help="Exit code 1 on any drift item at or above this severity (overrides config).",
+    help="Comma-separated category names that trigger non-zero exit. "
+    "Categories: undocumented, missing_param, renamed, fuzzy_renamed, "
+    "wrong_default, wrong_type, wrong_return_type, documented_but_missing, "
+    "extra_param, signature_mismatch. "
+    "Special: 'all' (any drift), 'none' (always exit 0). "
+    "Legacy severity keywords (backward compat): 'error', 'warning', 'info'. "
+    "Default: uses config value (config default: error).",
 )
 @click.option(
     "--min-confidence",
@@ -436,11 +442,8 @@ def scan(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(output_content)
 
-    # Exit based on fail_on level
-    if fail_on_level == "none":
-        # Always exit 0
-        return
-    elif _should_fail_on_severity(report.drift_items, fail_on_level):
+    # Exit based on fail_on categories
+    if _should_fail_on_items(report.drift_items, fail_on_level):
         raise SystemExit(1)
 
 
@@ -482,11 +485,15 @@ threshold = 0.0
 # output format: "text" or "json"
 output_format = "text"
 
-# fail_on: exit code 1 when drift items at this severity or higher are found
-# "error" (default) = fail on error-severity items only
-# "warning" = fail on warning or error items
-# "info" = fail on any drift item
-# "none" = always exit 0 (CI info-only mode)
+# fail_on: comma-separated category names that trigger non-zero exit code.
+# Exit code 1 if any drift item has a category in this list.
+# Categories: undocumented, missing_param, renamed, fuzzy_renamed,
+#   wrong_default, wrong_type, wrong_return_type, documented_but_missing,
+#   extra_param, signature_mismatch.
+# Special: "all" (any drift), "none" (always exit 0).
+# Legacy severity keywords (backward compat): "error", "warning", "info".
+#   "error" = fail on ERROR-severity items (missing_param, renamed, etc.)
+# Default: "error" (backward compatible).
 fail_on = "error"
 
 # [extractors] — enable/disable specific extractors
@@ -755,9 +762,14 @@ def summary(path: str, output_json: bool, config_path: str | None) -> None:
 @click.argument("path", type=click.Path(exists=True), default=".")
 @click.option(
     "--fail-on",
-    type=click.Choice(["error", "warning", "none"]),
+    type=str,
     default="error",
-    help="Exit code 1 when drift items at this severity are found.",
+    help="Category or comma-separated categories that trigger exit 1. "
+    "Categories: undocumented, missing_param, renamed, fuzzy_renamed, "
+    "wrong_default, wrong_type, wrong_return_type, documented_but_missing, "
+    "extra_param, signature_mismatch. "
+    "Special: 'all', 'none'. Legacy: 'error', 'warning'. "
+    "Default: error (backward compatible).",
 )
 @click.option(
     "--quiet", "-q", is_flag=True, help="Suppress output, only set exit code."
@@ -786,7 +798,7 @@ def check(path: str, fail_on: str, quiet: bool) -> None:
     elapsed = time.monotonic() - start
 
     # Determine if we should fail
-    should_fail = _should_fail_on_severity(report.drift_items, fail_on)
+    should_fail = _should_fail_on_items(report.drift_items, fail_on)
 
     if not quiet:
         if not should_fail:
@@ -951,6 +963,104 @@ def _filter_by_severity(items: list[DriftItem], min_severity: str) -> list[Drift
     order = {"error": 0, "warning": 1, "info": 2}
     min_level = order.get(min_severity, 2)
     return [item for item in items if order.get(item.severity.value, 3) <= min_level]
+
+
+def _is_severity_keyword(fail_on: str) -> bool:
+    """Return True if fail_on is a legacy severity keyword."""
+    return fail_on in ("error", "warning", "info", "none")
+
+
+def _is_category_name(fail_on: str) -> bool:
+    """Return True if fail_on is a known category name."""
+    KNOWN_CATEGORIES = {
+        "undocumented",
+        "missing_param",
+        "renamed",
+        "fuzzy_renamed",
+        "wrong_default",
+        "wrong_type",
+        "wrong_return_type",
+        "documented_but_missing",
+        "extra_param",
+        "signature_mismatch",
+        # aliases
+        "missing",
+        "signature_changed",
+    }
+    return fail_on in KNOWN_CATEGORIES
+
+
+def _expand_fail_on_to_categories(fail_on: str) -> set[str]:
+    """Expand a fail_on value to a set of category names.
+
+    For severity keywords (error, warning, info, none): returns None to indicate
+    that severity-based logic should be used instead.
+    For category names and comma-separated lists: returns the set of categories.
+    """
+    # Handle comma-separated list
+    if "," in fail_on:
+        result: set[str] = set()
+        for part in fail_on.split(","):
+            part = part.strip()
+            if part:
+                expanded = _expand_fail_on_to_categories(part)
+                if expanded is None:
+                    # Severity keyword in comma-list - fall back to severity check
+                    return None
+                result |= expanded
+        return result if result else set()
+
+    # Severity keywords: use severity-based logic
+    if fail_on == "none":
+        return set()  # empty = no categories = never fail
+    if fail_on in ("error", "warning", "info"):
+        return None  # None = use severity-based logic
+    if fail_on == "all":
+        return {
+            "undocumented",
+            "missing_param",
+            "renamed",
+            "fuzzy_renamed",
+            "wrong_default",
+            "wrong_type",
+            "wrong_return_type",
+            "documented_but_missing",
+            "extra_param",
+            "signature_mismatch",
+        }
+
+    # Category aliases
+    if fail_on == "missing":
+        return {"missing_param"}
+    if fail_on == "signature_changed":
+        return {"signature_mismatch"}
+
+    # Assume it's a category name
+    return {fail_on}
+
+
+def _should_fail_on_items(items: list[DriftItem], fail_on: str) -> bool:
+    """Check if any drift item should trigger non-zero exit based on fail_on.
+
+    For legacy severity keywords (error, warning, info): uses severity comparison.
+    For category names (including 'all', 'none', category aliases):
+        uses category membership.
+    """
+    if fail_on == "none":
+        return False
+
+    if _is_severity_keyword(fail_on):
+        # Legacy severity-based behavior
+        return _should_fail_on_severity(items, fail_on)
+
+    # Category-based behavior
+    categories = _expand_fail_on_to_categories(fail_on)
+    if categories is None:
+        # Shouldn't happen, but handle gracefully
+        return False
+    if not categories:
+        return False
+    return any(item.category in categories for item in items)
 
 
 def _should_fail_on_severity(items: list[DriftItem], fail_on: str) -> bool:
@@ -1122,7 +1232,7 @@ def _run_watch_scan(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(output_content)
 
-    if fail_on_level != "none" and _should_fail_on_severity(report.drift_items, fail_on_level):
+    if _should_fail_on_items(report.drift_items, fail_on_level):
         raise SystemExit(1)
 
 
