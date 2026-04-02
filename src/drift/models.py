@@ -71,6 +71,8 @@ class Parameter:
     type_annotation: str | None = None
     default: str | None = None
     kind: str = "positional"  # "positional", "keyword", "varargs", "varkw"
+    is_optional: bool = False  # True for TypeScript optional properties (bar?: type)
+    is_readonly: bool = False  # True for TypeScript readonly properties (readonly bar: type)
 
 
 @dataclass
@@ -112,6 +114,8 @@ class CodeFact:
                     "type_annotation": p.type_annotation,
                     "default": p.default,
                     "kind": p.kind,
+                    "is_optional": p.is_optional,
+                    "is_readonly": p.is_readonly,
                 }
                 for p in self.parameters
             ],
@@ -150,6 +154,8 @@ class DocClaim:
                     "type_annotation": p.type_annotation,
                     "default": p.default,
                     "kind": p.kind,
+                    "is_optional": p.is_optional,
+                    "is_readonly": p.is_readonly,
                 }
                 for p in self.parameters
             ],

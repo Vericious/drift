@@ -37,7 +37,7 @@ _ENUM_RE = re.compile(
 
 # Match interface/type body properties: name?: type, name: type, readonly name: type
 _PROPERTY_RE = re.compile(
-    r"(?:readonly\s+)?([a-zA-Z_$][a-zA-Z0-9_$]*)\??\s*:\s*([^,;\n]+)",
+    r"(?:(readonly)\s+)?([a-zA-Z_$][a-zA-Z0-9_$]*)(\?)?\s*:\s*([^,;\n]+)",
 )
 
 # Match function signature in interface/type: name(params): returnType
@@ -105,10 +105,12 @@ class TypeScriptExtractor(Extractor):
             properties = []
             parameters = []
             for prop_match in _PROPERTY_RE.finditer(body):
-                prop_name = prop_match.group(1)
-                prop_type = prop_match.group(2).strip()
+                is_readonly = prop_match.group(1) is not None
+                prop_name = prop_match.group(2)
+                is_optional = prop_match.group(3) is not None
+                prop_type = prop_match.group(4).strip()
                 properties.append(prop_name)
-                parameters.append((prop_name, prop_type, None))
+                parameters.append((prop_name, prop_type, None, is_optional, is_readonly))
 
             metadata: dict[str, Any] = {
                 "ts_kind": "TS_INTERFACE",
@@ -124,8 +126,8 @@ class TypeScriptExtractor(Extractor):
                     source_file=path,
                     line_number=line_number,
                     parameters=[
-                        Parameter(name=n, type_annotation=t, default=d, kind="positional")
-                        for n, t, d in parameters
+                        Parameter(name=n, type_annotation=t, default=d, kind="positional", is_optional=is_opt, is_readonly=is_ro)
+                        for n, t, d, is_opt, is_ro in parameters
                     ],
                     metadata=metadata,
                 )
@@ -148,10 +150,12 @@ class TypeScriptExtractor(Extractor):
                 obj_end = type_expr.rindex("}")
                 obj_body = type_expr[obj_start + 1 : obj_end]
                 for prop_match in _PROPERTY_RE.finditer(obj_body):
-                    prop_name = prop_match.group(1)
-                    prop_type = prop_match.group(2).strip()
+                    is_readonly = prop_match.group(1) is not None
+                    prop_name = prop_match.group(2)
+                    is_optional = prop_match.group(3) is not None
+                    prop_type = prop_match.group(4).strip()
                     properties.append(prop_name)
-                    parameters.append((prop_name, prop_type, None))
+                    parameters.append((prop_name, prop_type, None, is_optional, is_readonly))
 
             metadata = {
                 "ts_kind": "TS_TYPE",
@@ -166,8 +170,8 @@ class TypeScriptExtractor(Extractor):
                     source_file=path,
                     line_number=line_number,
                     parameters=[
-                        Parameter(name=n, type_annotation=t, default=d, kind="positional")
-                        for n, t, d in parameters
+                        Parameter(name=n, type_annotation=t, default=d, kind="positional", is_optional=is_opt, is_readonly=is_ro)
+                        for n, t, d, is_opt, is_ro in parameters
                     ],
                     metadata=metadata,
                 )

@@ -73,3 +73,25 @@ interface Config {
   getValue(key: string): any;
   setValue(key: string, value: any): void;
 }
+
+// Single-line interface
+interface SingleLine { id: number; name: string; }
+
+// Interface with readonly properties
+interface ReadonlyUser {
+  readonly id: number;
+  readonly name: string;
+  email?: string;
+}
+
+// Readonly and optional combined
+interface ReadonlyOptional {
+  readonly id?: number;
+  readonly name?: string;
+}
+
+// Nested type annotation
+interface NestedType {
+  handler: (event: Event) => void;
+  callback: (data: string, error: Error | null) => Promise<void>;
+}

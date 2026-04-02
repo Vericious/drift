@@ -50,7 +50,9 @@
         "name": { "type": "string" },
         "type_annotation": { "type": ["string", "null"], "default": null },
         "default": { "type": ["string", "null"], "default": null },
-        "kind": { "type": "string", "default": "positional" }
+        "kind": { "type": "string", "default": "positional" },
+        "is_optional": { "type": "boolean", "default": false },
+        "is_readonly": { "type": "boolean", "default": false }
       }
     },
     "CodeFact": {

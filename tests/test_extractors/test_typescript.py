@@ -227,3 +227,101 @@ class TestParameterDataclass:
         assert color_fact.parameters is not None
         for param in color_fact.parameters:
             assert isinstance(param, Parameter), f"Expected Parameter, got {type(param)}"
+
+
+class TestInterfacePropertyFlags:
+    """Test is_optional and is_readonly flags on interface properties."""
+
+    def test_single_line_interface(self):
+        """SingleLine interface is extracted correctly."""
+        ext = TypeScriptExtractor()
+        facts = ext.extract(FIXTURE)
+
+        sl_fact = next((f for f in facts if f.name == "SingleLine"), None)
+        assert sl_fact is not None
+        assert sl_fact.metadata["ts_kind"] == "TS_INTERFACE"
+        # Single-line interface should have multiple properties
+        assert len(sl_fact.parameters) == 2
+        param_names = {p.name for p in sl_fact.parameters}
+        assert "id" in param_names
+        assert "name" in param_names
+
+    def test_multi_line_interface(self):
+        """Multi-line interface is extracted correctly."""
+        ext = TypeScriptExtractor()
+        facts = ext.extract(FIXTURE)
+
+        user_fact = next((f for f in facts if f.name == "User"), None)
+        assert user_fact is not None
+        # Multi-line interface should have 4 properties
+        assert len(user_fact.parameters) == 4
+
+    def test_optional_properties(self):
+        """Optional properties (bar?: type) have is_optional=True."""
+        ext = TypeScriptExtractor()
+        facts = ext.extract(FIXTURE)
+
+        user_fact = next((f for f in facts if f.name == "User"), None)
+        assert user_fact is not None
+        # email is optional
+        email_param = next((p for p in user_fact.parameters if p.name == "email"), None)
+        assert email_param is not None
+        assert email_param.is_optional is True
+        # id is not optional
+        id_param = next((p for p in user_fact.parameters if p.name == "id"), None)
+        assert id_param is not None
+        assert id_param.is_optional is False
+
+    def test_readonly_properties(self):
+        """Readonly properties (readonly bar: type) have is_readonly=True."""
+        ext = TypeScriptExtractor()
+        facts = ext.extract(FIXTURE)
+
+        ro_fact = next((f for f in facts if f.name == "ReadonlyUser"), None)
+        assert ro_fact is not None
+        # id is readonly
+        id_param = next((p for p in ro_fact.parameters if p.name == "id"), None)
+        assert id_param is not None
+        assert id_param.is_readonly is True
+        # name is readonly
+        name_param = next((p for p in ro_fact.parameters if p.name == "name"), None)
+        assert name_param is not None
+        assert name_param.is_readonly is True
+        # email is not readonly (no readonly keyword)
+        email_param = next((p for p in ro_fact.parameters if p.name == "email"), None)
+        assert email_param is not None
+        assert email_param.is_readonly is False
+
+    def test_readonly_and_optional_combined(self):
+        """Properties can be both readonly and optional."""
+        ext = TypeScriptExtractor()
+        facts = ext.extract(FIXTURE)
+
+        ro_fact = next((f for f in facts if f.name == "ReadonlyOptional"), None)
+        assert ro_fact is not None
+        # id is readonly AND optional
+        id_param = next((p for p in ro_fact.parameters if p.name == "id"), None)
+        assert id_param is not None
+        assert id_param.is_readonly is True
+        assert id_param.is_optional is True
+        # name is readonly AND optional
+        name_param = next((p for p in ro_fact.parameters if p.name == "name"), None)
+        assert name_param is not None
+        assert name_param.is_readonly is True
+        assert name_param.is_optional is True
+
+    def test_nested_type_annotations(self):
+        """Nested type annotations in properties are preserved."""
+        ext = TypeScriptExtractor()
+        facts = ext.extract(FIXTURE)
+
+        nested_fact = next((f for f in facts if f.name == "NestedType"), None)
+        assert nested_fact is not None
+        # handler has function type annotation (captured up to first comma)
+        handler_param = next((p for p in nested_fact.parameters if p.name == "handler"), None)
+        assert handler_param is not None
+        assert "event: Event" in handler_param.type_annotation
+        # callback has function type annotation (captured up to first comma)
+        callback_param = next((p for p in nested_fact.parameters if p.name == "callback"), None)
+        assert callback_param is not None
+        assert "data:" in callback_param.type_annotation
