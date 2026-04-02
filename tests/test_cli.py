@@ -358,11 +358,68 @@ class TestFailOnOption:
         )
         assert result.exit_code == 0
 
-    def test_fail_on_default_is_error(self, cli_runner, tmp_path):
-        """Default fail_on behavior is 'error' (backward compatible)."""
-        self._make_project_with_errors_and_warnings(tmp_path)
+    def test_fail_on_default_exits_1_on_missing_items(self, cli_runner, tmp_path):
+        """Default fail_on is MISSING,signature_changed — exit 1 for missing_param items."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int) -> bool:\n"
+            "    '''Documented function.'''\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## documented_func\n"
+            "\n"
+            "```python\n"
+            "def documented_func(x: int, y: str) -> bool\n"  # y is MISSING from code
+            "```\n"
+        )
         result = cli_runner.invoke(main, ["scan", str(tmp_path)])
-        assert result.exit_code == 1  # default is error level
+        assert result.exit_code == 1  # default: MISSING (missing_param)
+
+    def test_fail_on_default_exits_0_for_warnings_only(self, cli_runner, tmp_path):
+        """Default fail_on exits 0 when only WARNING-severity categories are present."""
+        # fuzzy_renamed is WARNING severity, not in MISSING categories
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def old_function(x: int) -> str:\n"
+            "    '''Old function.'''\n"
+            "    return str(x)\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## old_func\n"
+            "\n"
+            "```python\n"
+            "def old_func(x: int) -> str\n"  # slightly different name → fuzzy_renamed
+            "```\n"
+        )
+        result = cli_runner.invoke(main, ["scan", "--no-cache", str(tmp_path)])
+        # fuzzy_renamed is WARNING, not in MISSING → default exits 0
+        assert result.exit_code == 0
+
+    def test_fail_on_overrides_default_categories(self, cli_runner, tmp_path):
+        """--fail-on warning overrides default MISSING to include warnings."""
+        # undocumented_func: in code but not in docs → undocumented (WARNING)
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def undocumented_func(x: int) -> None:\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("")  # no docs
+        # Default: MISSING (only error-severity) → undocumented is WARNING → exit 0
+        result_default = cli_runner.invoke(main, ["scan", "--no-cache", str(tmp_path)])
+        assert result_default.exit_code == 0
+        # --fail-on warning: undocumented is WARNING → exit 1
+        result_override = cli_runner.invoke(
+            main, ["scan", "--no-cache", "--fail-on", "warning", str(tmp_path)]
+        )
+        assert result_override.exit_code == 1
 
     def test_output_flag_json_creates_file(self, cli_runner, tmp_path):
         """--json -o creates a valid JSON file."""

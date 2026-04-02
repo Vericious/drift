@@ -30,7 +30,7 @@ class DriftConfig:
     #   warning -> above + documented_but_missing
     #   info   -> all categories
     #   none   -> no categories (always exit 0)
-    fail_on: str = "error"  # backward compat default
+    fail_on: str = "missing,signature_changed"  # MISSING = error-severity categories; SIGNATURE_CHANGED = signature_mismatch
     extractors_enabled: list[str] | None = None  # None = all enabled
     extractors_disabled: list[str] = field(default_factory=list)
 
@@ -90,7 +90,7 @@ def load_config(path: Path | None = None) -> DriftConfig:
 
     # fail_on: comma-separated category names, or legacy severity keyword
     # (validated in CLI where the actual category expansion happens)
-    fail_on = data.get("fail_on", "error")
+    fail_on = data.get("fail_on", "missing,signature_changed")
     if not isinstance(fail_on, str):
         raise ValueError(f"fail_on must be a string in {path}")
 

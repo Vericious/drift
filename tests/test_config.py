@@ -184,10 +184,10 @@ class TestDriftConfig:
 class TestFailOnConfig:
     """Tests for fail_on field in DriftConfig."""
 
-    def test_default_fail_on_is_error(self):
-        """Test DriftConfig default fail_on is 'error'."""
+    def test_default_fail_on_is_missing_signature_changed(self):
+        """Test DriftConfig default fail_on is 'missing,signature_changed'."""
         config = DriftConfig()
-        assert config.fail_on == "error"
+        assert config.fail_on == "missing,signature_changed"
 
     def test_fail_on_custom_value(self):
         """Test DriftConfig with custom fail_on value."""
@@ -222,14 +222,14 @@ fail_on = "info"
         assert config.fail_on == "info"
 
     def test_fail_on_defaults_to_error_when_missing(self, tmp_path: Path):
-        """Test fail_on defaults to 'error' when not in config."""
+        """Test fail_on defaults to 'missing,signature_changed' when not in config."""
         config_file = tmp_path / ".drift.toml"
         config_file.write_text("""
 [scan]
 ignore_patterns = []
 """)
         config = load_config(config_file)
-        assert config.fail_on == "error"
+        assert config.fail_on == "missing,signature_changed"
 
     def test_invalid_fail_on_raises_error(self, tmp_path: Path):
         """Test that invalid fail_on value is accepted (any string allowed)."""

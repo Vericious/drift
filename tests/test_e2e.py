@@ -221,11 +221,11 @@ class TestCLIFlagDrift:
         md_file.write_text("```bash\n$ mycli --help\n```\n")
 
         result = subprocess.run(
-            DRIFT_CMD + ["scan", str(tmp_path)],
+            DRIFT_CMD + ["scan", "--fail-on", "error", str(tmp_path)],
             capture_output=True,
             text=True,
         )
-        # Undocumented flag should cause drift (warning or error)
+        # --fail-on error: CLI_FLAG undocumented is ERROR severity → exit 1
         assert result.returncode != 0, f"Expected drift, got 0\nstdout: {result.stdout}"
 
     def test_click_flags_matching_docs_no_drift(self, tmp_path: Path) -> None:
@@ -353,11 +353,11 @@ class TestCLIFlagDrift:
         md_file.write_text("```bash\n$ mycli serve --name webapp\n```\n")
 
         result = subprocess.run(
-            DRIFT_CMD + ["scan", str(tmp_path)],
+            DRIFT_CMD + ["scan", "--fail-on", "error", str(tmp_path)],
             capture_output=True,
             text=True,
         )
-        # Undocumented flag should cause drift
+        # --fail-on error: CLI_FLAG undocumented is ERROR severity → exit 1
         assert result.returncode != 0, f"Expected drift, got 0\nstdout: {result.stdout}"
 
 

@@ -85,14 +85,16 @@ def main() -> None:
 @click.option(
     "--fail-on",
     type=str,
-    default=None,
+    default="missing,signature_changed",
     help="Comma-separated category names that trigger non-zero exit. "
     "Categories: undocumented, missing_param, renamed, fuzzy_renamed, "
     "wrong_default, wrong_type, wrong_return_type, documented_but_missing, "
     "extra_param, signature_mismatch. "
-    "Special: 'all' (any drift), 'none' (always exit 0). "
-    "Legacy severity keywords (backward compat): 'error', 'warning', 'info'. "
-    "Default: uses config value (config default: error).",
+    "Special keywords: 'all' (any drift), 'none' (always exit 0), "
+    "'MISSING' (all error-severity categories), 'SIGNATURE_CHANGED' (signature_mismatch). "
+    "Legacy severity keywords: 'error', 'warning', 'info'. "
+    "Default: missing,signature_changed (MISSING = error-severity drift; "
+    "SIGNATURE_CHANGED = signature_mismatch).",
 )
 @click.option(
     "--min-confidence",
@@ -965,99 +967,94 @@ def _filter_by_severity(items: list[DriftItem], min_severity: str) -> list[Drift
     return [item for item in items if order.get(item.severity.value, 3) <= min_level]
 
 
-def _is_severity_keyword(fail_on: str) -> bool:
-    """Return True if fail_on is a legacy severity keyword."""
-    return fail_on in ("error", "warning", "info", "none")
+# Error-severity categories (based on matcher.py assignments)
+_ERROR_CATEGORIES = {
+    "missing_param",
+    "renamed",
+    "documented_but_missing",
+    "extra_param",
+    "signature_mismatch",
+    "ts_property_missing",
+    "ts_member_missing",
+}
+
+# Warning-severity categories
+_WARNING_CATEGORIES = {
+    "fuzzy_renamed",
+    "wrong_default",
+    "wrong_type",
+    "wrong_return_type",
+    "ts_property_extra",
+    "ts_member_extra",
+}
+
+# Info-severity categories (currently none — all categories are ERROR or WARNING)
+_INFO_CATEGORIES: set[str] = set()
 
 
-def _is_category_name(fail_on: str) -> bool:
-    """Return True if fail_on is a known category name."""
-    KNOWN_CATEGORIES = {
-        "undocumented",
-        "missing_param",
-        "renamed",
-        "fuzzy_renamed",
-        "wrong_default",
-        "wrong_type",
-        "wrong_return_type",
-        "documented_but_missing",
-        "extra_param",
-        "signature_mismatch",
-        # aliases
-        "missing",
-        "signature_changed",
-    }
-    return fail_on in KNOWN_CATEGORIES
-
-
-def _expand_fail_on_to_categories(fail_on: str) -> set[str]:
+def _expand_fail_on_to_categories(fail_on: str) -> set[str] | None:
     """Expand a fail_on value to a set of category names.
 
-    For severity keywords (error, warning, info, none): returns None to indicate
-    that severity-based logic should be used instead.
+    Returns None for legacy severity keywords (error, warning, info, none) to
+    indicate that severity-based logic should be used instead.
     For category names and comma-separated lists: returns the set of categories.
     """
     # Handle comma-separated list
     if "," in fail_on:
         result: set[str] = set()
+        severity_keyword_found = False
         for part in fail_on.split(","):
             part = part.strip()
             if part:
                 expanded = _expand_fail_on_to_categories(part)
                 if expanded is None:
-                    # Severity keyword in comma-list - fall back to severity check
-                    return None
-                result |= expanded
+                    # Legacy severity keyword in comma-list — use severity-based logic
+                    severity_keyword_found = True
+                else:
+                    result |= expanded
+        if severity_keyword_found and not result:
+            return None  # Fall back to severity-based
         return result if result else set()
 
-    # Severity keywords: use severity-based logic
-    if fail_on == "none":
-        return set()  # empty = no categories = never fail
-    if fail_on in ("error", "warning", "info"):
+    # Legacy severity keywords: use severity-based logic
+    if fail_on in ("error", "warning", "info", "none"):
         return None  # None = use severity-based logic
-    if fail_on == "all":
-        return {
-            "undocumented",
-            "missing_param",
-            "renamed",
-            "fuzzy_renamed",
-            "wrong_default",
-            "wrong_type",
-            "wrong_return_type",
-            "documented_but_missing",
-            "extra_param",
-            "signature_mismatch",
-        }
 
-    # Category aliases
-    if fail_on == "missing":
-        return {"missing_param"}
-    if fail_on == "signature_changed":
+    if fail_on == "all":
+        return (
+            _ERROR_CATEGORIES
+            | _WARNING_CATEGORIES
+            | _INFO_CATEGORIES
+        )
+
+    # Umbrella category aliases
+    # MISSING = all "missing" categories (things documented but wrong/missing in code)
+    if fail_on in ("missing", "MISSING"):
+        return _ERROR_CATEGORIES
+    # SIGNATURE_CHANGED = signature mismatch
+    if fail_on in ("signature_changed", "SIGNATURE_CHANGED"):
         return {"signature_mismatch"}
 
     # Assume it's a category name
     return {fail_on}
 
 
+
 def _should_fail_on_items(items: list[DriftItem], fail_on: str) -> bool:
     """Check if any drift item should trigger non-zero exit based on fail_on.
 
-    For legacy severity keywords (error, warning, info): uses severity comparison.
+    For legacy severity keywords (error, warning, info, none): uses severity comparison.
     For category names (including 'all', 'none', category aliases):
         uses category membership.
     """
     if fail_on == "none":
         return False
 
-    if _is_severity_keyword(fail_on):
+    categories = _expand_fail_on_to_categories(fail_on)
+    if categories is None:
         # Legacy severity-based behavior
         return _should_fail_on_severity(items, fail_on)
 
-    # Category-based behavior
-    categories = _expand_fail_on_to_categories(fail_on)
-    if categories is None:
-        # Shouldn't happen, but handle gracefully
-        return False
     if not categories:
         return False
     return any(item.category in categories for item in items)
