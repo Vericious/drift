@@ -65,9 +65,11 @@ class DotenvExtractor(Extractor):
         for line in content.splitlines():
             stripped = line.rstrip()
             if stripped.endswith("\\"):
-                current += stripped[:-1] + " "
+                # Remove trailing backslash and any preceding spaces, then add single space
+                current += stripped[:-1].rstrip() + " "
             else:
-                current += stripped
+                # Add the stripped line (leading/trailing whitespace already removed)
+                current += stripped.lstrip()
                 result_lines.append(current)
                 current = ""
 
@@ -146,9 +148,10 @@ class DotenvExtractor(Extractor):
             inner = stripped[1:-1]
             return (inner, "single_quoted")
 
-        # Unquoted: strip trailing inline comment
-        # value # comment -> value
-        # value without comment -> value
-        unquoted = stripped.split("#")[0].rstrip()
+        # Unquoted: strip trailing inline comment (only if preceded by whitespace)
+        # value # comment -> value (space before # means it's a comment)
+        # https://example.com#fragment -> https://example.com#fragment (no space, # is part of value)
+        # Use regex to split on " #" (space-hash), not just "#"
+        unquoted = re.split(r"\s+#", stripped)[0].rstrip()
 
         return (unquoted, "unquoted")
