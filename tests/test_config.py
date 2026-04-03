@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from drift.config import DriftConfig, load_config
+from drift.config import DriftConfig, find_config, load_config
 
 
 class TestLoadConfig:
@@ -248,3 +248,72 @@ fail_on = "invalid_level"
             config_file.write_text(f'fail_on = "{level}"\n')
             config = load_config(config_file)
             assert config.fail_on == level
+
+
+class TestFindConfig:
+    """Tests for find_config function."""
+
+    def test_finds_config_in_current_dir(self, tmp_path: Path):
+        """Test discovery in current directory."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text("threshold = 0.5\n")
+
+        result = find_config(tmp_path)
+        assert result == config_file
+
+    def test_finds_config_in_parent_dir(self, tmp_path: Path):
+        """Test walk-up finds config in parent directory."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text("threshold = 0.5\n")
+
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        deep_subdir = subdir / "deep"
+        deep_subdir.mkdir()
+
+        # Config is in tmp_path, search starts from deep_subdir
+        result = find_config(deep_subdir)
+        assert result == config_file
+
+    def test_returns_none_when_no_config_exists(self, tmp_path: Path):
+        """Test returns None when no .drift.toml exists anywhere."""
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+
+        result = find_config(subdir)
+        assert result is None
+
+    def test_stops_at_filesystem_root(self, tmp_path: Path):
+        """Test stops at filesystem root when no config found."""
+        # Walk up from tmp_path toward root — should hit root eventually
+        result = find_config(tmp_path)
+        # If there's a .drift.toml somewhere above tmp_path, it returns that.
+        # Otherwise it returns None when it hits the filesystem root.
+        assert result is None or result.name == ".drift.toml"
+
+    def test_with_file_path_not_directory(self, tmp_path: Path):
+        """Test search from a file path uses the file's parent directory."""
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text("threshold = 0.5\n")
+
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def foo(): pass\n")
+
+        result = find_config(py_file)
+        assert result == config_file
+
+    def test_nearest_config_wins(self, tmp_path: Path):
+        """Test that the first .drift.toml found walking upward is returned."""
+        # Config in tmp_path
+        config_file = tmp_path / ".drift.toml"
+        config_file.write_text("threshold = 0.5\n")
+
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+
+        # Config in subdir (closer)
+        closer_config = subdir / ".drift.toml"
+        closer_config.write_text("threshold = 0.9\n")
+
+        result = find_config(subdir)
+        assert result == closer_config

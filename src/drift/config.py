@@ -5,12 +5,46 @@ Loads config from .drift.toml files.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 try:
     import tomllib
 except ImportError:
     import tomli as tomllib  # type: ignore[no-redef]
+
+
+CONFIG_FILENAME = ".drift.toml"
+
+
+def find_config(start_path: str | Path) -> Optional[Path]:
+    """Walk up from start_path looking for .drift.toml.
+
+    Searches each directory from start_path upward toward the filesystem root.
+    Returns the first .drift.toml found, or None if no config file exists.
+
+    Args:
+        start_path: Directory or file path to begin searching from.
+
+    Returns:
+        Path to .drift.toml if found, otherwise None.
+    """
+    path = Path(start_path).resolve()
+
+    # If start_path is a file, start from its parent directory
+    if path.is_file():
+        path = path.parent
+
+    # Walk up the directory tree
+    while True:
+        candidate = path / CONFIG_FILENAME
+        if candidate.is_file():
+            return candidate
+
+        parent = path.parent
+        if parent == path:
+            # Reached the filesystem root (parent equals self)
+            return None
+        path = parent
 
 
 @dataclass
@@ -39,7 +73,8 @@ def load_config(path: Path | None = None) -> DriftConfig:
     """Load drift configuration from a TOML file.
 
     Args:
-        path: Explicit path to a config file. If None, searches CWD for .drift.toml.
+        path: Explicit path to a config file. If None, searches upward from CWD
+            for .drift.toml using find_config.
 
     Returns:
         DriftConfig with loaded values or defaults if file is missing/invalid.
@@ -49,18 +84,13 @@ def load_config(path: Path | None = None) -> DriftConfig:
         ValueError: If the TOML file is malformed.
     """
     if path is None:
-        # Search CWD for .drift.toml
-        candidate = Path.cwd() / ".drift.toml"
-        if candidate.exists():
-            path = candidate
-        else:
+        config_path = find_config(Path.cwd())
+        if config_path is None:
             # No config file found, return defaults
             return DriftConfig()
+        path = config_path
 
     if not path.exists():
-        if path == Path.cwd() / ".drift.toml":
-            # Search didn't find it, return defaults
-            return DriftConfig()
         raise FileNotFoundError(f"Config file not found: {path}")
 
     try:
