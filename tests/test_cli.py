@@ -471,6 +471,59 @@ class TestFailOnOption:
         assert len(content) > 0
 
 
+class TestBaselineExportCommand:
+    """Tests for drift baseline-export subcommand."""
+
+    def test_baseline_export_no_baseline_error(self, cli_runner, tmp_path):
+        """Error message when no baseline exists."""
+        result = cli_runner.invoke(main, ["baseline-export", str(tmp_path)])
+        assert result.exit_code != 0
+        assert "No baseline found" in result.output
+
+    def test_baseline_export_json_produces_valid_json(self, cli_runner, tmp_path):
+        """baseline-export produces valid JSON matching baseline content."""
+        import json
+
+        # First create a baseline
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def func(): pass\n")
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("func()\n")
+        result = cli_runner.invoke(main, ["baseline", str(tmp_path)])
+        assert result.exit_code == 0
+
+        # Now export it
+        result = cli_runner.invoke(main, ["baseline-export", str(tmp_path)])
+        assert result.exit_code == 0
+        # Should be valid JSON
+        data = json.loads(result.output)
+        assert "created_at" in data
+        assert "items" in data
+        assert "item_count" in data
+
+    def test_baseline_export_csv_produces_header_and_rows(self, cli_runner, tmp_path):
+        """baseline-export --format csv produces header row + data rows."""
+        # First create a baseline
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def func(): pass\n")
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("func()\n")
+        result = cli_runner.invoke(main, ["baseline", str(tmp_path)])
+        assert result.exit_code == 0
+
+        # Now export as CSV
+        result = cli_runner.invoke(main, ["baseline-export", "--format", "csv", str(tmp_path)])
+        assert result.exit_code == 0
+        lines = result.output.strip().split("\n")
+        # Should have header row
+        assert len(lines) >= 1
+        # Header should contain expected columns
+        header = lines[0]
+        assert "severity" in header
+        assert "category" in header
+        assert "message" in header
+
+
 class TestCheckCommand:
     """Tests for drift check subcommand."""
 
