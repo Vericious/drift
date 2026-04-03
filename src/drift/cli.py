@@ -157,6 +157,12 @@ def main() -> None:
     is_flag=True,
     help="Watch for file changes and re-run scan automatically. Ctrl+C to exit.",
 )
+@click.option(
+    "--quiet",
+    "-q",
+    is_flag=True,
+    help="Suppress progress messages, timing info, and summary counts. Only findings are printed.",
+)
 def scan(
     paths: tuple[str, ...],
     output_json: bool,
@@ -181,6 +187,7 @@ def scan(
     diff_branch: str | None,
     extractors: tuple[str, ...],
     watch: bool,
+    quiet: bool,
 ) -> None:
     """Scan one or more paths for documentation drift."""
     import time
@@ -292,7 +299,8 @@ def scan(
                         f"Branch '{diff_branch}' has no common ancestor with HEAD."
                     )
                 diff_ref_to_use = merge_base
-                click.echo(f"Using merge-base {merge_base[:7]} as diff ref for branch '{diff_branch}'")
+                if not quiet:
+                    click.echo(f"Using merge-base {merge_base[:7]} as diff ref for branch '{diff_branch}'")
             else:
                 click.secho(
                     f"WARNING: {path} is not in a git repo. --diff-branch flag ignored.",
@@ -319,7 +327,7 @@ def scan(
                             err=True,
                         )
                     else:
-                        click.echo(f"Scanning {len(changed_files)} file(s) changed vs {diff_ref_to_use} in {path}")
+                        click.echo(f"Scanning {len(changed_files)} file(s) changed vs {diff_ref_to_use} in {path}") if not quiet else None
             else:
                 click.secho(
                     f"WARNING: {path} is not in a git repo. --diff flag ignored, running full scan.",
@@ -377,7 +385,8 @@ def scan(
     # Save new baseline if --baseline and --update-baseline are both set
     if baseline and update_baseline:
         new_baseline_path = save_baseline(report, Path(paths[0]))
-        click.echo(f"Baseline updated: {len(report.drift_items)} items -> {new_baseline_path}")
+        if not quiet:
+            click.echo(f"Baseline updated: {len(report.drift_items)} items -> {new_baseline_path}")
 
     elapsed = time.monotonic() - start
 
@@ -431,7 +440,7 @@ def scan(
         # Temporarily swap the reporter's console
         original_console = reporter.console
         reporter.console = text_console
-        reporter.report_console(verbose=verbose, elapsed=elapsed)
+        reporter.report_console(verbose=verbose, elapsed=elapsed, quiet=quiet)
         reporter.console = original_console
         output_content = text_buffer.getvalue()
         click.echo(output_content)

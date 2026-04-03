@@ -39,10 +39,34 @@ class DriftReporter:
     # Console output
     # -------------------------------------------------------------------------
 
-    def report_console(self, verbose: bool = False, elapsed: float = 0.0) -> None:
-        """Print a rich terminal report to stdout."""
+    def report_console(self, verbose: bool = False, elapsed: float = 0.0, quiet: bool = False) -> None:
+        """Print a rich terminal report to stdout.
+
+        Args:
+            verbose: Show additional details (facts, claims counts, timing).
+            elapsed: Scan duration in seconds (shown in verbose mode).
+            quiet: If True, suppress header, summary, timing info, and "No drift" message.
+                   Only drift findings are printed. Intended for CI/ piping use.
+        """
         report = self.report
         verbose = verbose or self.verbose
+
+        # In quiet mode, only show findings (or nothing if no findings)
+        if quiet:
+            if not report.has_drift and not report.drift_items:
+                return  # Silent exit — no findings to report
+            # Show only the findings sections
+            errors = [d for d in report.drift_items if d.severity == Severity.ERROR]
+            if errors:
+                self._print_section("Errors", errors, "red")
+            warnings = [d for d in report.drift_items if d.severity == Severity.WARNING]
+            if warnings:
+                self._print_section("Warnings", warnings, "yellow")
+            infos = [d for d in report.drift_items if d.severity == Severity.INFO]
+            if infos:
+                self._print_section("Info", infos, "blue")
+            return
+
         scanned = str(report.scanned_path) if report.scanned_path else "."
 
         # Header
@@ -307,14 +331,39 @@ class DriftReporter:
                     loc = f"{item.claim.doc_file}:{item.claim.line_number}"
                 name = (item.fact.name if item.fact else
                         (item.claim.name if item.claim else None)) or "?"
+                cat_class = "cat cat-ts" if _is_ts_category(item.category) else "cat"
+                cat_display = _category_label(item.category)
+                conf_pct = int(item.confidence * 100)
+
+                # Build signals detail HTML if signals are present
+                signals_html = ""
+                if item.signals is not None:
+                    sigs = item.signals
+                    signals_html = (
+                        f"<tr class='signals-row'>"
+                        f"<td colspan='5'>"
+                        f"<details class='signals-detail'>"
+                        f"<summary>Confidence breakdown ({conf_pct}%)</summary>"
+                        f"<div class='signals-grid'>"
+                        f"<span>name_similarity:</span><span>{sigs.name_similarity:.0%}</span>"
+                        f"<span>param_overlap:</span><span>{sigs.param_overlap:.0%}</span>"
+                        f"<span>type_match:</span><span>{sigs.type_match:.0%}</span>"
+                        f"<span>location_proximity:</span><span>{sigs.location_proximity:.0%}</span>"
+                        f"<span>context_match:</span><span>{sigs.context_match:.0%}</span>"
+                        f"</div>"
+                        f"</details>"
+                        f"</td></tr>"
+                    )
+
                 rows.append(
                     f"<tr>"
                     f"<td>{_escape(loc)}</td>"
                     f"<td>{_escape(name)}</td>"
-                    f"<td><span class='cat'>{_escape(item.category)}</span></td>"
+                    f"<td><span class='{cat_class}'>{_escape(cat_display)}</span></td>"
                     f"<td>{_escape(item.message or '')}</td>"
-                    f"<td>{item.confidence:.0%}</td>"
+                    f"<td>{conf_pct}%</td>"
                     f"</tr>"
+                    f"{signals_html}"
                 )
             return "\n".join(rows)
 
@@ -366,6 +415,14 @@ h2 {{ margin-top: 1.5rem; }}
 .drift-table th {{ background: #e9ecef; font-weight: 600; }}
 .drift-table tr:hover {{ background: #f8f9fa; }}
 .cat {{ background: #e7f1ff; color: #0d6efd; padding: 0.1em 0.4em; border-radius: 3px; font-size: 0.85em; }}
+.cat-ts {{ background: #f3e5ff; color: #7c3aed; padding: 0.1em 0.4em; border-radius: 3px; font-size: 0.85em; }}
+.signals-row {{ background: #fafafa; }}
+.signals-row td {{ padding-top: 0; padding-bottom: 0.5rem; border-bottom: none; }}
+.signals-detail {{ margin-top: 0.25rem; font-size: 0.85em; color: #666; }}
+.signals-detail summary {{ cursor: pointer; color: #0d6efd; }}
+.signals-grid {{ display: grid; grid-template-columns: auto 1fr; gap: 0.1rem 0.5rem; margin-top: 0.25rem; padding: 0.25rem 0.5rem; background: #f0f0f0; border-radius: 3px; font-family: monospace; font-size: 0.8em; }}
+.signals-grid span:nth-child(odd) {{ color: #555; }}
+.signals-grid span:nth-child(even) {{ color: #333; font-weight: 500; }}
 .summary {{ background: white; padding: 1rem; margin-bottom: 1rem; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
 </style>
 </head>
@@ -381,9 +438,6 @@ h2 {{ margin-top: 1.5rem; }}
 <p style='color:#888;font-size:0.85em;margin-top:2rem'>Generated by Drift v{__version__}</p>
 </body>
 </html>"""
-        return html
-
-
         return html
 
     # -------------------------------------------------------------------------
@@ -1017,6 +1071,25 @@ h2 {{ margin-top: 1.5rem; }}
             lines.append(f"    Suggestion: {item.suggestion}")
 
         return lines
+
+
+# TypeScript-specific category display labels
+_TS_CATEGORY_LABELS: dict[str, str] = {
+    "ts_property_missing": "TS Property Missing",
+    "ts_property_extra": "TS Property Extra",
+    "ts_member_missing": "TS Member Missing",
+    "ts_member_extra": "TS Member Extra",
+}
+
+
+def _category_label(category: str) -> str:
+    """Return human-readable label for a drift category."""
+    return _TS_CATEGORY_LABELS.get(category, category)
+
+
+def _is_ts_category(category: str) -> bool:
+    """Return True if the category is a TypeScript-specific category."""
+    return category in _TS_CATEGORY_LABELS
 
 
 def _escape(s: str) -> str:

@@ -489,3 +489,78 @@ class TestCheckCommand:
         md_file.write_text("```python\ndef old_func()\n```\n")
         result = cli_runner.invoke(main, ["check", "--fail-on", "error", str(tmp_path)])
         assert result.exit_code == 0
+
+
+class TestQuietFlag:
+    """Tests for --quiet / -q flag on scan command."""
+
+    def _make_project_with_drift(self, tmp_path: Path) -> None:
+        """Create a project with one drift item (renamed function)."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def new_func(x: int, y: str = 'hello') -> bool:\n"
+            "    '''Documented function.'''\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## old_func\n"
+            "\n"
+            "```python\n"
+            "def old_func(x: int, y: str = 'hello') -> bool\n"
+            "```\n"
+        )
+
+    def test_scan_quiet_suppresses_summary_and_header(self, cli_runner, tmp_path):
+        """--quiet suppresses 'Summary:', path, and header lines from output."""
+        self._make_project_with_drift(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "--quiet", str(tmp_path)])
+        assert result.exit_code == 1  # drift found, exits 1
+        # Header and summary should be absent
+        assert "Drift Scan Report" not in result.output
+        assert "Summary:" not in result.output
+        assert "Path:" not in result.output
+        # But findings should still appear
+        assert "renamed" in result.output.lower() or "Errors" in result.output or "Warnings" in result.output
+
+    def test_scan_quiet_suppresses_timing_info(self, cli_runner, tmp_path):
+        """--quiet suppresses scan timing info even with --verbose."""
+        self._make_project_with_drift(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "--quiet", "--verbose", str(tmp_path)])
+        assert result.exit_code == 1
+        assert "Scan time:" not in result.output
+        assert "Facts:" not in result.output
+        assert "Claims:" not in result.output
+
+    def test_scan_quiet_no_output_when_no_drift(self, cli_runner, tmp_path):
+        """--quiet produces no output when there is no drift."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int) -> str:\n"
+            "    '''Documented.'''\n"
+            "    return str(x)\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## documented_func\n"
+            "\n"
+            "```python\n"
+            "def documented_func(x: int) -> str\n"
+            "```\n"
+        )
+        result = cli_runner.invoke(main, ["scan", "--quiet", str(tmp_path)])
+        assert result.exit_code == 0
+        # No output at all in quiet mode when no drift
+        assert result.output.strip() == ""
+
+    def test_scan_quiet_short_flag(self, cli_runner, tmp_path):
+        """-q is an alias for --quiet."""
+        self._make_project_with_drift(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "-q", str(tmp_path)])
+        assert result.exit_code == 1
+        assert "Drift Scan Report" not in result.output
+        assert "Summary:" not in result.output
