@@ -50,7 +50,13 @@ def main() -> None:
     "--patch",
     "output_patch",
     is_flag=True,
-    help="Output git-compatible unified patches for fixable categories (wrong_default, wrong_type, wrong_return_type, documented_but_missing). Non-fixable categories are skipped with a comment. (mutually exclusive with --json, --sarif, --html, --diff-output)",
+    help="Output git-compatible unified patches for fixable categories (wrong_default, wrong_type, wrong_return_type, documented_but_missing). Non-fixable categories are skipped with a comment. (mutually exclusive with --json, --sarif, --html, --diff-output, --json-lines)",
+)
+@click.option(
+    "--json-lines",
+    "output_json_lines",
+    is_flag=True,
+    help="Output one JSON object per DriftItem per line (NDJSON format). Useful for piping to jq or streaming processors. (mutually exclusive with --json, --sarif, --html, --diff-output, --patch)",
 )
 @click.option(
     "--output",
@@ -181,6 +187,7 @@ def scan(
     output_html: bool,
     output_diff: bool,
     output_patch: bool,
+    output_json_lines: bool,
     output_file: str | None,
     config_path: str | None,
     strict: bool,
@@ -221,10 +228,10 @@ def scan(
 
     # CLI --json, --sarif, --html, or --diff-output flag overrides config
     # These flags are mutually exclusive
-    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff, output_patch] if f)
+    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff, output_patch, output_json_lines] if f)
     if flag_count > 1:
         raise click.ClickException(
-            "--json, --sarif, --html, --diff-output, and --patch cannot be used together."
+            "--json, --sarif, --html, --diff-output, --patch, and --json-lines cannot be used together."
         )
     if output_json:
         output_format = "json"
@@ -236,6 +243,8 @@ def scan(
         output_format = "diff"
     elif output_patch:
         output_format = "patch"
+    elif output_json_lines:
+        output_format = "json-lines"
     else:
         output_format = config.output_format
 
@@ -462,6 +471,8 @@ def scan(
         output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed)
     elif output_format == "patch":
         output_content = reporter.report_patch(verbose=verbose, elapsed=elapsed)
+    elif output_format == "json-lines":
+        output_content = reporter.report_json_lines()
     else:
         # For text output, capture to file without Rich formatting
         # Use StringIO to capture plain text with markup interpreted and stripped
@@ -1160,6 +1171,7 @@ def _run_watch_scan(
     output_html: bool,
     output_diff: bool,
     output_patch: bool,
+    output_json_lines: bool,
     output_file: str | None,
     config_path: str | None,
     strict: bool,
@@ -1188,9 +1200,9 @@ def _run_watch_scan(
     except ValueError as e:
         raise click.ClickException(str(e)) from e
 
-    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff, output_patch] if f)
+    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff, output_patch, output_json_lines] if f)
     if flag_count > 1:
-        raise click.ClickException("--json, --sarif, --html, --diff-output, and --patch cannot be used together.")
+        raise click.ClickException("--json, --sarif, --html, --diff-output, --patch, and --json-lines cannot be used together.")
     if output_json:
         output_format = "json"
     elif output_sarif:

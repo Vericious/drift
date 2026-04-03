@@ -339,6 +339,55 @@ class TestReportJson:
         assert "signals" not in parsed["drift_items"][0]
 
 
+class TestReportJsonLines:
+    """Tests for report_json_lines()."""
+
+    def test_each_line_is_valid_json(self, populated_report):
+        """Each line in NDJSON output parses as a separate JSON object."""
+        reporter = DriftReporter(populated_report)
+        output = reporter.report_json_lines()
+        lines = output.strip().split("\n")
+        for line in lines:
+            parsed = json.loads(line)
+            assert isinstance(parsed, dict)
+
+    def test_line_count_matches_item_count(self, populated_report):
+        """Number of NDJSON lines matches number of drift items."""
+        reporter = DriftReporter(populated_report)
+        output = reporter.report_json_lines()
+        lines = output.strip().split("\n") if output.strip() else []
+        assert len(lines) == len(populated_report.drift_items)
+
+    def test_no_trailing_comma_or_array_brackets(self, populated_report):
+        """NDJSON output is not wrapped in array brackets."""
+        reporter = DriftReporter(populated_report)
+        output = reporter.report_json_lines()
+        # Should not be wrapped in array brackets
+        assert not output.strip().startswith("[")
+        assert not output.strip().endswith("]")
+        # Should not contain trailing comma after last line
+        assert not output.rstrip().endswith(",")
+
+    def test_empty_report_produces_empty_output(self, empty_report):
+        """Empty report produces empty string (no lines)."""
+        reporter = DriftReporter(empty_report)
+        output = reporter.report_json_lines()
+        assert output == ""
+
+    def test_ndjson_contains_required_fields(self, populated_report):
+        """Each NDJSON line has severity, category, message, fact, claim."""
+        reporter = DriftReporter(populated_report)
+        output = reporter.report_json_lines()
+        lines = output.strip().split("\n")
+        for line in lines:
+            parsed = json.loads(line)
+            assert "severity" in parsed
+            assert "category" in parsed
+            assert "message" in parsed
+            assert "fact" in parsed
+            assert "claim" in parsed
+
+
 class TestReportConsole:
     """Tests for report_console()."""
 

@@ -306,6 +306,24 @@ class DriftReporter:
 
         return json.dumps(output, indent=2)
 
+    def report_json_lines(self) -> str:
+        """Return drift items as NDJSON (one JSON object per line)."""
+        lines: list[str] = []
+        for item in self.report.drift_items:
+            entry: dict[str, object] = {
+                "severity": item.severity.value,
+                "category": item.category,
+                "confidence": item.confidence,
+                "message": item.message,
+                "suggestion": item.suggestion,
+                "fact": item.fact.to_dict() if item.fact else None,
+                "claim": item.claim.to_dict() if item.claim else None,
+            }
+            if item.signals is not None:
+                entry["signals"] = item.signals.to_dict()
+            lines.append(json.dumps(entry))
+        return "\n".join(lines) + "\n" if lines else ""
+
     # -------------------------------------------------------------------------
     # HTML output
     # -------------------------------------------------------------------------
