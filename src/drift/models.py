@@ -36,6 +36,7 @@ class ClaimKind(Enum):
     CLI_USAGE = "cli_usage"
     CLI_FLAG_REF = "cli_flag_ref"
     CONFIG_REF = "config_ref"
+    FUNCTION_REF = "function_ref"
 
 
 class Severity(Enum):

@@ -47,6 +47,19 @@ _CODE_BLOCK_RE = re.compile(
 # Simple code examples: :: followed by indented literal text
 _LITERAL_BLOCK_RE = re.compile(r"::\n((?:\s+.+\n)+)")
 
+# Pattern for Sphinx cross-reference roles: :func:`module.func`, :class:`name`, :meth:`name`
+# The role name is captured (func|class|meth|mod), and the target (e.g. module.func)
+_CROSS_REF_RE = re.compile(
+    r":(func|class|meth|mod):`([^`]+)`",
+    re.IGNORECASE,
+)
+
+# Pattern for .. automodule:: directive
+_AUTOMODULE_RE = re.compile(
+    r"\.\. automodule::\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*$",
+    re.IGNORECASE,
+)
+
 
 def _parse_parameters(params_str: str) -> list[Parameter]:
     """Parse a parameter list string into Parameter objects."""
@@ -222,6 +235,12 @@ class RSTDocsExtractor(Extractor):
 
         # Extract code blocks
         claims.extend(self._extract_code_blocks(content, lines, path))
+
+        # Extract cross-references (:func:, :class:, :meth:, :mod:)
+        claims.extend(self._extract_cross_references(content, path))
+
+        # Extract automodule directives
+        claims.extend(self._extract_automodule(content, lines, path))
 
         return claims
 
@@ -415,5 +434,120 @@ class RSTDocsExtractor(Extractor):
                     )
                     claims.append(claim)
                     break
+
+        return claims
+
+    def _extract_cross_references(
+        self, content: str, path: Path
+    ) -> list[DocClaim]:
+        """Extract claims from Sphinx cross-reference roles (:func:, :class:, :meth:, :mod:)."""
+        claims = []
+
+        for match in _CROSS_REF_RE.finditer(content):
+            role = match.group(1).lower()
+            target = match.group(2)
+
+            line_offset = content[: match.start()].count("\n")
+            line_number = line_offset + 1
+
+            if role == "func":
+                kind = ClaimKind.FUNCTION_REF
+                # Extract function name from target like "module.func" or just "func"
+                name = target.split(".")[-1] if "." in target else target
+            elif role == "class":
+                kind = ClaimKind.FUNCTION_REF
+                name = target.split(".")[-1] if "." in target else target
+            elif role == "meth":
+                kind = ClaimKind.FUNCTION_REF
+                name = target.split(".")[-1] if "." in target else target
+            elif role == "mod":
+                kind = ClaimKind.FUNCTION_REF
+                name = target
+            else:
+                continue
+
+            claim = DocClaim(
+                raw_text=match.group(0),
+                kind=kind,
+                doc_file=path,
+                line_number=line_number,
+                name=name,
+                metadata={
+                    "role": role,
+                    "target": target,
+                    "source": "cross_ref",
+                },
+            )
+            claims.append(claim)
+
+        return claims
+
+    def _extract_automodule(
+        self, content: str, lines: list[str], path: Path
+    ) -> list[DocClaim]:
+        """Extract implicit claims from .. automodule:: directives.
+
+        An automodule directive documents all public symbols in a module.
+        We emit a FUNCTION_REF claim for each public name found in the
+        directive's body (if any), and a claim for the module itself.
+        """
+        claims = []
+
+        for i, line in enumerate(lines):
+            m = _AUTOMODULE_RE.match(line)
+            if not m:
+                continue
+
+            module_name = m.group(1)
+            line_number = i + 1
+
+            # Determine base indentation
+            base_indent = _get_indent(line)
+
+            # Collect symbols listed under this automodule directive
+            symbols: list[str] = []
+            for j in range(i + 1, len(lines)):
+                next_line = lines[j]
+                if not next_line.strip():
+                    continue
+                next_indent = _get_indent(next_line)
+                if next_indent <= base_indent:
+                    break
+                # Look for :term: or :obj: or bare indented names
+                stripped = next_line.strip()
+                sym_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*$", stripped)
+                if sym_match:
+                    symbols.append(sym_match.group(1))
+
+            # Emit a claim for the module itself
+            claim = DocClaim(
+                raw_text=line.strip(),
+                kind=ClaimKind.FUNCTION_REF,
+                doc_file=path,
+                line_number=line_number,
+                name=module_name,
+                metadata={
+                    "role": "mod",
+                    "source": "automodule",
+                    "symbols": symbols,
+                },
+            )
+            claims.append(claim)
+
+            # Emit a claim per exported symbol
+            for sym in symbols:
+                sym_claim = DocClaim(
+                    raw_text=f".. automodule:: {module_name} (symbol: {sym})",
+                    kind=ClaimKind.FUNCTION_REF,
+                    doc_file=path,
+                    line_number=line_number,
+                    name=sym,
+                    metadata={
+                        "role": "func",
+                        "target": f"{module_name}.{sym}",
+                        "source": "automodule",
+                    },
+                )
+                claims.append(sym_claim)
 
         return claims
