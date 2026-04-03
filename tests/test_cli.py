@@ -419,7 +419,7 @@ class TestFailOnOption:
         assert "[" not in content or "Drift" in content
 
     def test_output_flag_console_still_shows(self, cli_runner, tmp_path):
-        """Console output still appears when -o is used."""
+        """When -o is used, stdout is empty and file contains the output."""
         py_file = tmp_path / "example.py"
         py_file.write_text("def func(): pass\n")
         md_file = tmp_path / "docs.md"
@@ -429,8 +429,14 @@ class TestFailOnOption:
             main, ["scan", "-o", str(output_file), str(tmp_path)]
         )
         assert result.exit_code == 0
-        # Console output should appear
-        assert "Drift" in result.output or "Scan" in result.output
+        # Stdout is empty (no Drift report in output)
+        assert "Drift" not in result.output
+        # But "Results written" message appears
+        assert "Results written to" in result.output
+        # File was created with content
+        assert output_file.exists()
+        content = output_file.read_text()
+        assert "Drift" in content or "Scan" in content or "drift" in content.lower()
 
     def test_output_flag_without_json_flag(self, cli_runner, tmp_path):
         """Without --json, -o writes plain text."""
@@ -447,6 +453,22 @@ class TestFailOnOption:
         content = output_file.read_text()
         # Plain text, no Rich formatting codes like [/bold cyan]
         assert "[/bold" not in content
+
+    def test_output_flag_creates_parent_dirs(self, cli_runner, tmp_path):
+        """-o creates parent directories if they don't exist."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def func(): pass\n")
+        md_file = tmp_path / "docs.md"
+        md_file.write_text("func()\n")
+        # Use a nested path where parent directories don't exist
+        output_file = tmp_path / "nested" / "deep" / "report.txt"
+        result = cli_runner.invoke(
+            main, ["scan", "-o", str(output_file), str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert output_file.exists()
+        content = output_file.read_text()
+        assert len(content) > 0
 
 
 class TestCheckCommand:

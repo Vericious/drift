@@ -454,19 +454,14 @@ def scan(
     # Generate output based on format
     if output_format == "json":
         output_content = reporter.report_json(verbose=verbose, elapsed=elapsed)
-        click.echo(output_content)
     elif output_format == "sarif":
         output_content = reporter.report_sarif(verbose=verbose, elapsed=elapsed)
-        click.echo(output_content)
     elif output_format == "html":
         output_content = reporter.report_html(verbose=verbose, elapsed=elapsed)
-        click.echo(output_content)
     elif output_format == "diff":
         output_content = reporter.report_diff(verbose=verbose, elapsed=elapsed)
-        click.echo(output_content)
     elif output_format == "patch":
         output_content = reporter.report_patch(verbose=verbose, elapsed=elapsed)
-        click.echo(output_content)
     else:
         # For text output, capture to file without Rich formatting
         # Use StringIO to capture plain text with markup interpreted and stripped
@@ -484,13 +479,15 @@ def scan(
         reporter.report_console(verbose=verbose, elapsed=elapsed, quiet=quiet)
         reporter.console = original_console
         output_content = text_buffer.getvalue()
-        click.echo(output_content)
 
-    # Write to file if --output specified
+    # Write to file or stdout
     if output_file:
         output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(output_content)
+        click.echo(f"Results written to {output_path}", err=True)
+    else:
+        click.echo(output_content)
 
     # Exit based on fail_on categories
     if _should_fail_on_items(report.drift_items, fail_on_level):
