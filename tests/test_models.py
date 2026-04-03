@@ -5,6 +5,7 @@ from pathlib import Path
 from drift.models import (
     ClaimKind,
     CodeFact,
+    ConfidenceSignals,
     DocClaim,
     DriftCategory,
     DriftItem,
@@ -258,3 +259,65 @@ class TestDriftCategoryFuzzy:
     def test_fuzzy_renamed_value(self):
         assert hasattr(DriftCategory, "FUZZY_RENAMED")
         assert DriftCategory.FUZZY_RENAMED.value == "fuzzy_renamed"
+
+
+class TestConfidenceSignalsExplain:
+    """Tests for ConfidenceSignals.explain() method."""
+
+    def test_explain_contains_all_signal_names(self):
+        """explain() output contains all 5 signal names."""
+        signals = ConfidenceSignals(
+            name_similarity=0.8,
+            param_overlap=0.6,
+            type_match=0.9,
+            location_proximity=0.5,
+            context_match=0.7,
+        )
+        explanation = signals.explain()
+        assert "name_similarity" in explanation
+        assert "param_overlap" in explanation
+        assert "type_match" in explanation
+        assert "location_proximity" in explanation
+        assert "context_match" in explanation
+
+    def test_explain_total_matches_score(self):
+        """Total in explain() matches score() method."""
+        signals = ConfidenceSignals(
+            name_similarity=0.8,
+            param_overlap=0.6,
+            type_match=0.9,
+            location_proximity=0.5,
+            context_match=0.7,
+        )
+        explanation = signals.explain()
+        assert f"total: {signals.score()}" in explanation
+
+    def test_explain_formatting_with_zero_signals(self):
+        """explain() formats correctly when all signals are zero."""
+        signals = ConfidenceSignals()  # all zeros
+        explanation = signals.explain()
+        # Should contain all signal names with 0.0 values
+        assert "name_similarity: 0.0" in explanation
+        assert "param_overlap: 0.0" in explanation
+        assert "type_match: 0.0" in explanation
+        assert "location_proximity: 0.0" in explanation
+        assert "context_match: 0.0" in explanation
+        # Total should be 0.0
+        assert "total: 0.0" in explanation
+
+    def test_explain_shows_contributions(self):
+        """explain() shows weight and contribution for each signal."""
+        signals = ConfidenceSignals(
+            name_similarity=0.8,
+            param_overlap=0.6,
+            type_match=0.9,
+            location_proximity=0.5,
+            context_match=0.7,
+        )
+        explanation = signals.explain()
+        # Check format: name: value (weight=X, contribution=Y)
+        # Note: weights are shown without trailing zeros (0.3 not 0.30)
+        assert "weight=0.35" in explanation
+        assert "weight=0.3" in explanation
+        assert "weight=0.15" in explanation
+        assert "weight=0.1" in explanation

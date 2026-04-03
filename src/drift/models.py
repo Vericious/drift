@@ -196,6 +196,33 @@ class ConfidenceSignals:
             "context_match": self.context_match,
         }
 
+    def explain(self) -> str:
+        """Return a human-readable breakdown of each signal's contribution.
+
+        Format: 'param_overlap: 0.85 (weight=0.3, contribution=0.255)'
+        Includes total score on last line.
+        """
+        weights = {
+            "name_similarity": 0.35,
+            "param_overlap": 0.30,
+            "type_match": 0.15,
+            "location_proximity": 0.10,
+            "context_match": 0.10,
+        }
+        lines = []
+        for name, raw_value in [
+            ("name_similarity", self.name_similarity),
+            ("param_overlap", self.param_overlap),
+            ("type_match", self.type_match),
+            ("location_proximity", self.location_proximity),
+            ("context_match", self.context_match),
+        ]:
+            weight = weights[name]
+            contribution = raw_value * weight
+            lines.append(f"{name}: {raw_value} (weight={weight}, contribution={contribution:.3f})")
+        lines.append(f"total: {self.score()}")
+        return "\n".join(lines)
+
 
 @dataclass
 class DriftItem:
