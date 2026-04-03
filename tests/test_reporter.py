@@ -144,6 +144,49 @@ def empty_report():
     )
 
 
+@pytest.fixture
+def ts_drift_report():
+    """A DriftReport with TypeScript-specific categories and confidence signals."""
+    ts_fact = CodeFact(
+        name="UserConfig",
+        kind=FactKind.TS_INTERFACE,
+        source_file=Path("src/types.ts"),
+        line_number=10,
+    )
+    ts_claim = DocClaim(
+        raw_text="interface UserConfig { name: string; age?: number; }",
+        kind=ClaimKind.FUNCTION_SIGNATURE,
+        doc_file=Path("docs/api.md"),
+        line_number=5,
+        name="UserConfig",
+    )
+    signals = ConfidenceSignals(
+        name_similarity=0.90,
+        param_overlap=0.75,
+        type_match=1.0,
+        location_proximity=0.80,
+        context_match=0.85,
+    )
+    items = [
+        DriftItem(
+            fact=ts_fact,
+            claim=ts_claim,
+            severity=Severity.ERROR,
+            category="ts_property_missing",
+            message="Property 'age' is missing from the TypeScript interface",
+            signals=signals,
+            confidence=0.90,
+        ),
+    ]
+    return DriftReport(
+        scanned_path=Path("src"),
+        facts=[ts_fact],
+        claims=[ts_claim],
+        drift_items=items,
+        errors=[],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -742,3 +785,37 @@ class TestReportHtml:
         reporter = DriftReporter(populated_report)
         output = reporter.report_html()
         assert "Drift v0.5.0-dev" in output
+
+    def test_html_ts_category_uses_label_not_raw_value(self, ts_drift_report):
+        """HTML output shows 'TS Property Missing' not 'ts_property_missing' for TS categories."""
+        reporter = DriftReporter(ts_drift_report)
+        output = reporter.report_html()
+        assert "TS Property Missing" in output
+        assert "ts_property_missing" not in output
+
+    def test_html_ts_category_applies_cat_ts_css_class(self, ts_drift_report):
+        """HTML output applies 'cat-ts' CSS class to TypeScript-specific category badges."""
+        reporter = DriftReporter(ts_drift_report)
+        output = reporter.report_html()
+        assert "cat-ts" in output
+
+    def test_html_confidence_signals_shown_in_details_element(self, ts_drift_report):
+        """HTML output includes confidence signal breakdown in a <details> element."""
+        reporter = DriftReporter(ts_drift_report)
+        output = reporter.report_html()
+        assert "<details" in output
+        assert "Confidence breakdown" in output
+        assert "name_similarity" in output
+        assert "param_overlap" in output
+        assert "type_match" in output
+        assert "location_proximity" in output
+        assert "context_match" in output
+
+    def test_html_signals_shows_individual_percentages(self, ts_drift_report):
+        """Confidence signal values are rendered as percentages in HTML."""
+        reporter = DriftReporter(ts_drift_report)
+        output = reporter.report_html()
+        # name_similarity=0.90 -> 90%, param_overlap=0.75 -> 75%, etc.
+        assert "90%" in output
+        assert "75%" in output
+        assert "100%" in output
