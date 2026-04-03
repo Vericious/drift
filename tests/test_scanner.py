@@ -701,6 +701,50 @@ class TestParallelScanning:
         drift_names = {d.fact.name for d in report.drift_items}
         assert "my_func" not in drift_names
 
+    def test_parallel_flag_accepted(self, tmp_path: Path) -> None:
+        """DriftScanner accepts parallel=True and completes without error."""
+        self._make_project(
+            tmp_path,
+            {
+                "a.py": "def func_a(x: int) -> None: pass",
+                "docs.md": "# Docs\n\n```python\ndef func_a(x: int) -> None\n```\n",
+            },
+        )
+        # Should not raise
+        scanner = DriftScanner(tmp_path, parallel=True)
+        report = scanner.scan()
+        assert len(report.facts) == 1
+
+    def test_workers_parameter_respected(self, tmp_path: Path) -> None:
+        """DriftScanner accepts workers parameter and uses it to cap parallel workers."""
+        self._make_project(
+            tmp_path,
+            {
+                "a.py": "def func_a(x: int) -> None: pass",
+                "b.py": "def func_b(y: str) -> None: pass",
+                "c.py": "def func_c(z: float) -> None: pass",
+                "docs.md": (
+                    "# Docs\n\n```python\ndef func_a(x: int) -> None\n```\n"
+                    "```python\ndef func_b(y: str) -> None\n```\n"
+                    "```python\ndef func_c(z: float) -> None\n```\n"
+                ),
+            },
+        )
+        # workers=2 should be capped internally but accepted
+        scanner = DriftScanner(tmp_path, parallel=True, workers=2)
+        report = scanner.scan()
+
+        serial_scanner = DriftScanner(tmp_path, parallel=False)
+        serial_report = serial_scanner.scan()
+
+        # Results must be identical regardless of worker count
+        serial_names = sorted(f.name for f in serial_report.facts)
+        parallel_names = sorted(f.name for f in report.facts)
+        assert serial_names == parallel_names, (
+            f"Parallel scan with workers=2 produced different facts:\n"
+            f"  serial={serial_names}\n  parallel={parallel_names}"
+        )
+
 
 class TestIncrementalScan:
     """Tests for incremental scanning with file hash cache."""

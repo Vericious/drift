@@ -108,10 +108,17 @@ def main() -> None:
 )
 @click.option(
     "--parallel",
-    "-p",
+    "-j",
     "parallel",
     is_flag=True,
-    help="Enable parallel file processing (uses ThreadPoolExecutor).",
+    help="Enable parallel file processing (uses ProcessPoolExecutor).",
+)
+@click.option(
+    "--workers",
+    "-w",
+    type=int,
+    default=None,
+    help="Number of parallel workers (default: cpu_count). Use with --parallel.",
 )
 @click.option(
     "--include-js",
@@ -196,6 +203,7 @@ def scan(
     fail_on: str | None,
     min_confidence: float | None,
     parallel: bool,
+    workers: int | None,
     include_js: bool,
     no_cache: bool,
     clear_cache: bool,
@@ -282,6 +290,7 @@ def scan(
                         fail_on=fail_on,
                         min_confidence=min_confidence,
                         parallel=parallel,
+                        workers=workers,
                         include_js=include_js,
                         no_cache=no_cache,
                         clear_cache=clear_cache,
@@ -368,6 +377,7 @@ def scan(
             scan_path,
             strict=strict,
             parallel=parallel,
+            workers=workers,
             include_js=include_js,
             no_cache=no_cache,
             clear_cache=clear_cache,
@@ -1013,6 +1023,77 @@ def baseline(path: str, update: bool) -> None:
     click.echo(f"  Run 'drift scan --baseline' to compare against this snapshot.")
 
 
+@main.command("baseline-export")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["json", "csv"]),
+    default="json",
+    help="Output format: json (default) or csv.",
+)
+def baseline_export(format: str) -> None:
+    """Export the baseline as JSON or CSV to stdout.
+
+    Reads from the standard baseline location (.drift/baseline.json).
+    Outputs JSON by default. Use --format csv for CSV output.
+
+    \b
+    CSV columns: fact_name, fact_kind, fact_file, fact_line, claim_name,
+    claim_kind, claim_doc_file, claim_line, severity, category, message
+    """
+    import csv
+    import io
+    import json
+
+    loaded = load_baseline(Path("."))
+    if loaded is None:
+        raise click.ClickException(
+            "No baseline found. Run 'drift baseline' first to create one."
+        )
+
+    created_at, items = loaded
+
+    if format == "json":
+        output = json.dumps({"created_at": created_at, "items": items}, indent=2)
+        click.echo(output)
+    else:
+        # CSV format
+        fieldnames = [
+            "fact_name",
+            "fact_kind",
+            "fact_file",
+            "fact_line",
+            "claim_name",
+            "claim_kind",
+            "claim_doc_file",
+            "claim_line",
+            "severity",
+            "category",
+            "message",
+        ]
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for item in items:
+            fact = item.get("fact") or {}
+            claim = item.get("claim") or {}
+            row = {
+                "fact_name": fact.get("name", ""),
+                "fact_kind": fact.get("kind", ""),
+                "fact_file": str(fact.get("source_file", "")),
+                "fact_line": fact.get("line_number", ""),
+                "claim_name": claim.get("name", ""),
+                "claim_kind": claim.get("kind", ""),
+                "claim_doc_file": str(claim.get("doc_file", "")),
+                "claim_line": claim.get("line_number", ""),
+                "severity": item.get("severity", ""),
+                "category": item.get("category", ""),
+                "message": item.get("message", ""),
+            }
+            writer.writerow(row)
+        click.echo(output.getvalue())
+
+
 def _filter_by_severity(items: list[DriftItem], min_severity: str) -> list[DriftItem]:
     """Filter drift items to only those >= min_severity.
 
@@ -1180,6 +1261,7 @@ def _run_watch_scan(
     fail_on: str | None,
     min_confidence: float | None,
     parallel: bool,
+    workers: int | None,
     include_js: bool,
     no_cache: bool,
     clear_cache: bool,
@@ -1235,6 +1317,7 @@ def _run_watch_scan(
         scan_path,
         strict=strict,
         parallel=parallel,
+        workers=workers,
         include_js=include_js,
         no_cache=no_cache,
         clear_cache=clear_cache,

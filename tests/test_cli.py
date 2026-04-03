@@ -682,3 +682,91 @@ class TestExcludeCategoryOption:
         assert result.exit_code != 0
         assert "Invalid category" in result.output
         assert "missing_param" in result.output or "renamed" in result.output
+
+
+class TestBaselineExport:
+    """Tests for drift baseline-export command."""
+
+    def test_export_json_produces_valid_json(self, cli_runner, tmp_path, monkeypatch):
+        """baseline-export produces valid JSON matching baseline content."""
+        import json
+
+        # Create a baseline first
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int) -> bool:\n"
+            "    '''Documented.'''\n"
+            "    pass\n"
+            "\n"
+            "def undocumented_func(a: int) -> None:\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API\n\n"
+            "## documented_func\n\n"
+            "```python\n"
+            "def documented_func(x: int) -> bool\n"
+            "```\n"
+        )
+
+        # Create baseline (run from tmp_path so baseline is created there)
+        result = cli_runner.invoke(main, ["baseline", str(tmp_path)])
+        assert result.exit_code == 0, f"baseline creation failed: {result.stderr}"
+        assert ".drift/baseline.json" in result.output
+
+        # Export and verify JSON (change to tmp_path so baseline is found)
+        monkeypatch.chdir(tmp_path)
+        result = cli_runner.invoke(main, ["baseline-export"], catch_exceptions=False)
+        assert result.exit_code == 0, f"baseline-export failed: {result.stderr}"
+
+        data = json.loads(result.output)
+        assert "created_at" in data
+        assert "items" in data
+        assert isinstance(data["items"], list)
+
+    def test_export_csv_has_header_and_rows(self, cli_runner, tmp_path, monkeypatch):
+        """--format csv produces header row + data rows."""
+        # Create a baseline first
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int) -> bool:\n"
+            "    '''Documented.'''\n"
+            "    pass\n"
+            "\n"
+            "def undocumented_func(a: int) -> None:\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API\n\n"
+            "## documented_func\n\n"
+            "```python\n"
+            "def documented_func(x: int) -> bool\n"
+            "```\n"
+        )
+
+        # Create baseline
+        result = cli_runner.invoke(main, ["baseline", str(tmp_path)])
+        assert result.exit_code == 0, f"baseline creation failed: {result.stderr}"
+
+        # Export CSV (change to tmp_path so baseline is found)
+        monkeypatch.chdir(tmp_path)
+        result = cli_runner.invoke(main, ["baseline-export", "--format", "csv"])
+        assert result.exit_code == 0, f"baseline-export csv failed: {result.stderr}"
+
+        lines = result.output.strip().split("\n")
+        assert len(lines) >= 2, "CSV should have header + at least one data row"
+
+        # Check header
+        header = lines[0]
+        assert "fact_name" in header
+        assert "category" in header
+        assert "severity" in header
+
+    def test_export_no_baseline_shows_error(self, cli_runner, tmp_path, monkeypatch):
+        """Error message when no baseline exists."""
+        monkeypatch.chdir(tmp_path)
+        result = cli_runner.invoke(main, ["baseline-export"])
+        assert result.exit_code != 0
+        assert "No baseline found" in result.output

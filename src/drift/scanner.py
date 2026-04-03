@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,100 @@ from drift.models import CodeFact, DocClaim, DriftReport, ScanMetrics
 # JSDocExtractor imported lazily when include_js is True
 
 
+def _extract_worker(
+    file_path: Path,
+    file_type: str,
+    strict: bool,
+    include_js: bool,
+    extractors_enabled: list[str] | None,
+    extractors_disabled: list[str] | None,
+) -> tuple[list[CodeFact], list[DocClaim], list[str]]:
+    """Module-level worker for ProcessPoolExecutor.
+
+    Handles all file types: py, md, config, js.
+    This function is defined at module level so it can be pickled by ProcessPoolExecutor.
+    """
+    errors: list[str] = []
+    all_facts: list[CodeFact] = []
+    all_claims: list[DocClaim] = []
+
+    try:
+        if file_type == "py":
+            from drift.extractors.registry import get_extractors
+
+            for extractor_cls in get_extractors():
+                extractor = extractor_cls()
+                if not extractor.can_handle(file_path):
+                    continue
+                ext_name = extractor_cls.__name__
+                if extractors_disabled and ext_name in extractors_disabled:
+                    continue
+                if extractors_enabled and ext_name not in extractors_enabled:
+                    continue
+                try:
+                    extracted = extractor.extract(file_path)
+                except Exception as e:
+                    err = f"[{extractor_cls.__name__}] {file_path}: {e}"
+                    if strict:
+                        raise
+                    errors.append(err)
+                    continue
+
+                for item in extracted:
+                    if isinstance(item, DocClaim):
+                        all_claims.append(item)
+                    else:
+                        all_facts.append(item)
+
+        elif file_type == "md":
+            from drift.extractors.markdown import MarkdownExtractor
+
+            try:
+                extractor = MarkdownExtractor()
+                claims = extractor.extract(file_path)
+                all_claims.extend(claims)
+            except Exception as e:
+                err = f"[MarkdownExtractor] {file_path}: {e}"
+                if strict:
+                    raise
+                errors.append(err)
+
+        elif file_type == "config":
+            from drift.extractors.config_file import ConfigFileExtractor
+
+            try:
+                extractor = ConfigFileExtractor()
+                facts = extractor.extract(file_path)
+                all_facts.extend(facts)
+            except Exception as e:
+                err = f"[ConfigFileExtractor] {file_path}: {e}"
+                if strict:
+                    raise
+                errors.append(err)
+
+        elif file_type == "js":
+            if include_js:
+                from drift.extractor_js import JSDocExtractor
+
+                try:
+                    extractor = JSDocExtractor()
+                    claims = extractor.extract(file_path)
+                    all_claims.extend(claims)
+                except Exception as e:
+                    err = f"[JSDocExtractor] {file_path}: {e}"
+                    if strict:
+                        raise
+                    errors.append(err)
+
+    except Exception as e:
+        err = f"[{file_type}] {file_path}: {e}"
+        if strict:
+            raise
+        errors.append(err)
+
+    return all_facts, all_claims, errors
+
+
 class DriftScanner:
     """Walk files, dispatch to extractors, run matcher, produce report."""
 
@@ -25,6 +119,7 @@ class DriftScanner:
         path: Path,
         strict: bool = False,
         parallel: bool = False,
+        workers: int | None = None,
         include_js: bool = False,
         no_cache: bool = False,
         clear_cache: bool = False,
@@ -37,6 +132,7 @@ class DriftScanner:
         self.path = path
         self.strict = strict
         self.parallel = parallel
+        self.workers = workers
         self.include_js = include_js
         # Parallel scans don't benefit from caching (all files are submitted at once anyway)
         # and caching would cause issues when serial+parallel are run on same path in tests
@@ -529,70 +625,93 @@ class DriftScanner:
         config_files: list[Path],
         js_files: list[Path],
     ) -> tuple[list[CodeFact], list[DocClaim], list[str]]:
-        """Extract facts/claims from all files in parallel using ThreadPoolExecutor.
+        """Extract facts/claims from all files in parallel using ProcessPoolExecutor.
 
         Falls back to serial processing if parallel execution fails.
-        Results are deterministic regardless of thread scheduling (content-wise).
+        Results are deterministic regardless of process scheduling (content-wise).
+        Worker count is capped at os.cpu_count().
         """
         errors: list[str] = []
         all_facts: list[CodeFact] = []
         all_claims: list[DocClaim] = []
 
-        max_workers = min(32, (os.cpu_count() or 1) + 4)
-
-        def extract_py(
-            file: Path,
-        ) -> tuple[list[CodeFact], list[DocClaim], list[str], Path]:
-            """Wrapper to make _extract_py callable in a thread."""
-            facts, claims, errs = self._extract_py(file)
-            return facts, claims, errs, file
+        max_workers = min(self.workers, os.cpu_count() or 1) if self.workers else (os.cpu_count() or 1)
 
         try:
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
                 # Submit Python file extractions
-                py_futures = {executor.submit(extract_py, f): f for f in py_files}
+                py_futures = {
+                    executor.submit(
+                        _extract_worker,
+                        f,
+                        "py",
+                        self.strict,
+                        self.include_js,
+                        self._extractors_enabled,
+                        self._extractors_disabled,
+                    ): f
+                    for f in py_files
+                }
                 # Submit Markdown extractions
-                md_futures = {executor.submit(self._extract_md, f): f for f in md_files}
+                md_futures = {
+                    executor.submit(
+                        _extract_worker,
+                        f,
+                        "md",
+                        self.strict,
+                        self.include_js,
+                        self._extractors_enabled,
+                        self._extractors_disabled,
+                    ): f
+                    for f in md_files
+                }
                 # Submit config file extractions
                 cfg_futures = {
-                    executor.submit(self._extract_config, f): f for f in config_files
+                    executor.submit(
+                        _extract_worker,
+                        f,
+                        "config",
+                        self.strict,
+                        self.include_js,
+                        self._extractors_enabled,
+                        self._extractors_disabled,
+                    ): f
+                    for f in config_files
                 }
                 # Submit JS/TS file extractions
                 js_futures = {
-                    executor.submit(self._extract_js, f): f for f in js_files
+                    executor.submit(
+                        _extract_worker,
+                        f,
+                        "js",
+                        self.strict,
+                        self.include_js,
+                        self._extractors_enabled,
+                        self._extractors_disabled,
+                    ): f
+                    for f in js_files
                 }
 
-                all_futures: dict[Any, Path] = {**py_futures, **md_futures, **cfg_futures, **js_futures}
+                all_futures: dict[Any, Path] = {
+                    **py_futures,
+                    **md_futures,
+                    **cfg_futures,
+                    **js_futures,
+                }
 
                 for future in as_completed(all_futures):
                     file = all_futures[future]
                     try:
-                        result = future.result()
+                        facts, claims, errs = future.result()
+                        all_facts.extend(facts)
+                        all_claims.extend(claims)
+                        errors.extend(errs)
                     except Exception as e:
                         err = f"[{file}] parallel extraction failed: {e}"
                         if self.strict:
                             raise
                         errors.append(err)
                         continue
-
-                    if isinstance(result, tuple) and len(result) == 4:
-                        # Python file result: (facts, claims, errors, file)
-                        facts, claims, errs, _ = result
-                        all_facts.extend(facts)
-                        all_claims.extend(claims)
-                        errors.extend(errs)
-                    elif isinstance(result, list):
-                        # Markdown or JS result: list of claims
-                        all_claims.extend(result)
-                    elif isinstance(result, tuple) and len(result) == 2:
-                        # Config result: (facts, file)
-                        cfg_facts, _ = result
-                        all_facts.extend(cfg_facts)
-                    else:
-                        # Unexpected result
-                        errors.append(
-                            f"[{file}] unexpected result type from parallel extraction"
-                        )
 
         except Exception:
             # Fallback to serial on any parallel failure
