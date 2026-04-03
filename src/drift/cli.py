@@ -8,7 +8,7 @@ from drift import __version__
 from drift.baseline import filter_new_drift, load_baseline, save_baseline
 from drift.config import load_config
 from drift.git_utils import get_changed_files, get_changed_lines, get_merge_base, is_git_repo, ref_exists
-from drift.models import CodeFact, DocClaim, DriftItem, DriftReport
+from drift.models import CodeFact, DocClaim, DriftCategory, DriftItem, DriftReport
 from drift.reporter import DriftReporter
 from drift.scanner import DriftScanner
 
@@ -163,6 +163,17 @@ def main() -> None:
     is_flag=True,
     help="Suppress progress messages, timing info, and summary counts. Only findings are printed.",
 )
+@click.option(
+    "--exclude-category",
+    "exclude_categories",
+    multiple=True,
+    help="Exclude drift items matching this category. Can be passed multiple times. "
+    "Valid categories: undocumented, missing_param, renamed, fuzzy_renamed, "
+    "wrong_default, wrong_type, wrong_return_type, documented_but_missing, "
+    "extra_param, signature_mismatch, ts_property_missing, ts_property_extra, "
+    "ts_member_missing, ts_member_extra. "
+    "Category names are case-insensitive.",
+)
 def scan(
     paths: tuple[str, ...],
     output_json: bool,
@@ -188,6 +199,7 @@ def scan(
     extractors: tuple[str, ...],
     watch: bool,
     quiet: bool,
+    exclude_categories: tuple[str, ...],
 ) -> None:
     """Scan one or more paths for documentation drift."""
     import time
@@ -390,6 +402,14 @@ def scan(
 
     elapsed = time.monotonic() - start
 
+    # Print phase timings to stderr in verbose mode
+    if verbose and report.metrics:
+        click.echo(f"  Extract: {report.metrics.extract_ms:.2f}ms", err=True)
+        click.echo(f"  Match: {report.metrics.match_ms:.2f}ms", err=True)
+        if report.metrics.filter_ms > 0:
+            click.echo(f"  Filter: {report.metrics.filter_ms:.2f}ms", err=True)
+        click.echo(f"  Total: {report.metrics.total_ms:.2f}ms", err=True)
+
     # Apply severity filter
     if severity != "all":
         severity_min = severity
@@ -406,6 +426,27 @@ def scan(
                 f"  [dim]Confidence filter:[/dim] "
                 f"{len(report.drift_items)}/{original_count} items shown "
                 f"(min={min_confidence})"
+            )
+
+    # Apply category exclusions
+    if exclude_categories:
+        original_count = len(report.drift_items)
+        exclude_set = {cat.lower() for cat in exclude_categories}
+        invalid_cats = [cat for cat in exclude_set if cat not in DriftCategory._value2member_map_]
+        if invalid_cats:
+            valid = sorted(set(c.value for c in DriftCategory))
+            raise click.ClickException(
+                f"Invalid category(s): {', '.join(sorted(invalid_cats))}. "
+                f"Valid categories: {', '.join(valid)}"
+            )
+        report.drift_items = [
+            item for item in report.drift_items if item.category.value.lower() not in exclude_set
+        ]
+        if verbose and original_count != len(report.drift_items):
+            click.echo(
+                f"  [dim]Excluded categories:[/dim] "
+                f"{len(report.drift_items)}/{original_count} items shown "
+                f"(excluded: {', '.join(sorted(exclude_set))})"
             )
 
     reporter = DriftReporter(report, verbose=verbose)

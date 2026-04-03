@@ -945,3 +945,83 @@ class TestConfigIgnorePatterns:
         assert "missing_doc" not in fact_names
         # No drift since main_func is documented
         assert len(report.drift_items) == 0
+
+
+class TestScanMetrics:
+    """Tests for ScanMetrics timing instrumentation."""
+
+    def test_scan_metrics_populated_with_non_negative_values(self, tmp_path: Path) -> None:
+        """ScanMetrics fields are all non-negative after a scan."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int, y: str = 'hello') -> bool:\n"
+            "    '''Docstring.'''\n"
+            "    pass\n"
+            "\n"
+            "def undocumented_func(a: int, b: int) -> None:\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## documented_func\n"
+            "\n"
+            "```python\n"
+            "def documented_func(x: int, y: str = 'hello') -> bool\n"
+            "```\n"
+        )
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        assert report.metrics is not None
+        assert report.metrics.extract_ms >= 0
+        assert report.metrics.match_ms >= 0
+        assert report.metrics.filter_ms >= 0
+        assert report.metrics.total_ms >= 0
+        # Total should be >= sum of phases (allowing for rounding)
+        assert report.metrics.total_ms >= report.metrics.extract_ms - 1
+        assert report.metrics.total_ms >= report.metrics.match_ms - 1
+
+    def test_scan_metrics_filter_ms_zero_when_no_diff_filter(self, tmp_path: Path) -> None:
+        """filter_ms is 0 when no content-aware filtering is performed."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def func(x: int) -> None:\n"
+            "    '''Docstring.'''\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# Docs\n\n```python\ndef func(x: int) -> None\n```\n"
+        )
+
+        scanner = DriftScanner(tmp_path)
+        report = scanner.scan()
+
+        assert report.metrics is not None
+        assert report.metrics.filter_ms == 0
+
+    def test_scan_metrics_filter_ms_positive_with_diff_filter(self, tmp_path: Path) -> None:
+        """filter_ms is positive when content-aware diff filtering is active."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def func(x: int) -> None:\n"
+            "    '''Docstring.'''\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# Docs\n\n```python\ndef func(x: int) -> None\n```\n"
+        )
+
+        # Simulate changed_lines (content-aware diff filtering)
+        scanner = DriftScanner(
+            tmp_path,
+            changed_lines={py_file.resolve(): {1}}
+        )
+        report = scanner.scan()
+
+        assert report.metrics is not None
+        assert report.metrics.filter_ms > 0

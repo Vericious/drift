@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ from drift.extractors.config_file import ConfigFileExtractor
 from drift.extractors.markdown import MarkdownExtractor
 from drift.extractors.registry import get_extractors
 from drift.matcher import SignatureMatcher
-from drift.models import CodeFact, DocClaim, DriftReport
+from drift.models import CodeFact, DocClaim, DriftReport, ScanMetrics
 
 # JSDocExtractor imported lazily when include_js is True
 
@@ -417,6 +418,9 @@ class DriftScanner:
         config_files = self._filter_cached(config_files)
         js_files = self._filter_cached(js_files)
 
+        # Time each major phase
+        t0 = time.perf_counter()
+
         # Extract — parallel when self.parallel is True
         if self.parallel:
             all_facts, all_claims, errors = self._parallel_scan(
@@ -427,16 +431,32 @@ class DriftScanner:
                 py_files, md_files, config_files, js_files
             )
 
+        t1 = time.perf_counter()
+        extract_ms = (t1 - t0) * 1000
+
         # Filter to content-aware changed lines if --diff was used with changed_lines
+        filter_ms = 0.0
         if self.changed_lines is not None:
+            t_filter_start = time.perf_counter()
             all_facts, all_claims = self._filter_content_aware(
                 all_facts, all_claims
             )
+            filter_ms = (time.perf_counter() - t_filter_start) * 1000
 
         # Match facts against claims
+        t_match_start = time.perf_counter()
         drift_items = self.matcher.match(all_facts, all_claims)
+        match_ms = (time.perf_counter() - t_match_start) * 1000
+
+        total_ms = (time.perf_counter() - t0) * 1000
 
         # Build and return report
+        metrics = ScanMetrics(
+            extract_ms=round(extract_ms, 2),
+            match_ms=round(match_ms, 2),
+            filter_ms=round(filter_ms, 2),
+            total_ms=round(total_ms, 2),
+        )
         report = DriftReport(
             scanned_path=self.path,
             facts=all_facts,
@@ -444,6 +464,7 @@ class DriftScanner:
             drift_items=drift_items,
             errors=errors,
             files_skipped=self._files_skipped,
+            metrics=metrics,
         )
         # Save cache after successful scan
         if not self.no_cache:

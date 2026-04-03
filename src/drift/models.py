@@ -212,6 +212,16 @@ class DriftItem:
 
 
 @dataclass
+class ScanMetrics:
+    """Timing metrics for each phase of a drift scan."""
+
+    extract_ms: float = 0.0  # Time spent in extraction phase (ms)
+    match_ms: float = 0.0  # Time spent in matching phase (ms)
+    filter_ms: float = 0.0  # Time spent in content-aware filtering phase (ms)
+    total_ms: float = 0.0  # Total scan time (ms)
+
+
+@dataclass
 class DriftReport:
     """The full result of a drift scan."""
 
@@ -221,6 +231,7 @@ class DriftReport:
     drift_items: list[DriftItem] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     files_skipped: int = 0
+    metrics: ScanMetrics | None = None
 
     @property
     def errors_count(self) -> int:

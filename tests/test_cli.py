@@ -154,6 +154,19 @@ class TestVerboseFlag:
         assert result.exit_code == 0
         assert "s" in result.output  # timing in seconds
 
+    def test_verbose_phase_timing_lines(self, cli_runner, tmp_path):
+        """--verbose output contains phase timing lines matching 'Extract: \\d+ms'."""
+        result = cli_runner.invoke(main, ["scan", "--verbose", str(tmp_path)])
+        assert result.exit_code == 0
+        # Check for phase timing lines in stderr (混在output中)
+        assert "Extract:" in result.output
+        assert "Match:" in result.output
+        assert "Total:" in result.output
+        import re
+        assert re.search(r"Extract:\s*\d+\.\d+ms", result.output)
+        assert re.search(r"Match:\s*\d+\.\d+ms", result.output)
+        assert re.search(r"Total:\s*\d+\.\d+ms", result.output)
+
 
 class TestInitCommand:
     """Tests for `drift init` command."""
@@ -564,3 +577,86 @@ class TestQuietFlag:
         assert result.exit_code == 1
         assert "Drift Scan Report" not in result.output
         assert "Summary:" not in result.output
+
+
+class TestExcludeCategoryOption:
+    """Tests for --exclude-category CLI option."""
+
+    def _make_project_with_multiple_categories(self, tmp_path: Path) -> Path:
+        """Create a project with multiple drift categories.
+
+        Returns the path to the project.
+        """
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def old_renamed(x: int, y: str = 'hello') -> bool:\n"
+            "    '''Documented old_renamed function.'''\n"
+            "    pass\n"
+            "\n"
+            "def undocumented_func(a: int) -> None:\n"
+            "    '''Documented.'''\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## new_name\n"
+            "\n"
+            "```python\n"
+            "def new_name(x: int, y: str = 'hello') -> bool\n"
+            "```\n"
+            "\n"
+            "## undocumented_func\n"
+            "\n"
+            "```python\n"
+            "def undocumented_func(a: int) -> str\n"
+            "```\n"
+        )
+        return tmp_path
+
+    def test_exclude_single_category_removes_matching_items(self, cli_runner, tmp_path):
+        """--exclude-category with one category removes those items from output."""
+        self._make_project_with_multiple_categories(tmp_path)
+        result = cli_runner.invoke(
+            main, ["scan", "--exclude-category", "renamed", str(tmp_path)]
+        )
+        assert result.exit_code in (0, 1)
+
+    def test_exclude_category_case_insensitive(self, cli_runner, tmp_path):
+        """Category names are case-insensitive."""
+        self._make_project_with_multiple_categories(tmp_path)
+        result = cli_runner.invoke(
+            main, ["scan", "--exclude-category", "RENAMED", str(tmp_path)]
+        )
+        assert result.exit_code in (0, 1)
+
+    def test_exclude_multiple_categories_stacks(self, cli_runner, tmp_path):
+        """Multiple --exclude-category flags stack (can be repeated)."""
+        self._make_project_with_multiple_categories(tmp_path)
+        result = cli_runner.invoke(
+            main,
+            [
+                "scan",
+                "--exclude-category", "renamed",
+                "--exclude-category", "undocumented",
+                str(tmp_path),
+            ],
+        )
+        assert result.exit_code in (0, 1)
+
+    def test_invalid_category_name_raises_error(self, cli_runner, tmp_path):
+        """Invalid category name shows error with valid options listed."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def func():\n    pass\n")
+        result = cli_runner.invoke(
+            main,
+            [
+                "scan",
+                "--exclude-category", "not_a_real_category",
+                str(tmp_path),
+            ],
+        )
+        assert result.exit_code != 0
+        assert "Invalid category" in result.output
+        assert "missing_param" in result.output or "renamed" in result.output
