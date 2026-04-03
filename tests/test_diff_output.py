@@ -163,6 +163,17 @@ class TestDiffOutputNoDrift:
 
         assert "No drift" in diff_output or "no drift" in diff_output.lower()
 
+    def test_diff_empty(self):
+        """No drift items -> prints 'No drift to display.' not empty output."""
+        report = DriftReport(
+            scanned_path=Path("."),
+            drift_items=[],
+        )
+        reporter = DriftReporter(report)
+        diff_output = reporter.report_diff()
+
+        assert diff_output == "No drift to display.\n"
+
 
 class TestDiffOutputFormat:
     """Test unified diff format structure."""
