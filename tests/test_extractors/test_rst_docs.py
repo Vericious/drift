@@ -307,6 +307,32 @@ class TestRSTDocsExtractorEdgeCases:
         assert "func2" in names
 
 
+class TestRSTCrossReferences:
+    """Tests for cross-reference directive handling (:func:, :class:, :meth:)."""
+
+    def test_plain_rst_without_api_refs_produces_no_claims(self, extractor, tmp_path: Path):
+        """Plain RST text without API references produces no claims."""
+        content = """Welcome to My Project
+=====================
+
+This is some documentation that doesn't
+contain any API references.
+
+.. toctree::
+   :maxdepth: 2
+
+   intro
+   tutorial
+"""
+        rst_file = tmp_path / "plain.rst"
+        rst_file.write_text(content)
+
+        claims = extractor.extract(rst_file)
+
+        # No claims since there are no py:function, py:method, py:class directives
+        assert claims == []
+
+
 class TestHelperFunctions:
     """Tests for helper functions."""
 
