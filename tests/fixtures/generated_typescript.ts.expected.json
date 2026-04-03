@@ -1,0 +1,156 @@
+{
+  "facts": [
+    {
+      "name": "User",
+      "kind": "interface",
+      "parameters": [
+        {
+          "name": "name",
+          "type_annotation": "string",
+          "default": null,
+          "kind": "required"
+        },
+        {
+          "name": "email",
+          "type_annotation": "string",
+          "default": null,
+          "kind": "required"
+        },
+        {
+          "name": "age",
+          "type_annotation": "number",
+          "default": null,
+          "kind": "optional"
+        },
+        {
+          "name": "active",
+          "type_annotation": "boolean",
+          "default": null,
+          "kind": "required"
+        }
+      ],
+      "return_type": null
+    },
+    {
+      "name": "Config",
+      "kind": "interface",
+      "parameters": [
+        {
+          "name": "apiUrl",
+          "type_annotation": "string",
+          "default": null,
+          "kind": "required"
+        },
+        {
+          "name": "apiKey",
+          "type_annotation": "string",
+          "default": null,
+          "kind": "required",
+          "is_readonly": true
+        },
+        {
+          "name": "timeout",
+          "type_annotation": "number",
+          "default": null,
+          "kind": "optional"
+        }
+      ],
+      "return_type": null
+    },
+    {
+      "name": "UserRole",
+      "kind": "enum",
+      "parameters": [
+        {
+          "name": "Admin",
+          "type_annotation": null,
+          "default": "\"ADMIN\"",
+          "kind": "required"
+        },
+        {
+          "name": "User",
+          "type_annotation": null,
+          "default": "\"USER\"",
+          "kind": "required"
+        },
+        {
+          "name": "Guest",
+          "type_annotation": null,
+          "default": "\"GUEST\"",
+          "kind": "required"
+        }
+      ],
+      "return_type": null
+    },
+    {
+      "name": "HttpStatus",
+      "kind": "enum",
+      "parameters": [
+        {
+          "name": "Ok",
+          "type_annotation": null,
+          "default": "200",
+          "kind": "required"
+        },
+        {
+          "name": "NotFound",
+          "type_annotation": null,
+          "default": "404",
+          "kind": "required"
+        },
+        {
+          "name": "Error",
+          "type_annotation": null,
+          "default": "500",
+          "kind": "required"
+        }
+      ],
+      "return_type": null
+    },
+    {
+      "name": "UserOrGuest",
+      "kind": "type_alias",
+      "parameters": [],
+      "return_type": null
+    },
+    {
+      "name": "greet",
+      "kind": "function",
+      "parameters": [
+        {
+          "name": "name",
+          "type_annotation": "string",
+          "default": null,
+          "kind": "required"
+        },
+        {
+          "name": "greeting",
+          "type_annotation": "string",
+          "default": "\"Hello\"",
+          "kind": "required"
+        }
+      ],
+      "return_type": "string"
+    },
+    {
+      "name": "fetchData",
+      "kind": "function",
+      "parameters": [
+        {
+          "name": "url",
+          "type_annotation": "string",
+          "default": null,
+          "kind": "required"
+        },
+        {
+          "name": "options",
+          "type_annotation": "RequestInit",
+          "default": null,
+          "kind": "optional"
+        }
+      ],
+      "return_type": "Promise<T>"
+    }
+  ],
+  "claims": []
+}
