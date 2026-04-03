@@ -196,6 +196,36 @@ class TestDiffOutputFormat:
         assert "---" in diff_output
         assert "+++" in diff_output
 
+    def test_diff_multiple_items(self):
+        """Multiple DriftItems each produce their own separated diff block."""
+        item1 = make_drift_item(
+            category="wrong_default",
+            claim_name="func_a",
+            fact_name="func_a",
+            message="func_a wrong default",
+        )
+        item2 = make_drift_item(
+            category="wrong_type",
+            claim_name="func_b",
+            fact_name="func_b",
+            message="func_b wrong type",
+            doc_params=[{"name": "y", "type_annotation": "str", "default": None, "kind": "positional"}],
+            code_params=[{"name": "y", "type_annotation": "int", "default": None, "kind": "positional"}],
+        )
+        report = DriftReport(
+            scanned_path=Path("."),
+            drift_items=[item1, item2],
+        )
+        reporter = DriftReporter(report)
+        diff_output = reporter.report_diff()
+
+        # Each item should have its own ---/+++/@@ block
+        assert diff_output.count("---") >= 2
+        assert diff_output.count("+++") >= 2
+        assert "@@" in diff_output
+        assert "func_a" in diff_output
+        assert "func_b" in diff_output
+
 
 # ---------------------------------------------------------------------------
 # Tests for --patch output (unified git-compatible patches)
