@@ -1013,6 +1013,72 @@ def baseline(path: str, update: bool) -> None:
     click.echo(f"  Run 'drift scan --baseline' to compare against this snapshot.")
 
 
+@main.command("baseline-export")
+@click.option(
+    "--format",
+    "-f",
+    "export_format",
+    type=click.Choice(["json", "csv"]),
+    default="json",
+    help="Export format: json (default) or csv.",
+)
+@click.argument("path", default=".")
+def baseline_export(path: str, export_format: str) -> None:
+    """Export the current baseline as JSON or CSV.
+
+    Reads the baseline from .drift/baseline.json and outputs
+    formatted data to stdout. Use with --format csv for CSV output.
+    """
+    from drift.config import load_config
+
+    scan_path = Path(path)
+
+    # Load config (silently ignore if not found)
+    try:
+        load_config()
+    except (FileNotFoundError, ValueError):
+        pass
+
+    result = load_baseline(scan_path)
+    if result is None:
+        raise click.ClickException(
+            "No baseline found. Run 'drift baseline' first to create one."
+        )
+    created_at, baseline_items = result
+
+    if export_format == "json":
+        import json
+
+        output = {
+            "created_at": created_at,
+            "scan_path": str(scan_path),
+            "item_count": len(baseline_items),
+            "items": baseline_items,  # Already dicts from load_baseline
+        }
+        click.echo(json.dumps(output, indent=2))
+    elif export_format == "csv":
+        import csv
+        import io
+
+        output_buffer = io.StringIO()
+        writer = csv.writer(output_buffer)
+        # Header row
+        writer.writerow(["severity", "category", "message", "fact_name", "fact_file", "claim_raw"])
+        # Data rows
+        for item in baseline_items:
+            fact = item.get("fact", {})
+            claim = item.get("claim", {})
+            writer.writerow([
+                item.get("severity", ""),
+                item.get("category", ""),
+                item.get("message", ""),
+                fact.get("name", "") if fact else "",
+                fact.get("source_file", "") if fact else "",
+                claim.get("raw_text", "") if claim else "",
+            ])
+        click.echo(output_buffer.getvalue())
+
+
 def _filter_by_severity(items: list[DriftItem], min_severity: str) -> list[DriftItem]:
     """Filter drift items to only those >= min_severity.
 
