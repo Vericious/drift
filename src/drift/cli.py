@@ -153,6 +153,15 @@ def main() -> None:
     help="Scan files changed vs a branch's merge-base with HEAD (e.g., 'main').",
 )
 @click.option(
+    "--since",
+    "since",
+    type=str,
+    default=None,
+    help="Scan only files modified after the given time. "
+    "Accepts a duration string (e.g., '7d', '24h', '30m', '30s') or an ISO date. "
+    "Duration suffixes: s=seconds, m=minutes, h=hours, d=days, w=weeks.",
+)
+@click.option(
     "--extractor",
     "extractors",
     multiple=True,
@@ -203,6 +212,7 @@ def scan(
     update_baseline: bool,
     diff_ref: str | None,
     diff_branch: str | None,
+    since: str | None,
     extractors: tuple[str, ...],
     watch: bool,
     quiet: bool,
@@ -287,6 +297,7 @@ def scan(
                         clear_cache=clear_cache,
                         baseline=baseline,
                         diff_ref=diff_ref,
+                        since=since,
                         extractors=extractors,
                     )
                 time.sleep(2)
@@ -355,6 +366,16 @@ def scan(
                     fg="yellow",
                     err=True,
                 )
+
+        # --since overrides changed_files: filter by file modification time
+        if since is not None:
+            cutoff = _parse_since(since)
+            since_files = _get_files_modified_since(scan_path, cutoff)
+            if since_files:
+                changed_files = since_files
+                changed_lines = None
+                if not quiet:
+                    click.echo(f"Scanning {len(since_files)} file(s) modified since {since}")
 
         # Per-extractor config: --extractor CLI flag overrides config file
         if extractors:
@@ -1132,6 +1153,100 @@ def _should_fail_on_severity(items: list[DriftItem], fail_on: str) -> bool:
     return any(order.get(item.severity.value, 3) <= fail_level for item in items)
 
 
+def _parse_since(since: str) -> float:
+    """Parse a --since value (duration string or ISO date) into a unix timestamp.
+
+    Duration strings: integer + suffix where suffix is s, m, h, d, or w.
+    Examples: '30s', '5m', '2h', '7d', '1w'
+
+    Raises click.ClickException if the format is invalid.
+    """
+    import re
+    import time
+
+    # Try ISO date first
+    try:
+        from datetime import datetime
+
+        dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        return dt.timestamp()
+    except ValueError:
+        pass
+
+    # Try duration string: number + unit
+    match = re.match(r"^(\d+)([smhdw])$", since.lower())
+    if not match:
+        raise click.ClickException(
+            f"Invalid --since value '{since}'. "
+            f"Expected ISO date (e.g., '2024-01-15') or duration string "
+            f"(e.g., '7d', '24h', '30m', '30s')."
+        )
+
+    value = int(match.group(1))
+    unit = match.group(2)
+
+    now = time.time()
+    seconds_per_unit = {
+        "s": 1,
+        "m": 60,
+        "h": 60 * 60,
+        "d": 60 * 60 * 24,
+        "w": 60 * 60 * 24 * 7,
+    }
+    return now - (value * seconds_per_unit[unit])
+
+
+def _get_files_modified_since(scan_path: Path, cutoff: float) -> list[Path]:
+    """Return all drift-relevant files under scan_path modified since cutoff.
+
+    Collects py, md, yaml, yml, toml, js, ts, jsx, tsx files and returns
+    only those with mtime > cutoff. Files that can't be stat'd are included
+    conservatively.
+    """
+    if scan_path.is_file():
+        try:
+            if scan_path.stat().st_mtime > cutoff:
+                return [scan_path]
+        except OSError:
+            return [scan_path]
+        return []
+
+    exclude_dirs = {
+        ".git",
+        "__pycache__",
+        ".venv",
+        "node_modules",
+        ".tox",
+        ".pytest_cache",
+        ".mypy_cache",
+    }
+
+    patterns = [
+        "*.py",
+        "*.md",
+        "*.yaml",
+        "*.yml",
+        "*.toml",
+        "*.js",
+        "*.ts",
+        "*.jsx",
+        "*.tsx",
+    ]
+
+    files: list[Path] = []
+    for pattern in patterns:
+        for f in scan_path.rglob(pattern):
+            if any(part in exclude_dirs for part in f.parts):
+                continue
+            try:
+                if f.stat().st_mtime > cutoff:
+                    files.append(f)
+            except OSError:
+                # Include files we can't stat, to be conservative
+                files.append(f)
+    return files
+
+
 def _get_watch_files(scan_path: Path) -> list[Path]:
     """Get all watchable files (py, md, rst, toml, yaml) under scan_path."""
     if scan_path.is_file():
@@ -1185,6 +1300,7 @@ def _run_watch_scan(
     clear_cache: bool,
     baseline: bool,
     diff_ref: str | None,
+    since: str | None,
     extractors: tuple[str, ...],
 ) -> None:
     """Run a single scan pass, reusing the core logic from the scan command."""
@@ -1223,6 +1339,11 @@ def _run_watch_scan(
                 click.secho(f"WARNING: git ref '{diff_ref}' not found.", fg="yellow", err=True)
             else:
                 changed_files = get_changed_files(diff_ref, scan_path)
+
+    # --since overrides: filter by file modification time
+    if since is not None:
+        cutoff = _parse_since(since)
+        changed_files = _get_files_modified_since(scan_path, cutoff)
 
     if extractors:
         extractors_enabled = list(extractors)

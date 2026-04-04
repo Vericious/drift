@@ -682,3 +682,171 @@ class TestExcludeCategoryOption:
         assert result.exit_code != 0
         assert "Invalid category" in result.output
         assert "missing_param" in result.output or "renamed" in result.output
+
+
+class TestSinceFlag:
+    """Tests for --since CLI filter."""
+
+    def test_since_7d_parses_to_7_days_ago(self):
+        """_parse_since('7d') returns a timestamp ~7 days in the past."""
+        import time
+        from drift.cli import _parse_since
+
+        before = time.time() - (7 * 24 * 60 * 60)
+        result = _parse_since("7d")
+        after = time.time() - (7 * 24 * 60 * 60)
+        assert before <= result <= after
+
+    def test_since_24h_parses_to_24_hours_ago(self):
+        """_parse_since('24h') returns a timestamp ~24 hours in the past."""
+        import time
+        from drift.cli import _parse_since
+
+        before = time.time() - (24 * 60 * 60)
+        result = _parse_since("24h")
+        after = time.time() - (24 * 60 * 60)
+        assert before <= result <= after
+
+    def test_since_30m_parses_to_30_minutes_ago(self):
+        """_parse_since('30m') returns a timestamp ~30 minutes in the past."""
+        import time
+        from drift.cli import _parse_since
+
+        before = time.time() - (30 * 60)
+        result = _parse_since("30m")
+        after = time.time() - (30 * 60)
+        assert before <= result <= after
+
+    def test_since_30s_parses_to_30_seconds_ago(self):
+        """_parse_since('30s') returns a timestamp ~30 seconds in the past."""
+        import time
+        from drift.cli import _parse_since
+
+        before = time.time() - 30
+        result = _parse_since("30s")
+        after = time.time() - 30
+        # Allow 2s tolerance for test execution time
+        assert before - 2 <= result <= after + 2
+
+    def test_since_iso_date_parses_correctly(self):
+        """_parse_since accepts an ISO date string."""
+        from drift.cli import _parse_since
+        from datetime import datetime
+
+        result = _parse_since("2024-01-15")
+        expected = datetime(2024, 1, 15).timestamp()
+        assert result == expected
+
+    def test_since_iso_datetime_parses_correctly(self):
+        """_parse_since accepts an ISO datetime string."""
+        from drift.cli import _parse_since
+        from datetime import datetime
+
+        result = _parse_since("2024-01-15T10:30:00")
+        expected = datetime(2024, 1, 15, 10, 30, 0).timestamp()
+        assert result == expected
+
+    def test_since_invalid_format_raises_error(self):
+        """_parse_since raises ClickException for invalid format."""
+        import pytest
+        from click import ClickException
+        from drift.cli import _parse_since
+
+        with pytest.raises(ClickException) as exc_info:
+            _parse_since("invalid")
+        assert "Invalid --since value" in str(exc_info.value)
+
+    def test_since_invalid_unit_raises_error(self):
+        """_parse_since raises ClickException for unknown unit."""
+        import pytest
+        from click import ClickException
+        from drift.cli import _parse_since
+
+        with pytest.raises(ClickException):
+            _parse_since("5x")
+
+    def test_since_missing_number_raises_error(self):
+        """_parse_since raises ClickException when number is missing."""
+        import pytest
+        from click import ClickException
+        from drift.cli import _parse_since
+
+        with pytest.raises(ClickException):
+            _parse_since("d")
+
+    def test_since_filters_old_files(self, cli_runner, tmp_path):
+        """--since excludes files older than the cutoff."""
+        import time
+
+        # Create a file
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int) -> bool:\n"
+            "    '''Documented function.'''\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## documented_func\n"
+            "\n"
+            "```python\n"
+            "def documented_func(x: int) -> bool\n"
+            "```\n"
+        )
+
+        # Set file mtime to 2 days ago
+        old_time = time.time() - (2 * 24 * 60 * 60)
+        import os
+        os.utime(py_file, (old_time, old_time))
+        os.utime(md_file, (old_time, old_time))
+
+        # With --since 1d, nothing should be scanned (all files are older)
+        result = cli_runner.invoke(main, ["scan", "--since", "1d", str(tmp_path)])
+        # Should still run successfully but scan 0 files
+        assert result.exit_code == 0
+
+    def test_since_includes_recent_files(self, cli_runner, tmp_path):
+        """--since includes files modified after the cutoff."""
+        # Create a file with current timestamp
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int) -> bool:\n"
+            "    '''Documented function.'''\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## documented_func\n"
+            "\n"
+            "```python\n"
+            "def documented_func(x: int) -> bool\n"
+            "```\n"
+        )
+
+        # With --since 1d, current files should be scanned
+        result = cli_runner.invoke(main, ["scan", "--since", "1d", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "0 facts" in result.output or "No drift" in result.output
+
+    def test_since_shows_file_count_in_output(self, cli_runner, tmp_path):
+        """--since reports how many files are being scanned."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def func():\n    pass\n")
+
+        result = cli_runner.invoke(main, ["scan", "--since", "1d", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Scanning" in result.output
+        assert "file(s) modified since 1d" in result.output
+
+    def test_since_invalid_format_shows_error(self, cli_runner, tmp_path):
+        """--since with invalid format shows a helpful error."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text("def func():\n    pass\n")
+
+        result = cli_runner.invoke(main, ["scan", "--since", "notvalid", str(tmp_path)])
+        assert result.exit_code != 0
+        assert "Invalid --since value" in result.output
