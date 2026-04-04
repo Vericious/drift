@@ -259,6 +259,7 @@ class DriftReport:
     drift_items: list[DriftItem] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     files_skipped: int = 0
+    files_scanned: int = 0  # Total files considered for scanning (before cache/since filters)
     metrics: ScanMetrics | None = None
 
     @property

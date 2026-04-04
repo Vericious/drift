@@ -455,6 +455,55 @@ class TestReportConsole:
         assert "Confidence:" in captured.out
         assert "%" in captured.out
 
+    def test_summary_footer_appears_with_items(self, populated_report, capsys):
+        """Footer with statistics appears when drift items exist."""
+        reporter = DriftReporter(populated_report)
+        reporter.report_console()
+        captured = capsys.readouterr()
+        assert "Summary" in captured.out
+        assert "Total items:" in captured.out
+
+    def test_summary_footer_shows_category_counts(self, populated_report, capsys):
+        """Footer shows correct per-category counts."""
+        # populated_report has 1 missing_param, 0 signature_changed, 0 fuzzy_renamed
+        reporter = DriftReporter(populated_report)
+        reporter.report_console()
+        captured = capsys.readouterr()
+        # "1 missing" — 1 missing_param item
+        assert "1 missing" in captured.out
+        # "0 signature_changed"
+        assert "0 signature_changed" in captured.out
+        # "0 fuzzy_renamed"
+        assert "0 fuzzy_renamed" in captured.out
+
+    def test_summary_footer_shows_avg_confidence(self, populated_report, capsys):
+        """Footer shows average confidence across all items."""
+        reporter = DriftReporter(populated_report)
+        reporter.report_console()
+        captured = capsys.readouterr()
+        # populated_report items default to confidence=1.0 each → avg=100%
+        assert "Avg confidence:" in captured.out
+        assert "100%" in captured.out
+
+    def test_summary_footer_shows_files_scanned(self, populated_report, capsys):
+        """Footer shows the files scanned count."""
+        report = populated_report
+        report.files_scanned = 10
+        reporter = DriftReporter(report)
+        reporter.report_console()
+        captured = capsys.readouterr()
+        assert "Files scanned:" in captured.out
+        assert "10" in captured.out
+
+    def test_summary_footer_missing_on_empty_report(self, empty_report, capsys):
+        """No summary footer appears when report has no drift items."""
+        reporter = DriftReporter(empty_report)
+        reporter.report_console()
+        captured = capsys.readouterr()
+        # "Summary" appears in the header line, so check for footer-specific "Total items:"
+        assert "Total items:" not in captured.out
+        assert "Avg confidence:" not in captured.out
+
 
 class TestCodeFactToDict:
     """Tests for CodeFact.to_dict()."""

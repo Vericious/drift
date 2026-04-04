@@ -11,6 +11,7 @@ from drift.models import (
     ClaimKind,
     ConfidenceSignals,
     DocClaim,
+    DriftCategory,
     DriftItem,
     DriftReport,
     Severity,
@@ -107,6 +108,10 @@ class DriftReporter:
         if infos:
             self._print_section("Info", infos, "blue")
 
+        # Summary footer — only when there are drift items
+        if report.drift_items:
+            self._print_summary_footer(report)
+
         self.console.print()
 
     def _print_section(
@@ -169,6 +174,47 @@ class DriftReporter:
         )
         ret = f" -> {claim.return_type}" if claim.return_type else ""
         return f"{name}({params}){ret}"
+
+    def _print_summary_footer(self, report: "DriftReport") -> None:
+        """Print a summary footer with statistics about the drift items."""
+        total = len(report.drift_items)
+        if total == 0:
+            return
+
+        # Count by category groups (category is stored as string)
+        missing = sum(
+            1
+            for d in report.drift_items
+            if d.category == DriftCategory.MISSING_PARAM.value
+        )
+        signature_changed = sum(
+            1
+            for d in report.drift_items
+            if d.category == DriftCategory.SIGNATURE_MISMATCH.value
+        )
+        fuzzy_renamed = sum(
+            1
+            for d in report.drift_items
+            if d.category == DriftCategory.FUZZY_RENAMED.value
+        )
+
+        # Average confidence
+        avg_conf = sum(d.confidence for d in report.drift_items) / total
+
+        # Files scanned (total considered before cache filter)
+        files_scanned = report.files_scanned
+
+        self.console.print("[bold]Summary[/bold]")
+        self.console.print(f"  Total items: {total}")
+        self.console.print(
+            f"  By category: "
+            f"{missing} missing, "
+            f"{signature_changed} signature_changed, "
+            f"{fuzzy_renamed} fuzzy_renamed"
+        )
+        self.console.print(f"  Avg confidence: {avg_conf:.0%}")
+        if files_scanned > 0:
+            self.console.print(f"  Files scanned: {files_scanned}")
 
     # -------------------------------------------------------------------------
     # SARIF output

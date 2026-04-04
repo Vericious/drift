@@ -153,6 +153,7 @@ class DriftScanner:
         self.matcher = SignatureMatcher()
         self._ignore_patterns: list[tuple[str, bool]] = []
         self._files_skipped: int = 0
+        self._files_scanned: int = 0
         self._load_driftignore()
         if include_js:
             from drift.extractor_js import JSDocExtractor
@@ -536,6 +537,10 @@ class DriftScanner:
             js_files = self._filter_since(js_files)
 
         # Filter via file hash cache — skip unchanged files
+        # Track total files considered (before cache filter)
+        self._files_scanned = (
+            len(py_files) + len(md_files) + len(config_files) + len(js_files)
+        )
         py_files = self._filter_cached(py_files)
         md_files = self._filter_cached(md_files)
         config_files = self._filter_cached(config_files)
@@ -587,6 +592,7 @@ class DriftScanner:
             drift_items=drift_items,
             errors=errors,
             files_skipped=self._files_skipped,
+            files_scanned=self._files_scanned,
             metrics=metrics,
         )
         # Save cache after successful scan
