@@ -128,6 +128,7 @@ class DriftScanner:
         extractors_enabled: list[str] | None = None,
         extractors_disabled: list[str] | None = None,
         ignore_patterns: list[str] | None = None,
+        since: float | None = None,
     ) -> None:
         self.path = path
         self.strict = strict
@@ -140,6 +141,7 @@ class DriftScanner:
         self.clear_cache = clear_cache
         self.changed_files = changed_files  # If set, only scan these files
         self.changed_lines = changed_lines  # If set, filter facts/claims to ±5 context window
+        self.since = since  # Unix timestamp — only scan files modified after this
         # Per-extractor enable/disable: None/[] = run all; list = only run these
         self._extractors_enabled = extractors_enabled
         self._extractors_disabled = extractors_disabled or []
@@ -361,6 +363,24 @@ class DriftScanner:
             self._mark_cached(f)
         return changed
 
+    def _filter_since(self, files: list[Path]) -> list[Path]:
+        """Return only files modified after self.since (Unix timestamp).
+
+        Files that cannot be stat'd are included (conservative: don't skip on error).
+        """
+        since_ts = self.since
+        if since_ts is None:
+            return files
+        filtered: list[Path] = []
+        for f in files:
+            try:
+                if f.stat().st_mtime >= since_ts:
+                    filtered.append(f)
+            except OSError:
+                # If we can't stat the file, include it (conservative)
+                filtered.append(f)
+        return filtered
+
     def _filter_content_aware(
         self,
         facts: list[CodeFact],
@@ -507,6 +527,13 @@ class DriftScanner:
             md_files = [f for f in md_files if f.resolve() in changed_set]
             config_files = [f for f in config_files if f.resolve() in changed_set]
             js_files = [f for f in js_files if f.resolve() in changed_set]
+
+        # Filter to only files modified after --since timestamp
+        if self.since is not None:
+            py_files = self._filter_since(py_files)
+            md_files = self._filter_since(md_files)
+            config_files = self._filter_since(config_files)
+            js_files = self._filter_since(js_files)
 
         # Filter via file hash cache — skip unchanged files
         py_files = self._filter_cached(py_files)

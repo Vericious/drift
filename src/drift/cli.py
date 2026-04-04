@@ -187,6 +187,14 @@ def main() -> None:
     "ts_member_missing, ts_member_extra. "
     "Category names are case-insensitive.",
 )
+@click.option(
+    "--since",
+    type=str,
+    default=None,
+    help="Only scan files modified after this time. "
+    "Accepts a duration string (e.g., '7d', '24h', '30m') or an ISO date string. "
+    "Duration units: d=days, h=hours, m=minutes, s=seconds.",
+)
 def scan(
     paths: tuple[str, ...],
     output_json: bool,
@@ -215,6 +223,7 @@ def scan(
     watch: bool,
     quiet: bool,
     exclude_categories: tuple[str, ...],
+    since: str | None,
 ) -> None:
     """Scan one or more paths for documentation drift."""
     import time
@@ -233,6 +242,9 @@ def scan(
         raise click.ClickException(str(e)) from e
     except ValueError as e:
         raise click.ClickException(str(e)) from e
+
+    # Parse --since into a Unix timestamp
+    since_ts = _parse_since(since)
 
     # CLI --json, --sarif, --html, or --diff-output flag overrides config
     # These flags are mutually exclusive
@@ -386,6 +398,7 @@ def scan(
             extractors_enabled=extractors_enabled,
             extractors_disabled=extractors_disabled,
             ignore_patterns=config.ignore_patterns,
+            since=since_ts,
         )
         report = scanner.scan()
         all_reports.append(report)
@@ -1092,6 +1105,80 @@ def baseline_export(format: str) -> None:
             }
             writer.writerow(row)
         click.echo(output.getvalue())
+
+
+def _parse_since(since_value: str | None) -> float | None:
+    """Parse a --since value into a Unix timestamp.
+
+    Accepts:
+      - Duration strings: '7d', '24h', '30m', '90s' (case-insensitive)
+      - ISO 8601 date strings: '2024-01-15', '2024-01-15T10:30:00'
+      - ISO date with time: '2024-01-15 10:30:00'
+
+    Returns Unix timestamp (float) or None if since_value is None.
+    Raises click.ClickException for unrecognised formats.
+    """
+    if since_value is None:
+        return None
+
+    import re
+    from datetime import datetime, timezone
+
+    # Try duration string first: (\d+)([dDhHmMsS])
+    duration_pattern = re.compile(r"^(\d+)([dDhHmMsS])$")
+    match = duration_pattern.match(since_value.strip())
+    if match:
+        value, unit = match.groups()
+        value = int(value)
+        now = datetime.now(timezone.utc).timestamp()
+        # Convert to past timestamp
+        if unit.lower() == "d":
+            return now - value * 86400
+        elif unit.lower() == "h":
+            return now - value * 3600
+        elif unit.lower() == "m":
+            return now - value * 60
+        elif unit.lower() == "s":
+            return now - value
+        # Should not reach here
+
+    # Try ISO date formats
+    iso_formats = [
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d",
+    ]
+    for fmt in iso_formats:
+        try:
+            dt = datetime.strptime(since_value.strip(), fmt)
+            # Assume UTC if no timezone specified
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except ValueError:
+            pass
+
+    # Try ISO date with Z suffix
+    if since_value.strip().endswith("Z"):
+        try:
+            dt = datetime.fromisoformat(since_value.strip().replace("Z", "+00:00"))
+            return dt.timestamp()
+        except ValueError:
+            pass
+
+    # Try pure ISO format (Python 3.11+ handles this)
+    try:
+        dt = datetime.fromisoformat(since_value.strip())
+        return dt.timestamp()
+    except ValueError:
+        pass
+
+    raise click.ClickException(
+        f"Invalid --since value '{since_value}'. "
+        "Expected a duration (e.g., '7d', '24h', '30m') or an ISO date (e.g., '2024-01-15')."
+    )
 
 
 def _filter_by_severity(items: list[DriftItem], min_severity: str) -> list[DriftItem]:

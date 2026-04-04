@@ -770,3 +770,115 @@ class TestBaselineExport:
         result = cli_runner.invoke(main, ["baseline-export"])
         assert result.exit_code != 0
         assert "No baseline found" in result.output
+
+
+class TestSinceOption:
+    """Tests for --since time-based filtering."""
+
+    def test_parse_since_duration_7d(self):
+        """'7d' parses to approximately 7 days in the past."""
+        from drift.cli import _parse_since
+        import time
+
+        now = time.time()
+        result = _parse_since("7d")
+        assert result is not None
+        # Should be ~7 days ago from now (within 5 seconds)
+        assert abs((now - result) - 7 * 86400) < 5
+
+    def test_parse_since_duration_24h(self):
+        """'24h' parses to approximately 24 hours in the past."""
+        from drift.cli import _parse_since
+        import time
+
+        now = time.time()
+        result = _parse_since("24h")
+        assert result is not None
+        # Should be within a few seconds of 24 hours ago
+        assert abs((now - result) - 86400) < 5
+
+    def test_parse_since_duration_30m(self):
+        """'30m' parses to approximately 30 minutes in the past."""
+        from drift.cli import _parse_since
+
+        result = _parse_since("30m")
+        assert result is not None
+        # Should be around 30 minutes ago from now
+        now = __import__("time").time()
+        assert 29 * 60 < (now - result) < 31 * 60
+
+    def test_parse_since_iso_date(self):
+        """ISO date string '2024-01-15' parses to a timestamp on that date."""
+        from drift.cli import _parse_since
+
+        result = _parse_since("2024-01-15")
+        assert result is not None
+        # Jan 15 2024 00:00:00 UTC
+        expected = 1705276800  # Approximate UTC midnight for 2024-01-15
+        # Allow some tolerance for timezone differences
+        assert abs(result - expected) < 86400  # Within 1 day
+
+    def test_parse_since_iso_datetime(self):
+        """ISO datetime string parses correctly."""
+        from drift.cli import _parse_since
+
+        result = _parse_since("2024-01-15T10:30:00")
+        assert result is not None
+        # Jan 15 2024 10:30:00 UTC
+        expected = 1705314600  # Approximate
+        assert abs(result - expected) < 3600  # Within 1 hour
+
+    def test_parse_since_invalid_format_raises(self):
+        """Invalid --since format raises a ClickException."""
+        from drift.cli import _parse_since
+        from click import ClickException
+
+        with pytest.raises(ClickException) as exc_info:
+            _parse_since("not-a-valid-format")
+        assert "Invalid --since value" in str(exc_info.value)
+
+    def test_parse_since_none_returns_none(self):
+        """_parse_since(None) returns None without error."""
+        from drift.cli import _parse_since
+
+        assert _parse_since(None) is None
+
+    def test_since_excludes_old_files(self, cli_runner, tmp_path):
+        """Files older than --since are excluded from scan results."""
+        import os
+        import time
+
+        # Create a project with two Python files
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int) -> bool:\n"
+            "    '''Documented.'''\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API\n\n"
+            "## documented_func\n\n"
+            "```python\n"
+            "def documented_func(x: int) -> bool\n"
+            "```\n"
+        )
+
+        # Set mtime of the file to 10 days ago
+        old_mtime = time.time() - (10 * 86400)
+        old_time_str = time.strftime("%Y%m%d%H%M.S", time.localtime(old_mtime))
+        os.utime(py_file, (old_mtime, old_mtime))
+
+        # Without --since, both files should be found (documented_func is documented)
+        result_no_since = cli_runner.invoke(main, ["scan", str(tmp_path)])
+        assert result_no_since.exit_code in (0, 1)
+
+        # With --since=8d, the old file should be excluded
+        # (and no drift should be found since the old file isn't scanned)
+        result_since = cli_runner.invoke(main, ["scan", "--since", "8d", str(tmp_path)])
+        assert result_since.exit_code == 0, f"--since scan failed: {result_since.stderr}"
+        # Since the old .py file wasn't scanned, no facts were extracted,
+        # so the documented claim in docs.md has no matching fact → drift
+        # But since docs.md was scanned (recent mtime), we get the documented claim
+        # Result should NOT contain documented_func drift because the .py was excluded
+        assert "documented_func" not in result_since.output
