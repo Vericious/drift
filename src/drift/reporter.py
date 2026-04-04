@@ -107,6 +107,30 @@ class DriftReporter:
         if infos:
             self._print_section("Info", infos, "blue")
 
+        # Summary footer — only shown when there are drift items
+        if report.drift_items:
+            self.console.print()
+            self.console.print(f"[dim]{'─' * 50}[/dim]")
+            total = len(report.drift_items)
+
+            # Category breakdown
+            by_category: dict[str, int] = {}
+            for item in report.drift_items:
+                by_category[item.category] = by_category.get(item.category, 0) + 1
+
+            cat_parts = ", ".join(f"{n} {cat}" for cat, n in sorted(by_category.items()))
+            self.console.print(f"  [dim]Total:[/dim] {total} drift item(s)  ({cat_parts})")
+
+            # Average confidence
+            avg_conf = sum(item.confidence for item in report.drift_items) / total
+            self.console.print(f"  [dim]Avg confidence:[/dim] {avg_conf:.0%}")
+
+            # Files scanned (skipped + drift items from distinct source files)
+            if report.files_skipped > 0:
+                self.console.print(f"  [dim]Files scanned:[/dim] {report.files_skipped + total} (incl. {report.files_skipped} unchanged)")
+            else:
+                self.console.print(f"  [dim]Files scanned:[/dim] {total}")
+
         self.console.print()
 
     def _print_section(

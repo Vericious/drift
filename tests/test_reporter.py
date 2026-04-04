@@ -455,6 +455,43 @@ class TestReportConsole:
         assert "Confidence:" in captured.out
         assert "%" in captured.out
 
+    def test_console_footer_appears_with_correct_counts(self, populated_report, capsys):
+        """Summary footer appears and shows correct total item count."""
+        reporter = DriftReporter(populated_report)
+        reporter.report_console()
+        captured = capsys.readouterr()
+        # populated_report has 3 drift items
+        assert "Total:" in captured.out
+        assert "3 drift item(s)" in captured.out
+
+    def test_console_footer_category_breakdown(self, populated_report, capsys):
+        """Footer shows correct per-category counts."""
+        reporter = DriftReporter(populated_report)
+        reporter.report_console()
+        captured = capsys.readouterr()
+        # Three categories in populated_report: documented_but_missing, missing_param, wrong_default
+        # All three category names + count should appear in output (may wrap across lines)
+        assert "documented_but_missing" in captured.out
+        assert "missing_param" in captured.out
+        assert "wrong_default" in captured.out
+
+    def test_console_footer_avg_confidence(self, populated_report, capsys):
+        """Footer shows correct average confidence percentage."""
+        reporter = DriftReporter(populated_report)
+        reporter.report_console()
+        captured = capsys.readouterr()
+        # All 3 items have default confidence 1.0, so avg = 100%
+        assert "Avg confidence:" in captured.out
+        assert "100%" in captured.out
+
+    def test_console_footer_absent_on_empty_report(self, empty_report, capsys):
+        """No summary footer is printed when there are zero drift items."""
+        reporter = DriftReporter(empty_report)
+        reporter.report_console()
+        captured = capsys.readouterr()
+        assert "Total:" not in captured.out
+        assert "Avg confidence" not in captured.out
+
 
 class TestCodeFactToDict:
     """Tests for CodeFact.to_dict()."""
