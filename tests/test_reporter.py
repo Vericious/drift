@@ -775,7 +775,7 @@ class TestReportSarif:
         report = DriftReport(scanned_path=Path("."), drift_items=[item])
         reporter = DriftReporter(report)
         parsed = json.loads(reporter.report_sarif())
-        assert parsed["runs"][0]["results"][0]["rank"] == 75.0
+        assert parsed["runs"][0]["results"][0]["properties"]["rank"] == 75.0
 
 
 class TestReportHtml:
