@@ -1,0 +1,94 @@
+{
+  "facts": [],
+  "claims": [
+    {
+      "name": "greet",
+      "kind": "function",
+      "parameters": [
+        {
+          "name": "name",
+          "type_annotation": "str",
+          "default": null,
+          "kind": "required"
+        },
+        {
+          "name": "greeting",
+          "type_annotation": "str",
+          "default": "\"Hello\"",
+          "kind": "required"
+        }
+      ],
+      "return_type": "str"
+    },
+    {
+      "name": "process_data",
+      "kind": "function",
+      "parameters": [
+        {
+          "name": "data",
+          "type_annotation": "list[int]",
+          "default": null,
+          "kind": "required"
+        },
+        {
+          "name": "multiplier",
+          "type_annotation": "int",
+          "default": "1",
+          "kind": "required"
+        }
+      ],
+      "return_type": "list[int]"
+    },
+    {
+      "name": "Calculator",
+      "kind": "class",
+      "parameters": [
+        {
+          "name": "precision",
+          "type_annotation": "int",
+          "default": "2",
+          "kind": "required"
+        }
+      ],
+      "return_type": null
+    },
+    {
+      "name": "Calculator.add",
+      "kind": "method",
+      "parameters": [
+        {
+          "name": "a",
+          "type_annotation": "float",
+          "default": null,
+          "kind": "required"
+        },
+        {
+          "name": "b",
+          "type_annotation": "float",
+          "default": null,
+          "kind": "required"
+        }
+      ],
+      "return_type": "float"
+    },
+    {
+      "name": "Calculator.multiply",
+      "kind": "method",
+      "parameters": [
+        {
+          "name": "a",
+          "type_annotation": "float",
+          "default": null,
+          "kind": "required"
+        },
+        {
+          "name": "b",
+          "type_annotation": "float",
+          "default": null,
+          "kind": "required"
+        }
+      ],
+      "return_type": "float"
+    }
+  ]
+}
