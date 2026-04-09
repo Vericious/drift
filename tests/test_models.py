@@ -5,6 +5,7 @@ from pathlib import Path
 from drift.models import (
     ClaimKind,
     CodeFact,
+    ConfidenceSignals,
     DocClaim,
     DriftCategory,
     DriftItem,
@@ -258,3 +259,50 @@ class TestDriftCategoryFuzzy:
     def test_fuzzy_renamed_value(self):
         assert hasattr(DriftCategory, "FUZZY_RENAMED")
         assert DriftCategory.FUZZY_RENAMED.value == "fuzzy_renamed"
+
+
+class TestConfidenceSignalsExplain:
+    """Tests for ConfidenceSignals.explain() method."""
+
+    def test_explain_contains_all_signal_names(self):
+        cs = ConfidenceSignals(
+            name_similarity=0.8,
+            param_overlap=0.5,
+            type_match=0.3,
+            location_proximity=0.2,
+            context_match=0.1,
+        )
+        explanation = cs.explain()
+        assert "name_similarity" in explanation
+        assert "param_overlap" in explanation
+        assert "type_match" in explanation
+        assert "location_proximity" in explanation
+        assert "context_match" in explanation
+
+    def test_explain_total_matches_score(self):
+        cs = ConfidenceSignals(
+            name_similarity=0.8,
+            param_overlap=0.5,
+            type_match=0.3,
+            location_proximity=0.2,
+            context_match=0.1,
+        )
+        explanation = cs.explain()
+        lines = explanation.split("\n")
+        assert lines[-1].startswith("total:")
+        # score = 0.8*0.35 + 0.5*0.3 + 0.3*0.15 + 0.2*0.1 + 0.1*0.1
+        #       = 0.28 + 0.15 + 0.045 + 0.02 + 0.01 = 0.505
+        assert str(cs.score()) in lines[-1]
+
+    def test_explain_zero_signals(self):
+        cs = ConfidenceSignals()
+        explanation = cs.explain()
+        assert "name_similarity: 0.0" in explanation
+        assert "total: 0.0" in explanation
+
+    def test_explain_formatting(self):
+        cs = ConfidenceSignals(name_similarity=0.85)
+        explanation = cs.explain()
+        # Should contain the formatted line for name_similarity
+        assert "name_similarity: 0.85 (weight=0.35, contribution=" in explanation
+        assert "total: " in explanation

@@ -561,7 +561,7 @@ class TestUpdateBaseline:
 
         # First, create an initial baseline
         result = subprocess.run(
-            DRIFT_CMD + ["baseline", str(tmp_path)],
+            DRIFT_CMD + ["baseline", "save", str(tmp_path)],
             capture_output=True,
             text=True,
         )
@@ -611,7 +611,7 @@ class TestUpdateBaseline:
 
         # Create initial baseline
         subprocess.run(
-            DRIFT_CMD + ["baseline", str(tmp_path)],
+            DRIFT_CMD + ["baseline", "save", str(tmp_path)],
             capture_output=True,
             text=True,
         )
