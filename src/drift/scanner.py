@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,49 @@ from drift.models import CodeFact, DocClaim, DriftReport, ScanMetrics
 # JSDocExtractor imported lazily when include_js is True
 
 
+def _extract_py_worker(
+    py_file: Path,
+    extractors_enabled: list[str] | None,
+    extractors_disabled: list[str],
+    strict: bool,
+) -> tuple[list[CodeFact], list[DocClaim], list[str], Path]:
+    """Module-level worker for ProcessPoolExecutor — extracts facts/claims from a Python file.
+
+    This function lives at module level so it can be pickled by ProcessPoolExecutor.
+    """
+    from drift.extractors.registry import get_extractors
+
+    facts: list[CodeFact] = []
+    claims: list[DocClaim] = []
+    errors: list[str] = []
+
+    for extractor_cls in get_extractors():
+        if not extractor_cls().can_handle(py_file):
+            continue
+        extractor = extractor_cls()
+        ext_name = extractor_cls.__name__
+        if extractors_disabled and ext_name in extractors_disabled:
+            continue
+        if extractors_enabled and ext_name not in extractors_enabled:
+            continue
+        try:
+            extracted = extractor.extract(py_file)
+        except Exception as e:
+            err = f"[{extractor_cls.__name__}] {py_file}: {e}"
+            if strict:
+                raise
+            errors.append(err)
+            continue
+
+        for item in extracted:
+            if isinstance(item, DocClaim):
+                claims.append(item)
+            else:
+                facts.append(item)
+
+    return facts, claims, errors, py_file
+
+
 class DriftScanner:
     """Walk files, dispatch to extractors, run matcher, produce report."""
 
@@ -25,6 +68,7 @@ class DriftScanner:
         path: Path,
         strict: bool = False,
         parallel: bool = False,
+        jobs: int | None = None,
         include_js: bool = False,
         no_cache: bool = False,
         clear_cache: bool = False,
@@ -37,10 +81,11 @@ class DriftScanner:
         self.path = path
         self.strict = strict
         self.parallel = parallel
+        self.jobs = jobs
         self.include_js = include_js
         # Parallel scans don't benefit from caching (all files are submitted at once anyway)
         # and caching would cause issues when serial+parallel are run on same path in tests
-        self.no_cache = no_cache or parallel
+        self.no_cache = no_cache or parallel or (jobs is not None and jobs > 1)
         self.clear_cache = clear_cache
         self.changed_files = changed_files  # If set, only scan these files
         self.changed_lines = changed_lines  # If set, filter facts/claims to ±5 context window
@@ -529,70 +574,86 @@ class DriftScanner:
         config_files: list[Path],
         js_files: list[Path],
     ) -> tuple[list[CodeFact], list[DocClaim], list[str]]:
-        """Extract facts/claims from all files in parallel using ThreadPoolExecutor.
+        """Extract facts/claims from all files in parallel using ProcessPoolExecutor.
 
-        Falls back to serial processing if parallel execution fails.
-        Results are deterministic regardless of thread scheduling (content-wise).
+        Uses ProcessPoolExecutor for Python files (CPU-bound extraction) and
+        ThreadPoolExecutor for Markdown/config/JS files. Falls back to serial
+        processing if parallel execution fails.
         """
         errors: list[str] = []
         all_facts: list[CodeFact] = []
         all_claims: list[DocClaim] = []
 
-        max_workers = min(32, (os.cpu_count() or 1) + 4)
-
-        def extract_py(
-            file: Path,
-        ) -> tuple[list[CodeFact], list[DocClaim], list[str], Path]:
-            """Wrapper to make _extract_py callable in a thread."""
-            facts, claims, errs = self._extract_py(file)
-            return facts, claims, errs, file
+        # Determine worker count: use self.jobs if set, else cpu_count
+        if self.jobs is not None and self.jobs > 1:
+            max_workers = min(self.jobs, os.cpu_count() or 1)
+        else:
+            max_workers = os.cpu_count() or 1
 
         try:
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Submit Python file extractions
-                py_futures = {executor.submit(extract_py, f): f for f in py_files}
-                # Submit Markdown extractions
-                md_futures = {executor.submit(self._extract_md, f): f for f in md_files}
-                # Submit config file extractions
-                cfg_futures = {
-                    executor.submit(self._extract_config, f): f for f in config_files
+            # ProcessPoolExecutor for Python files (can be CPU-intensive)
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                py_futures = {
+                    executor.submit(
+                        _extract_py_worker,
+                        f,
+                        self._extractors_enabled,
+                        self._extractors_disabled,
+                        self.strict,
+                    ): f
+                    for f in py_files
                 }
-                # Submit JS/TS file extractions
-                js_futures = {
-                    executor.submit(self._extract_js, f): f for f in js_files
-                }
 
-                all_futures: dict[Any, Path] = {**py_futures, **md_futures, **cfg_futures, **js_futures}
+                # ThreadPoolExecutor for Markdown/config/JS (I/O-bound, lightweight)
+                thread_max_workers = min(32, (os.cpu_count() or 1) + 4)
+                with ThreadPoolExecutor(max_workers=thread_max_workers) as thread_executor:
+                    md_futures = {
+                        thread_executor.submit(self._extract_md, f): f for f in md_files
+                    }
+                    cfg_futures = {
+                        thread_executor.submit(self._extract_config, f): f
+                        for f in config_files
+                    }
+                    js_futures = {
+                        thread_executor.submit(self._extract_js, f): f for f in js_files
+                    }
 
-                for future in as_completed(all_futures):
-                    file = all_futures[future]
-                    try:
-                        result = future.result()
-                    except Exception as e:
-                        err = f"[{file}] parallel extraction failed: {e}"
-                        if self.strict:
-                            raise
-                        errors.append(err)
-                        continue
+                    all_futures: dict[Any, Path] = {
+                        **py_futures,
+                        **md_futures,
+                        **cfg_futures,
+                        **js_futures,
+                    }
 
-                    if isinstance(result, tuple) and len(result) == 4:
-                        # Python file result: (facts, claims, errors, file)
-                        facts, claims, errs, _ = result
-                        all_facts.extend(facts)
-                        all_claims.extend(claims)
-                        errors.extend(errs)
-                    elif isinstance(result, list):
-                        # Markdown or JS result: list of claims
-                        all_claims.extend(result)
-                    elif isinstance(result, tuple) and len(result) == 2:
-                        # Config result: (facts, file)
-                        cfg_facts, _ = result
-                        all_facts.extend(cfg_facts)
-                    else:
-                        # Unexpected result
-                        errors.append(
-                            f"[{file}] unexpected result type from parallel extraction"
-                        )
+                    for future in as_completed(all_futures):
+                        file = all_futures[future]
+                        try:
+                            result = future.result()
+                        except Exception as e:
+                            err = f"[{file}] parallel extraction failed: {e}"
+                            if self.strict:
+                                raise
+                            errors.append(err)
+                            continue
+
+                        if isinstance(result, tuple) and len(result) == 4:
+                            # Python file result: (facts, claims, errors, file)
+                            facts, claims, errs, _ = result
+                            all_facts.extend(facts)
+                            all_claims.extend(claims)
+                            errors.extend(errs)
+                        elif isinstance(result, list):
+                            # Markdown or JS result: list of claims
+                            all_claims.extend(result)
+                        elif isinstance(result, tuple) and len(result) == 2:
+                            # Config result: (facts, file)
+                            cfg_facts, _ = result
+                            all_facts.extend(cfg_facts)
+                        else:
+                            # Unexpected result
+                            errors.append(
+                                f"[{file}] unexpected result type from parallel extraction"
+                            )
 
         except Exception:
             # Fallback to serial on any parallel failure

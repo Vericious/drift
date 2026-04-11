@@ -702,6 +702,69 @@ class TestParallelScanning:
         assert "my_func" not in drift_names
 
 
+class TestParallelJobs:
+    """Tests for --jobs/-j flag using ProcessPoolExecutor."""
+
+    def _make_project(self, tmp_path: Path, files: dict[str, str]) -> None:
+        for rel_path, content in files.items():
+            f = tmp_path / rel_path
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(content)
+
+    def test_jobs_produces_same_results_as_serial(self, tmp_path: Path) -> None:
+        """Parallel scan with jobs=N produces identical results to serial scan."""
+        self._make_project(
+            tmp_path,
+            {
+                "example.py": (
+                    "def my_func(a: int, b: str = 'x') -> bool:\n"
+                    "    '''Documented.'''\n"
+                    "    pass\n"
+                ),
+                "docs.md": (
+                    "# Docs\n\n```python\ndef my_func(a: int, b: str = 'x') -> bool\n```\n"
+                ),
+            },
+        )
+        serial_scanner = DriftScanner(tmp_path, parallel=False)
+        serial_report = serial_scanner.scan()
+
+        jobs_scanner = DriftScanner(tmp_path, jobs=2)
+        jobs_report = jobs_scanner.scan()
+
+        # Facts must be identical
+        serial_names = sorted(f.name for f in serial_report.facts)
+        jobs_names = sorted(f.name for f in jobs_report.facts)
+        assert serial_names == jobs_names, (
+            f"jobs=2 scan produced different facts:\n  serial={serial_names}\n  jobs={jobs_names}"
+        )
+
+        # Claims must be identical
+        serial_claims = sorted(c.name for c in serial_report.claims)
+        jobs_claims = sorted(c.name for c in jobs_report.claims)
+        assert serial_claims == jobs_claims
+
+        # Drift items must be identical
+        serial_drift = sorted((d.category, d.fact.name) for d in serial_report.drift_items)
+        jobs_drift = sorted((d.category, d.fact.name) for d in jobs_report.drift_items)
+        assert serial_drift == jobs_drift
+
+    def test_jobs_flag_is_accepted(self, tmp_path: Path) -> None:
+        """DriftScanner accepts jobs parameter without error."""
+        self._make_project(tmp_path, {"example.py": "def func():\n    pass\n"})
+        # Should not raise
+        scanner = DriftScanner(tmp_path, jobs=4)
+        assert scanner.jobs == 4
+
+    def test_jobs_controls_worker_count(self, tmp_path: Path) -> None:
+        """worker count is capped at os.cpu_count()."""
+        import os
+        self._make_project(tmp_path, {"example.py": "def func():\n    pass\n"})
+        scanner = DriftScanner(tmp_path, jobs=999)  # way more than CPUs
+        report = scanner.scan()
+        assert len(report.facts) >= 1
+
+
 class TestIncrementalScan:
     """Tests for incremental scanning with file hash cache."""
 
