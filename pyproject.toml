@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "click>=8.0",
-    "rich>=13.0",
+    "rich>=14.3.4",
     "python-hcl2>=4.3.0",
 ]
 
