@@ -850,3 +850,70 @@ class TestSinceFlag:
         result = cli_runner.invoke(main, ["scan", "--since", "notvalid", str(tmp_path)])
         assert result.exit_code != 0
         assert "Invalid --since value" in result.output
+
+
+class TestBaselineExportCommand:
+    """Tests for `drift baseline export` command."""
+
+    def _make_project_with_drift(self, tmp_path: Path) -> None:
+        """Create a project with some drift items and save a baseline."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int, y: str = 'hello') -> bool:\n"
+            "    '''Documented function.'''\n"
+            "    pass\n"
+            "\n"
+            "def undocumented_func(a: int) -> None:\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## documented_func\n"
+            "\n"
+            "```python\n"
+            "def documented_func(x: int, y: str = 'hello') -> bool\n"
+            "```\n"
+            "\n"
+            "## fake_function\n"
+            "\n"
+            "```python\n"
+            "def fake_function(a: int) -> None\n"
+            "```\n"
+        )
+
+    def test_export_produces_valid_json(self, cli_runner, tmp_path):
+        """`drift baseline export` produces valid JSON matching baseline content."""
+        self._make_project_with_drift(tmp_path)
+        # First save a baseline
+        cli_runner.invoke(main, ["baseline", "save", str(tmp_path)])
+        # Then export it
+        result = cli_runner.invoke(main, ["baseline", "export", str(tmp_path)])
+        assert result.exit_code == 0
+        import json
+        data = json.loads(result.output)
+        assert "created_at" in data
+        assert "items" in data
+        assert isinstance(data["items"], list)
+
+    def test_export_csv_produces_header_row(self, cli_runner, tmp_path):
+        """`drift baseline export --format csv` produces a CSV with a header row."""
+        self._make_project_with_drift(tmp_path)
+        cli_runner.invoke(main, ["baseline", "save", str(tmp_path)])
+        result = cli_runner.invoke(main, ["baseline", "export", "--format", "csv", str(tmp_path)])
+        assert result.exit_code == 0
+        lines = result.output.strip().split("\n")
+        assert len(lines) >= 1
+        # First line should be header
+        header = lines[0]
+        assert "fact_name" in header
+        assert "claim_name" in header
+        assert "severity" in header
+        assert "category" in header
+
+    def test_export_error_when_no_baseline(self, cli_runner, tmp_path):
+        """Export error message when no baseline exists."""
+        result = cli_runner.invoke(main, ["baseline", "export", str(tmp_path)])
+        assert result.exit_code != 0
+        assert "No baseline found" in result.output

@@ -994,7 +994,13 @@ def fix(path: str, dry_run: bool, config_path: str | None) -> None:
     raise SystemExit(1)
 
 
-@main.command()
+@main.group("baseline")
+def baseline_group() -> None:
+    """Manage baseline snapshots."""
+    pass
+
+
+@baseline_group.command("save")
 @click.argument("path", type=click.Path(exists=True), default=".")
 @click.option(
     "--update",
@@ -1002,7 +1008,7 @@ def fix(path: str, dry_run: bool, config_path: str | None) -> None:
     is_flag=True,
     help="Overwrite the existing baseline file.",
 )
-def baseline(path: str, update: bool) -> None:
+def baseline_save(path: str, update: bool) -> None:
     """Save the current drift state as a baseline snapshot.
 
     Creates .drift/baseline.json with the current drift items.
@@ -1032,6 +1038,188 @@ def baseline(path: str, update: bool) -> None:
         click.echo(f"Created baseline: {baseline_path}")
     click.echo(f"  {len(report.drift_items)} drift item(s) snapshot")
     click.echo(f"  Run 'drift scan --baseline' to compare against this snapshot.")
+
+
+@baseline_group.command("export")
+@click.argument("path", type=click.Path(exists=True), default=".")
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["json", "csv"]),
+    default="json",
+    help="Output format: json (default) or csv.",
+)
+def baseline_export(path: str, output_format: str) -> None:
+    """Export the baseline as formatted JSON or CSV to stdout.
+
+    Reads the baseline from .drift/baseline.json and outputs it
+    in the requested format.
+
+    Examples:
+
+        drift baseline export
+        drift baseline export --format csv
+        drift baseline export /path/to/project --format json
+    """
+    import csv
+    import io
+    import json as _json
+
+    scan_path = Path(path)
+    loaded = load_baseline(scan_path)
+
+    if loaded is None:
+        raise click.ClickException(
+            f"No baseline found at {scan_path / '.drift/baseline.json'}. "
+            "Run 'drift baseline save' first."
+        )
+
+    created_at, items = loaded
+
+    if output_format == "json":
+        data = {
+            "created_at": created_at,
+            "items": items,
+        }
+        click.echo(_json.dumps(data, indent=2))
+    elif output_format == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        # Header row
+        writer.writerow([
+            "fact_name", "fact_kind", "fact_file", "fact_line",
+            "claim_name", "claim_kind", "claim_file", "claim_line",
+            "severity", "category", "message",
+        ])
+        for item in items:
+            fact = item.get("fact") or {}
+            claim = item.get("claim") or {}
+            writer.writerow([
+                fact.get("name", ""),
+                fact.get("kind", ""),
+                fact.get("source_file", ""),
+                fact.get("line_number", ""),
+                claim.get("name", ""),
+                claim.get("kind", ""),
+                claim.get("doc_file", ""),
+                claim.get("line_number", ""),
+                item.get("severity", ""),
+                item.get("category", ""),
+                item.get("message", ""),
+            ])
+        click.echo(output.getvalue())
+
+
+@baseline_group.command("save")
+@click.argument("path", type=click.Path(exists=True), default=".")
+@click.option(
+    "--update",
+    "-U",
+    is_flag=True,
+    help="Overwrite the existing baseline file.",
+)
+def baseline_save(path: str, update: bool) -> None:
+    """Save the current drift state as a baseline snapshot.
+
+    Creates .drift/baseline.json with the current drift items.
+    Use 'drift scan --baseline' to compare against this snapshot
+    and only report NEW drift items not in the baseline.
+
+    Run again with --update to refresh the baseline.
+    """
+    from drift.config import load_config
+
+    scan_path = Path(path)
+
+    # Load config (silently ignore if not found)
+    try:
+        load_config()
+    except (FileNotFoundError, ValueError):
+        pass
+
+    scanner = DriftScanner(scan_path, strict=False)
+    report = scanner.scan()
+
+    baseline_path = save_baseline(report, scan_path)
+
+    if update:
+        click.echo(f"Updated baseline: {baseline_path}")
+    else:
+        click.echo(f"Created baseline: {baseline_path}")
+    click.echo(f"  {len(report.drift_items)} drift item(s) snapshot")
+    click.echo(f"  Run 'drift scan --baseline' to compare against this snapshot.")
+
+
+@baseline_group.command("export")
+@click.argument("path", type=click.Path(exists=True), default=".")
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["json", "csv"]),
+    default="json",
+    help="Output format: json (default) or csv.",
+)
+def baseline_export(path: str, output_format: str) -> None:
+    """Export the baseline as formatted JSON or CSV to stdout.
+
+    Reads the baseline from .drift/baseline.json and outputs it
+    in the requested format.
+
+    Examples:
+
+        drift baseline export
+        drift baseline export --format csv
+        drift baseline export /path/to/project --format json
+    """
+    import csv
+    import io
+    import json as _json
+
+    scan_path = Path(path)
+    loaded = load_baseline(scan_path)
+
+    if loaded is None:
+        raise click.ClickException(
+            f"No baseline found at {scan_path / '.drift/baseline.json'}. "
+            "Run 'drift baseline save' first."
+        )
+
+    created_at, items = loaded
+
+    if output_format == "json":
+        data = {
+            "created_at": created_at,
+            "items": items,
+        }
+        click.echo(_json.dumps(data, indent=2))
+    elif output_format == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        # Header row
+        writer.writerow([
+            "fact_name", "fact_kind", "fact_file", "fact_line",
+            "claim_name", "claim_kind", "claim_file", "claim_line",
+            "severity", "category", "message",
+        ])
+        for item in items:
+            fact = item.get("fact") or {}
+            claim = item.get("claim") or {}
+            writer.writerow([
+                fact.get("name", ""),
+                fact.get("kind", ""),
+                fact.get("source_file", ""),
+                fact.get("line_number", ""),
+                claim.get("name", ""),
+                claim.get("kind", ""),
+                claim.get("doc_file", ""),
+                claim.get("line_number", ""),
+                item.get("severity", ""),
+                item.get("category", ""),
+                item.get("message", ""),
+            ])
+        click.echo(output.getvalue())
 
 
 def _filter_by_severity(items: list[DriftItem], min_severity: str) -> list[DriftItem]:
