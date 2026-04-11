@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Software Development :: Documentation",
 ]
 dependencies = [
-    "click>=8.0",
+    "click>=8.3.2",
     "rich>=13.0",
     "python-hcl2>=4.3.0",
 ]
