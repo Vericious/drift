@@ -339,6 +339,59 @@ class TestReportJson:
         assert "signals" not in parsed["drift_items"][0]
 
 
+class TestJsonConfidenceFilter:
+    """Tests for confidence_filter metadata in JSON output (DRIFT-173)."""
+
+    def test_json_confidence_filter_present_when_min_set(self):
+        """confidence_filter key appears in JSON when min_confidence is active."""
+        item = DriftItem(
+            category="missing_param",
+            message="test",
+            confidence=0.8,
+            signals=None,
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item])
+        meta = {"min": 0.5, "shown": 1, "total": 1}
+        reporter = DriftReporter(report, confidence_filter_meta=meta)
+        parsed = json.loads(reporter.report_json())
+
+        assert "confidence_filter" in parsed
+        assert parsed["confidence_filter"]["min"] == 0.5
+        assert parsed["confidence_filter"]["shown"] == 1
+        assert parsed["confidence_filter"]["total"] == 1
+
+    def test_json_confidence_filter_absent_when_no_min(self):
+        """confidence_filter key is omitted when no min-confidence filter was applied."""
+        item = DriftItem(
+            category="missing_param",
+            message="test",
+            confidence=0.8,
+            signals=None,
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item])
+        reporter = DriftReporter(report)  # no confidence_filter_meta
+        parsed = json.loads(reporter.report_json())
+
+        assert "confidence_filter" not in parsed
+
+    def test_json_confidence_filter_counts_match_items(self):
+        """shown and total values in metadata match what CLI computed during filtering."""
+        # Create 5 items
+        items = [
+            DriftItem(category="missing_param", message=f"item{i}", confidence=0.9 - i * 0.1, signals=None)
+            for i in range(5)
+        ]
+        report = DriftReport(scanned_path=Path("."), drift_items=items)
+        # Simulate CLI filtering: min=0.7 would show 3 of 5 items
+        meta = {"min": 0.7, "shown": 3, "total": 5}
+        reporter = DriftReporter(report, confidence_filter_meta=meta)
+        parsed = json.loads(reporter.report_json())
+
+        assert parsed["confidence_filter"]["min"] == 0.7
+        assert parsed["confidence_filter"]["shown"] == 3
+        assert parsed["confidence_filter"]["total"] == 5
+
+
 class TestReportJsonLines:
     """Tests for report_json_lines()."""
 

@@ -459,11 +459,17 @@ def scan(
         report.drift_items = _filter_by_severity(report.drift_items, severity_min)
 
     # Apply confidence filter
+    confidence_filter_meta: dict | None = None
     if min_confidence is not None:
         original_count = len(report.drift_items)
         report.drift_items = [
             item for item in report.drift_items if item.confidence >= min_confidence
         ]
+        confidence_filter_meta = {
+            "min": min_confidence,
+            "shown": len(report.drift_items),
+            "total": original_count,
+        }
         if verbose and original_count != len(report.drift_items):
             click.echo(
                 f"  [dim]Confidence filter:[/dim] "
@@ -492,7 +498,7 @@ def scan(
                 f"(excluded: {', '.join(sorted(exclude_set))})"
             )
 
-    reporter = DriftReporter(report, verbose=verbose)
+    reporter = DriftReporter(report, verbose=verbose, confidence_filter_meta=confidence_filter_meta)
 
     # Generate output based on format
     if output_format == "json":
@@ -1580,12 +1586,19 @@ def _run_watch_scan(
     if severity != "all":
         report.drift_items = _filter_by_severity(report.drift_items, severity)
 
+    confidence_filter_meta: dict | None = None
     if min_confidence is not None:
+        original_count = len(report.drift_items)
         report.drift_items = [
             item for item in report.drift_items if item.confidence >= min_confidence
         ]
+        confidence_filter_meta = {
+            "min": min_confidence,
+            "shown": len(report.drift_items),
+            "total": original_count,
+        }
 
-    reporter = DriftReporter(report, verbose=verbose)
+    reporter = DriftReporter(report, verbose=verbose, confidence_filter_meta=confidence_filter_meta)
 
     if output_format == "json":
         output_content = reporter.report_json(verbose=verbose, elapsed=elapsed)
