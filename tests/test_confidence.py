@@ -1,5 +1,7 @@
 """Tests for confidence scoring (DRIFT-095)."""
 
+import json
+
 import pytest
 
 from drift.matcher import SignatureMatcher
@@ -711,12 +713,15 @@ class TestConfidenceSarifRank:
             CodeFact,
             ConfidenceSignals,
             DocClaim,
+            DriftItem,
             DriftReport,
             FactKind,
             Parameter,
             Path,
             Severity,
         )
+        from drift.reporter import DriftReporter
+
         fact = CodeFact(
             name="foo",
             kind=FactKind.FUNCTION,
@@ -724,26 +729,30 @@ class TestConfidenceSarifRank:
             line_number=10,
             parameters=[Parameter(name="x", default="1")],
         )
-        claim = DocClaim(
-            raw_text="foo(x=0)",
-            kind=ClaimKind.FUNCTION_SIGNATURE,
-            doc_file=Path("docs/api.md"),
-            line_number=1,
-            name="foo",
-            parameters=[Parameter(name="x", default="0")],
-        )
-        item = ConfidenceSignals(
-            name_similarity=1.0,
+        signals = ConfidenceSignals(
+            name_similarity=0.8,
             param_overlap=1.0,
             type_match=0.0,
             location_proximity=0.5,
             context_match=0.5,
         )
-        report = DriftReport(scanned_path=Path("."), drift_items=[])
-        # We can't easily test SARIF output without a full reporter setup,
-        # so we test that signals.to_dict() has correct structure
-        assert "name_similarity" in item.to_dict()
-        assert "param_overlap" in item.to_dict()
-        assert item.to_dict()["name_similarity"] == 1.0
-        # Verify rank calculation logic: confidence * 100
-        # (we can't test SARIF directly but the conversion is straightforward)
+        item = DriftItem(
+            fact=fact,
+            severity=Severity.WARNING,
+            category="wrong_default",
+            message="Default mismatch",
+            confidence=0.68,
+            signals=signals,
+        )
+        report = DriftReport(scanned_path=Path("."), drift_items=[item])
+        reporter = DriftReporter(report)
+        parsed = json.loads(reporter.report_sarif())
+        result = parsed["runs"][0]["results"][0]
+        assert result["properties"]["rank"] == 68.0
+        assert result["properties"]["confidence"] == {
+            "name_similarity": 0.8,
+            "param_overlap": 1.0,
+            "type_match": 0.0,
+            "location_proximity": 0.5,
+            "context_match": 0.5,
+        }
