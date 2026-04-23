@@ -1077,3 +1077,99 @@ class TestBaselineExportCommand:
         result = cli_runner.invoke(main, ["baseline", "export", str(tmp_path)])
         assert result.exit_code != 0
         assert "No baseline found" in result.output
+
+
+class TestMinConfidenceFilter:
+    """Tests for --min-confidence CLI filter."""
+
+    def _make_project_with_mixed_confidence(self, tmp_path: Path) -> None:
+        """Create a project with high and low confidence drift items.
+
+        - undocumented: confidence=0.0 (filtered by min-confidence > 0.0)
+        - documented_but_missing: confidence=0.0 (filtered by min-confidence > 0.0)
+        - missing_param: confidence=1.0 (always shown when min-confidence <= 1.0)
+        - wrong_default: confidence=1.0 (always shown when min-confidence <= 1.0)
+        """
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int, y: str = 'hello') -> bool:\n"
+            "    '''Documented function.'''\n"
+            "    pass\n"
+            "\n"
+            "def func_with_param(z: int) -> None:\n"
+            "    '''Has one param in code.'''\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## documented_func\n"
+            "\n"
+            "```python\n"
+            "def documented_func(x: int) -> bool\n"
+            "```\n"
+            "\n"
+            "## func_with_param\n"
+            "\n"
+            "```python\n"
+            "def func_with_param(z: int, missing_param: str = 'oops') -> None\n"
+            "```\n"
+            "\n"
+            "## fake_function\n"
+            "\n"
+            "```python\n"
+            "def fake_function() -> None\n"
+            "```\n"
+        )
+
+    def test_min_confidence_filters_low(self, cli_runner, tmp_path: Path) -> None:
+        """--min-confidence 0.1 filters out confidence=0.0 items (documented_but_missing)."""
+        import json
+        self._make_project_with_mixed_confidence(tmp_path)
+        # Without min-confidence: all 3 drift items present
+        result_all = cli_runner.invoke(
+            main, ["scan", "--json", "--fail-on", "none", "--no-cache", str(tmp_path)]
+        )
+        data_all = json.loads(result_all.output)
+        assert len(data_all["drift_items"]) == 3
+
+        # With --min-confidence 0.1: low-confidence (0.0) items are filtered
+        result_filtered = cli_runner.invoke(
+            main, ["scan", "--json", "--min-confidence", "0.1", "--fail-on", "none", "--no-cache", str(tmp_path)]
+        )
+        data_filtered = json.loads(result_filtered.output)
+        categories = {item["category"] for item in data_filtered["drift_items"]}
+        # documented_but_missing (confidence=0.0) must be gone
+        assert "documented_but_missing" not in categories
+        # But high-confidence items remain
+        assert "missing_param" in categories
+        assert "extra_param" in categories
+
+    def test_min_confidence_0_0_shows_all(self, cli_runner, tmp_path: Path) -> None:
+        """--min-confidence 0.0 shows all drift items (no filtering)."""
+        self._make_project_with_mixed_confidence(tmp_path)
+        result = cli_runner.invoke(
+            main, ["scan", "--min-confidence", "0.0", "--fail-on", "none", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        # Both high and low confidence items should be visible
+        assert "fake_function" in result.output  # documented_but_missing
+        assert "documented_func" in result.output  # undocumented
+        assert "missing_param" in result.output  # missing_param
+
+    def test_min_confidence_1_0_shows_only_exact(self, cli_runner, tmp_path: Path) -> None:
+        """--min-confidence 1.0 shows only confidence=1.0 items."""
+        import json
+        self._make_project_with_mixed_confidence(tmp_path)
+        result = cli_runner.invoke(
+            main, ["scan", "--json", "--min-confidence", "1.0", "--fail-on", "none", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        # Low-confidence documented_but_missing (fake_function, confidence=0.0) must be filtered
+        categories = {item["category"] for item in data["drift_items"]}
+        assert "documented_but_missing" not in categories
+        # High-confidence items (missing_param, extra_param) should remain
+        assert "missing_param" in categories
+        assert "extra_param" in categories

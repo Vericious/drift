@@ -293,8 +293,15 @@ class SignatureMatcher:
                                 fuzzy_match = (f, confidence)
 
                 if fuzzy_match:
-                    fuzzy_fact, confidence = fuzzy_match
+                    fuzzy_fact, fuzzy_conf = fuzzy_match
                     matched_fact_names.add(fuzzy_fact.name)
+                    # Compute confidence signals for fuzzy match
+                    fuzzy_fact_params = {p.name: p for p in fuzzy_fact.parameters}
+                    claim_params_map = {p.name: p for p in claim.parameters}
+                    param_overlap = self._jaccard_param_overlap(
+                        fuzzy_fact_params, claim_params_map
+                    )
+                    name_sim = fuzzy_conf / 100.0
                     drift_items.append(
                         DriftItem(
                             fact=fuzzy_fact,
@@ -303,13 +310,18 @@ class SignatureMatcher:
                             category="fuzzy_renamed",
                             message=(
                             f"'{claim.name}' (docs) may match "
-                            f"'{fuzzy_fact.name}' (code) — {confidence}% confidence"
+                            f"'{fuzzy_fact.name}' (code) — {fuzzy_conf}% confidence"
                         ),
                             suggestion=f"Consider renaming '{fuzzy_fact.name}' to '{claim.name}' or update docs",
-                            confidence=confidence / 100.0,
+                            confidence=name_sim,
+                            signals=ConfidenceSignals(
+                                name_similarity=name_sim,
+                                param_overlap=param_overlap,
+                                type_match=0.0,
+                            ),
                             metadata={
                                 "match_method": "fuzzy",
-                                "confidence": confidence,
+                                "confidence": fuzzy_conf,
                             },
                         )
                     )
@@ -345,6 +357,12 @@ class SignatureMatcher:
 
                     if renamed_candidate:
                         matched_fact_names.add(renamed_candidate.name)
+                        # Compute confidence signals for renamed match
+                        renamed_params = {p.name: p for p in renamed_candidate.parameters}
+                        claim_params_map = {p.name: p for p in claim.parameters}
+                        param_overlap = self._jaccard_param_overlap(
+                            renamed_params, claim_params_map
+                        )
                         drift_items.append(
                             DriftItem(
                                 fact=renamed_candidate,
@@ -354,6 +372,11 @@ class SignatureMatcher:
                                 message=f"'{claim.name}' (docs) may have been renamed to '{renamed_candidate.name}'",
                                 suggestion=f"Update docs to reference '{renamed_candidate.name}'",
                                 confidence=name_ratio,
+                                signals=ConfidenceSignals(
+                                    name_similarity=name_ratio,
+                                    param_overlap=param_overlap,
+                                    type_match=0.0,
+                                ),
                             )
                         )
                         continue
@@ -379,7 +402,13 @@ class SignatureMatcher:
                             message=f"'{claim.name}' is documented but not found in code",
                             suggestion=f"Add implementation for '{claim.name}' or update docs",
                             confidence=0.0,
-                            signals=ConfidenceSignals(),
+                            signals=ConfidenceSignals(
+                                name_similarity=0.0,
+                                param_overlap=0.0,
+                                type_match=0.0,
+                                location_proximity=0.0,
+                                context_match=0.0,
+                            ),
                         )
                     )
                 continue
@@ -408,6 +437,7 @@ class SignatureMatcher:
 
                 if c_param is None:
                     # Missing param in docs — fact has it, claim doesn't
+                    param_overlap = self._jaccard_param_overlap(fact_params, claim_params)
                     drift_items.append(
                         DriftItem(
                             fact=fact,
@@ -417,10 +447,16 @@ class SignatureMatcher:
                             message=f"Parameter '{param_name}' in {fact.name} is not documented",
                             suggestion=f"Add '{param_name}' to docs for {fact.name}",
                             confidence=1.0,
+                            signals=ConfidenceSignals(
+                                name_similarity=1.0,
+                                param_overlap=param_overlap,
+                                type_match=0.0,
+                            ),
                         )
                     )
                 elif f_param is None:
                     # Extra param in docs — claim has it but fact doesn't
+                    param_overlap = self._jaccard_param_overlap(fact_params, claim_params)
                     drift_items.append(
                         DriftItem(
                             fact=fact,
@@ -430,6 +466,11 @@ class SignatureMatcher:
                             message=f"Parameter '{param_name}' is documented for {fact.name} but not in code",
                             suggestion=f"Remove '{param_name}' from docs or update implementation",
                             confidence=1.0,
+                            signals=ConfidenceSignals(
+                                name_similarity=1.0,
+                                param_overlap=param_overlap,
+                                type_match=0.0,
+                            ),
                         )
                     )
                 else:
@@ -515,6 +556,13 @@ class SignatureMatcher:
                         message=f"'{fact.name}' exists in code but is not documented",
                         suggestion=f"Add documentation for {fact.name}",
                         confidence=0.0,
+                        signals=ConfidenceSignals(
+                            name_similarity=0.0,
+                            param_overlap=0.0,
+                            type_match=0.0,
+                            location_proximity=0.0,
+                            context_match=0.0,
+                        ),
                     )
                 )
 
