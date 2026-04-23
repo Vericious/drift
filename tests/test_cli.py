@@ -1173,3 +1173,99 @@ class TestMinConfidenceFilter:
         # High-confidence items (missing_param, extra_param) should remain
         assert "missing_param" in categories
         assert "extra_param" in categories
+
+
+class TestCsvOutput:
+    """Tests for --csv CLI output format."""
+
+    def _make_project_with_drift(self, tmp_path: Path) -> None:
+        """Create a project with a documented_func and undocumented_func."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int, y: str = 'hello') -> bool:\n"
+            "    '''Documented function.'''\n"
+            "    pass\n"
+            "\n"
+            "def undocumented_func(a: int, b: int) -> None:\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## documented_func\n"
+            "\n"
+            "```python\n"
+            "def documented_func(x: int, y: str = 'hello') -> bool\n"
+            "```\n"
+            "\n"
+            "## fake_function\n"
+            "\n"
+            "```python\n"
+            "def fake_function(a: int, b: int) -> None\n"
+            "```\n"
+        )
+
+    def test_csv_output_format(self, cli_runner, tmp_path: Path) -> None:
+        """--csv flag outputs valid CSV with header row."""
+        import csv
+        import io
+        self._make_project_with_drift(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "--csv", "--fail-on", "none", str(tmp_path)])
+        assert result.exit_code == 0
+        reader = csv.reader(io.StringIO(result.output))
+        rows = list(reader)
+        assert len(rows) >= 1  # at least header
+        # Check header
+        header = rows[0]
+        assert "fact_name" in header
+        assert "severity" in header
+        assert "category" in header
+        assert "confidence" in header
+        # Check that at least one data row exists (drift items)
+        assert len(rows) >= 2
+
+    def test_csv_includes_all_columns(self, cli_runner, tmp_path: Path) -> None:
+        """CSV output includes all expected columns with correct values."""
+        import csv
+        import io
+        self._make_project_with_drift(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "--csv", "--fail-on", "none", str(tmp_path)])
+        assert result.exit_code == 0
+        reader = csv.DictReader(io.StringIO(result.output))
+        rows = list(reader)
+        assert len(rows) >= 1
+        row = rows[0]
+        # Verify all expected columns are present
+        expected = {"fact_name", "fact_kind", "fact_file", "fact_line",
+                    "claim_name", "claim_kind", "claim_file", "claim_line",
+                    "severity", "category", "message", "confidence"}
+        assert expected.issubset(row.keys()), f"Missing columns: {expected - row.keys()}"
+        # Verify values are populated for the first drift item
+        assert row["fact_name"]
+        assert row["severity"]
+        assert row["category"]
+
+    def test_csv_handles_quotes_in_names(self, cli_runner, tmp_path: Path) -> None:
+        """CSV output properly quotes fields containing commas or quotes."""
+        import csv
+        import io
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def func_with_comma(x):\n"
+            "    '''Has a doc.'''\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API\n\n"
+            "```python\n"
+            "def func_with_comma(x)  # note: comma in message\n"
+            "```\n"
+        )
+        result = cli_runner.invoke(main, ["scan", "--csv", "--fail-on", "none", str(tmp_path)])
+        assert result.exit_code == 0
+        # Should not raise csv.Error - properly quoted
+        reader = csv.reader(io.StringIO(result.output))
+        rows = list(reader)
+        assert len(rows) >= 1  # at least header

@@ -348,6 +348,38 @@ class DriftReporter:
             lines.append(json.dumps(entry))
         return "\n".join(lines) + "\n" if lines else ""
 
+    def report_csv(self) -> str:
+        """Return drift items as CSV with headers."""
+        import csv as _csv
+        import io
+
+        output = io.StringIO()
+        writer = _csv.writer(output)
+        # Header row matching baseline export CSV columns plus confidence
+        writer.writerow([
+            "fact_name", "fact_kind", "fact_file", "fact_line",
+            "claim_name", "claim_kind", "claim_file", "claim_line",
+            "severity", "category", "message", "confidence",
+        ])
+        for item in self.report.drift_items:
+            fact = item.fact
+            claim = item.claim
+            writer.writerow([
+                fact.name if fact else "",
+                fact.kind.value if fact else "",
+                str(fact.source_file) if fact else "",
+                fact.line_number if fact else "",
+                claim.name if claim else "",
+                claim.kind.value if claim else "",
+                str(claim.doc_file) if claim else "",
+                claim.line_number if claim else "",
+                item.severity.value,
+                item.category,
+                item.message,
+                f"{item.confidence:.3f}",
+            ])
+        return output.getvalue()
+
     # -------------------------------------------------------------------------
     # HTML output
     # -------------------------------------------------------------------------
