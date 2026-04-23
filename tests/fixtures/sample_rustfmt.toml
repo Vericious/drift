@@ -1,0 +1,21 @@
+# rustfmt configuration sample
+
+edition = "2021"
+merge_derives = true
+use_small_heuristics = "Default"
+format_code_in_doc_comments = true
+wrap_comments = true
+comment_width = 80
+max_width = 100
+tab_spaces = 4
+hard_tabs = false
+newline_style = "Unix"
+reorder_imports = true
+reorder_modules = true
+remove_nested_parens = true
+format_strings = false
+format_macro_matchers = true
+format_macro_rules = true
+condense_wildcard_suffixes = true
+normalize_comments = true
+normalize_doc_comments = true
