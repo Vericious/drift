@@ -1365,3 +1365,61 @@ class TestXmlOutput:
                 assert "<" not in msg.text
                 assert ">" not in msg.text
                 assert "&" not in msg.text or "&amp;" in result.output
+
+
+class TestJsonPrettyOutput:
+    """Tests for --json-pretty CLI output format."""
+
+    def _make_project(self, tmp_path: Path) -> None:
+        """Create a simple project with drift."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int, y: str = 'hello') -> bool:\n"
+            "    '''Documented function.'''\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n\n"
+            "## documented_func\n\n"
+            "```python\n"
+            "def documented_func(x: int) -> bool\n"
+            "```\n"
+        )
+
+    def test_json_pretty_indentation(self, cli_runner, tmp_path: Path) -> None:
+        """--json-pretty outputs JSON with 4-space indentation."""
+        import json
+        self._make_project(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "--json-pretty", "--fail-on", "none", "--no-cache", str(tmp_path)])
+        assert result.exit_code == 0
+        # Should be valid parseable JSON
+        data = json.loads(result.output)
+        assert "drift_items" in data
+        # 4-space indent means each level adds 4 spaces
+        lines = result.output.split("\n")
+        # Find the drift_items array start (should be at 2nd level, 8 spaces)
+        found_items = False
+        for line in lines:
+            stripped = line.lstrip()
+            if stripped.startswith('"drift_items"'):
+                found_items = True
+            elif found_items and stripped.startswith('"severity"'):
+                # This should be at 8 spaces (4-space indent, 2 levels deep)
+                indent = len(line) - len(stripped)
+                assert indent >= 4, f"Expected indent >= 4, got {indent}"
+                break
+
+    def test_json_pretty_valid_parse(self, cli_runner, tmp_path: Path) -> None:
+        """--json-pretty output is valid JSON that can be parsed back."""
+        import json
+        self._make_project(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "--json-pretty", "--fail-on", "none", "--no-cache", str(tmp_path)])
+        assert result.exit_code == 0
+        # Must be valid parseable JSON
+        data = json.loads(result.output)
+        assert "scanned_path" in data
+        assert "summary" in data
+        assert "drift_items" in data
+        # Should have exactly 1 drift item (missing_param)
+        assert len(data["drift_items"]) == 1

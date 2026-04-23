@@ -292,8 +292,14 @@ class DriftReporter:
     # JSON output
     # -------------------------------------------------------------------------
 
-    def report_json(self, verbose: bool = False, elapsed: float = 0.0) -> str:
-        """Return the drift report as a JSON string."""
+    def report_json(self, verbose: bool = False, elapsed: float = 0.0, pretty: bool = False) -> str:
+        """Return the drift report as a JSON string.
+
+        Args:
+            verbose: Include scan timing info.
+            elapsed: Scan duration in seconds.
+            pretty: If True, use 4-space indentation; otherwise use 2-space.
+        """
         report = self.report
         verbose = verbose or self.verbose
 
@@ -328,7 +334,8 @@ class DriftReporter:
         if verbose:
             output["scan_time_seconds"] = round(elapsed, 3)
 
-        return json.dumps(output, indent=2)
+        indent: int | None = 4 if pretty else 2
+        return json.dumps(output, indent=indent)
 
     def report_json_lines(self) -> str:
         """Return drift items as NDJSON (one JSON object per line)."""

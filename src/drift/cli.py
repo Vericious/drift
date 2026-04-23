@@ -71,6 +71,12 @@ def main() -> None:
     help="Output results as XML. (mutually exclusive with --json, --sarif, --html, --diff-output, --patch, --json-lines, --csv)",
 )
 @click.option(
+    "--json-pretty",
+    "output_json_pretty",
+    is_flag=True,
+    help="Output pretty-printed JSON with 2-space indentation. (mutually exclusive with --json, --sarif, --html, --diff-output, --patch, --json-lines, --csv, --xml)",
+)
+@click.option(
     "--output",
     "-o",
     "output_file",
@@ -229,6 +235,7 @@ def scan(
     output_json_lines: bool,
     output_csv: bool,
     output_xml: bool,
+    output_json_pretty: bool,
     output_file: str | None,
     config_path: str | None,
     strict: bool,
@@ -272,10 +279,10 @@ def scan(
 
     # CLI --json, --sarif, --html, or --diff-output flag overrides config
     # These flags are mutually exclusive
-    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff, output_patch, output_json_lines, output_csv, output_xml] if f)
+    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff, output_patch, output_json_lines, output_csv, output_xml, output_json_pretty] if f)
     if flag_count > 1:
         raise click.ClickException(
-            "--json, --sarif, --html, --diff-output, --patch, --json-lines, --csv, and --xml cannot be used together."
+            "--json, --json-pretty, --sarif, --html, --diff-output, --patch, --json-lines, --csv, and --xml cannot be used together."
         )
     if output_json:
         output_format = "json"
@@ -293,6 +300,8 @@ def scan(
         output_format = "csv"
     elif output_xml:
         output_format = "xml"
+    elif output_json_pretty:
+        output_format = "json-pretty"
     else:
         output_format = config.output_format
 
@@ -526,6 +535,8 @@ def scan(
     # Generate output based on format
     if output_format == "json":
         output_content = reporter.report_json(verbose=verbose, elapsed=elapsed)
+    elif output_format == "json-pretty":
+        output_content = reporter.report_json(pretty=True, verbose=verbose, elapsed=elapsed)
     elif output_format == "sarif":
         output_content = reporter.report_sarif(verbose=verbose, elapsed=elapsed)
     elif output_format == "html":
