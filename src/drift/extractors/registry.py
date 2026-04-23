@@ -66,6 +66,7 @@ def _discover_extractors() -> None:
         sqlalchemy,  # noqa: F401
         swift,  # noqa: F401
         go,  # noqa: F401
+        go_mod,  # noqa: F401
         rust,  # noqa: F401
         rustfmt_config,  # noqa: F401
         terraform,  # noqa: F401
