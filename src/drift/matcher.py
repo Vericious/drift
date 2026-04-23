@@ -26,7 +26,9 @@ class SignatureMatcher:
     ) -> tuple[bool, float]:
         """Return (matched, confidence) using difflib.SequenceMatcher.
 
-        Compares normalized names (split on underscores/camelCase).
+        Compares normalized names (split on underscores/camelCase) after stripping
+        common dot-separated prefixes (e.g., module.ClassName.method vs
+        ClassName.method → strip common prefix, compare last component).
         """
 
         # Normalize: split on underscores and camelCase boundaries
@@ -41,9 +43,46 @@ class SignatureMatcher:
                     result += c.lower()
             return result.strip()
 
-        n1 = normalize(name1)
-        n2 = normalize(name2)
-        ratio = difflib.SequenceMatcher(None, n1, n2).ratio()
+        # Strip common leading dot-separated components (namespace prefix)
+        # e.g., "mymodule.MyClass.my_method" vs "MyClass.my_method"
+        # → compare "my_method" vs "my_method" after prefix stripping
+        #
+        # When there's NO common prefix, compare just the last segment (suffix)
+        # since the leading components are different namespaces.
+        def strip_common_prefix(name1: str, name2: str) -> tuple[str, str]:
+            parts1 = name1.split(".")
+            parts2 = name2.split(".")
+            # Find common prefix length
+            common = 0
+            min_len = min(len(parts1), len(parts2))
+            for i in range(min_len):
+                if parts1[i] == parts2[i]:
+                    common += 1
+                else:
+                    break
+            if common == 0:
+                # No common prefix — compare just the final segments (suffixes)
+                # This handles cases like "mymodule.MyClass.method" vs "OtherClass.method"
+                return parts1[-1], parts2[-1]
+            # Strip common prefix: keep only the non-matching suffix parts
+            stripped1 = ".".join(parts1[common:]) if common < len(parts1) else parts1[-1]
+            stripped2 = ".".join(parts2[common:]) if common < len(parts2) else parts2[-1]
+            return stripped1, stripped2
+
+        stripped1, stripped2 = strip_common_prefix(name1, name2)
+        n1 = normalize(stripped1)
+        n2 = normalize(stripped2)
+        ratio_stripped = difflib.SequenceMatcher(None, n1, n2).ratio()
+
+        # Also compare full normalized names — the full match may be higher confidence
+        # especially when one name is a pure suffix of the other (e.g., "getUser" vs "long.path.getUser")
+        n1_full = normalize(name1)
+        n2_full = normalize(name2)
+        ratio_full = difflib.SequenceMatcher(None, n1_full, n2_full).ratio()
+
+        # Use whichever is higher confidence (suffix strip helps for partial namespace matches,
+        # full comparison helps when one name is a suffix of the other)
+        ratio = max(ratio_stripped, ratio_full)
         return (ratio >= threshold, round(ratio * 100, 1))
 
     def _same_signature_structure(self, fact: CodeFact, claim: DocClaim) -> bool:

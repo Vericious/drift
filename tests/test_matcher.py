@@ -354,3 +354,98 @@ class TestFuzzyRenamed:
         confidence = fuzzy_items[0].metadata.get("confidence")
         assert isinstance(confidence, float)
         assert 0 <= confidence <= 100
+
+
+class TestFuzzyNestedNames:
+    """Tests for fuzzy matching with qualified/nested names like module.ClassName.method.
+
+    These tests verify that the matcher handles qualified names correctly.
+    Key insight: when suffix matches exactly, the unqualified lookup short-circuits
+    to exact match (no drift). Fuzzy matching kicks in when suffixes differ or when
+    there are multiple candidates with the same suffix.
+    """
+
+    def test_fuzzy_match_nested_class_rename(self):
+        """Nested class method renamed — suffix differs (fetch_user vs get_user)."""
+        # "mymodule.MyClass.fetch_user" docs say "MyClass.get_user" → fuzzy rename
+        # suffixes: fetch_user vs get_user → differ → goes to fuzzy
+        f = fact("mymodule.MyClass.fetch_user", params=[param("x", "int")])
+        c = claim("MyClass.get_user", params=[param("x", "int")])
+
+        items = SignatureMatcher().match([f], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 1
+        assert fuzzy_items[0].fact.name == "mymodule.MyClass.fetch_user"
+
+    def test_fuzzy_match_qualified_function_rename(self):
+        """Qualified function with rename — suffix differs but similar."""
+        # "api.Client.get_user" vs "Client.fetch_user" → both fuzzy match
+        f = fact("api.Client.get_user", params=[param("limit", "int")])
+        c = claim("Client.fetch_user", params=[param("limit", "int")])
+
+        items = SignatureMatcher().match([f], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 1
+
+    def test_fuzzy_match_stripped_prefix_different_suffix(self):
+        """Both names have nested prefixes stripped, suffixes differ but similar."""
+        # "foo.bar.baz.process_data" vs "baz.processData" → fuzzy match
+        f = fact("foo.bar.baz.process_data", params=[param("id", "str")])
+        c = claim("baz.processData", params=[param("id", "str")])
+
+        items = SignatureMatcher().match([f], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 1
+
+    def test_fuzzy_match_partial_prefix_diff_suffixes(self):
+        """Names share prefix components but have different method suffixes."""
+        # "module_a.MyClass.get_user" vs "module_b.MyClass.fetch_user" → fuzzy match
+        f = fact("module_a.MyClass.get_user", params=[param("x", "int")])
+        c = claim("module_b.MyClass.fetch_user", params=[param("x", "int")])
+
+        items = SignatureMatcher().match([f], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 1
+
+    def test_fuzzy_match_partial_prefix_match(self):
+        """Partial prefix match strips only common leading components."""
+        # "a.b.c.method" vs "a.x.method" → stripped "b.c.method" vs "x.method"
+        # Different enough to not fuzzy match at 0.7 threshold
+        f = fact("a.b.c.method", params=[param("x", "int")])
+        c = claim("a.x.method", params=[param("x", "int")])
+
+        items = SignatureMatcher().match([f], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 0
+
+    def test_fuzzy_match_inner_class_deeply_nested(self):
+        """Deeply nested class method with qualified name and similar suffix."""
+        # "Outer.Inner.Deep.fetch_data" vs "Inner.Deep.get_data" → fuzzy match
+        f = fact("Outer.Inner.Deep.fetch_data", params=[param("data", "str")])
+        c = claim("Inner.Deep.get_data", params=[param("data", "str")])
+
+        items = SignatureMatcher().match([f], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 1
+        assert fuzzy_items[0].fact.name == "Outer.Inner.Deep.fetch_data"
+
+    def test_fuzzy_match_fuzzy_takes_precedence_over_renamed(self):
+        """When fuzzy matches with high confidence, it takes precedence over renamed."""
+        # Multiple candidates where one fuzzy-matches well
+        f1 = fact("module.handler_v1", params=[param("x", "int")])
+        f2 = fact("module.handle_request", params=[param("x", "int")])
+        c = claim("module.handle_request_renamed", params=[param("x", "int")])
+
+        items = SignatureMatcher().match([f1, f2], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 1
+
+    def test_fuzzy_match_high_confidence_for_similar_names(self):
+        """Similar names get high confidence scores."""
+        f = fact("api.Client.get_user", params=[param("id", "int")])
+        c = claim("api.Client.fetch_user", params=[param("id", "int")])
+
+        items = SignatureMatcher().match([f], [c])
+        fuzzy_items = [i for i in items if i.category == "fuzzy_renamed"]
+        assert len(fuzzy_items) == 1
+        assert fuzzy_items[0].metadata.get("confidence") > 70.0
