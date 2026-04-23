@@ -28,7 +28,9 @@ def get_changed_files(ref: str, path: Path) -> list[Path] | None:
         for line in result.stdout.strip().split("\n"):
             line = line.strip()
             if line:
-                files.append(Path(line))
+                # Join with path to get correct absolute path
+                # (git returns repo-relative paths like "b.py" or "src/foo.py")
+                files.append(path / line)
         return files
     except (subprocess.TimeoutExpired, OSError):
         return None
@@ -76,8 +78,16 @@ def get_changed_lines(ref: str, path: Path) -> dict[Path, set[int]] | None:
                 if filename and filename != "/dev/null":
                     if current_file is not None and file_lines:
                         changed[current_file] = file_lines
-                    # Join with resolved absolute path so comparison works
-                    current_file = (path.resolve() / filename)
+                    # Detect whether git returned a repo-relative path (e.g. 'src/foo.py'
+                    # when cwd=repo-root) or a scan-dir-relative path (e.g. 'example.py'
+                    # when cwd=temp_project). If filename starts with scan_path as a
+                    # prefix, git was run from repo-root and we need to strip that
+                    # prefix by joining via path.parent so we don't double it.
+                    path_str = str(path)
+                    if path_str not in (".", "") and filename.startswith(path_str + "/"):
+                        current_file = path.parent / filename
+                    else:
+                        current_file = path / filename
                     file_lines = set()
             elif line.startswith("@@"):
                 match = _HUNK_RE.match(line)
