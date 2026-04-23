@@ -65,6 +65,12 @@ def main() -> None:
     help="Output results as CSV with headers. (mutually exclusive with --json, --sarif, --html, --diff-output, --patch, --json-lines)",
 )
 @click.option(
+    "--xml",
+    "output_xml",
+    is_flag=True,
+    help="Output results as XML. (mutually exclusive with --json, --sarif, --html, --diff-output, --patch, --json-lines, --csv)",
+)
+@click.option(
     "--output",
     "-o",
     "output_file",
@@ -222,6 +228,7 @@ def scan(
     output_patch: bool,
     output_json_lines: bool,
     output_csv: bool,
+    output_xml: bool,
     output_file: str | None,
     config_path: str | None,
     strict: bool,
@@ -265,10 +272,10 @@ def scan(
 
     # CLI --json, --sarif, --html, or --diff-output flag overrides config
     # These flags are mutually exclusive
-    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff, output_patch, output_json_lines, output_csv] if f)
+    flag_count = sum(1 for f in [output_json, output_sarif, output_html, output_diff, output_patch, output_json_lines, output_csv, output_xml] if f)
     if flag_count > 1:
         raise click.ClickException(
-            "--json, --sarif, --html, --diff-output, --patch, --json-lines, and --csv cannot be used together."
+            "--json, --sarif, --html, --diff-output, --patch, --json-lines, --csv, and --xml cannot be used together."
         )
     if output_json:
         output_format = "json"
@@ -284,6 +291,8 @@ def scan(
         output_format = "json-lines"
     elif output_csv:
         output_format = "csv"
+    elif output_xml:
+        output_format = "xml"
     else:
         output_format = config.output_format
 
@@ -529,6 +538,8 @@ def scan(
         output_content = reporter.report_json_lines()
     elif output_format == "csv":
         output_content = reporter.report_csv()
+    elif output_format == "xml":
+        output_content = reporter.report_xml()
     else:
         # For text output, capture to file without Rich formatting
         # Use StringIO to capture plain text with markup interpreted and stripped

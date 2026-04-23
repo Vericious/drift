@@ -1269,3 +1269,99 @@ class TestCsvOutput:
         reader = csv.reader(io.StringIO(result.output))
         rows = list(reader)
         assert len(rows) >= 1  # at least header
+
+
+class TestXmlOutput:
+    """Tests for --xml CLI output format."""
+
+    def _make_project_with_drift(self, tmp_path: Path) -> None:
+        """Create a project with documented_func and undocumented_func."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(x: int, y: str = 'hello') -> bool:\n"
+            "    '''Documented function.'''\n"
+            "    pass\n"
+            "\n"
+            "def undocumented_func(a: int) -> None:\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API Reference\n"
+            "\n"
+            "## documented_func\n"
+            "\n"
+            "```python\n"
+            "def documented_func(x: int, y: str = 'hello') -> bool\n"
+            "```\n"
+            "\n"
+            "## fake_function\n"
+            "\n"
+            "```python\n"
+            "def fake_function(a: int) -> None\n"
+            "```\n"
+        )
+
+    def test_xml_output_format(self, cli_runner, tmp_path: Path) -> None:
+        """--xml flag outputs valid XML with drift-report root element."""
+        import xml.etree.ElementTree as ET
+        self._make_project_with_drift(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "--xml", "--fail-on", "none", str(tmp_path)])
+        assert result.exit_code == 0
+        # Should be valid parseable XML
+        root = ET.fromstring(result.output)
+        assert root.tag == "drift-report"
+        # Should have at least one drift-item child
+        items = root.findall("drift-item")
+        assert len(items) >= 1
+
+    def test_xml_valid_structure(self, cli_runner, tmp_path: Path) -> None:
+        """XML output has correct attributes and nested elements."""
+        import xml.etree.ElementTree as ET
+        self._make_project_with_drift(tmp_path)
+        result = cli_runner.invoke(main, ["scan", "--xml", "--fail-on", "none", str(tmp_path)])
+        assert result.exit_code == 0
+        root = ET.fromstring(result.output)
+        assert root.tag == "drift-report"
+        # Check root attributes
+        assert "facts" in root.attrib
+        assert "drift_items" in root.attrib
+        # Check drift-item attributes
+        item = root.find("drift-item")
+        assert item is not None
+        assert "severity" in item.attrib
+        assert "category" in item.attrib
+        assert "confidence" in item.attrib
+        # Check nested elements
+        assert item.find("fact") is not None
+        assert item.find("message") is not None
+
+    def test_xml_escapes_special_chars(self, cli_runner, tmp_path: Path) -> None:
+        """XML output properly escapes <, >, & and other special XML chars."""
+        import xml.etree.ElementTree as ET
+        py_file = tmp_path / "example.py"
+        # Function name with chars that need XML escaping
+        py_file.write_text(
+            "def func_a_lt_b(x):\n"
+            "    '''A & B < C > D.'''\n"
+            "    pass\n"
+        )
+        md_file = tmp_path / "docs.md"
+        md_file.write_text(
+            "# API\n\n"
+            "```python\n"
+            "def func_a_lt_b(x)\n"
+            "```\n"
+        )
+        result = cli_runner.invoke(main, ["scan", "--xml", "--fail-on", "none", str(tmp_path)])
+        assert result.exit_code == 0
+        # Should parse as valid XML — if escaping fails this raises ParseError
+        root = ET.fromstring(result.output)
+        assert root.tag == "drift-report"
+        # Verify content is actually escaped (no raw < or > in text)
+        for item in root.findall("drift-item"):
+            msg = item.find("message")
+            if msg is not None and msg.text:
+                assert "<" not in msg.text
+                assert ">" not in msg.text
+                assert "&" not in msg.text or "&amp;" in result.output

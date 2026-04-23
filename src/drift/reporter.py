@@ -380,6 +380,65 @@ class DriftReporter:
             ])
         return output.getvalue()
 
+    def report_xml(self) -> str:
+        """Return drift items as XML with a root <drift-report> element."""
+        import xml.etree.ElementTree as ET
+
+        root = ET.Element("drift-report")
+        root.set("facts", str(len(self.report.facts)))
+        root.set("claims", str(len(self.report.claims)))
+        root.set("drift_items", str(len(self.report.drift_items)))
+        if self.report.scanned_path:
+            root.set("scanned_path", str(self.report.scanned_path))
+
+        for item in self.report.drift_items:
+            elem = ET.SubElement(root, "drift-item")
+            elem.set("severity", item.severity.value)
+            elem.set("category", item.category)
+            elem.set("confidence", f"{item.confidence:.3f}")
+
+            fact = item.fact
+            if fact:
+                fact_elem = ET.SubElement(elem, "fact")
+                fact_elem.set("name", fact.name)
+                fact_elem.set("kind", fact.kind.value)
+                fact_elem.set("file", str(fact.source_file))
+                if fact.line_number:
+                    fact_elem.set("line", str(fact.line_number))
+                for param in fact.parameters:
+                    param_elem = ET.SubElement(fact_elem, "parameter")
+                    param_elem.set("name", param.name)
+                    if param.type_annotation:
+                        param_elem.set("type", param.type_annotation)
+                    if param.default is not None:
+                        param_elem.set("default", str(param.default))
+
+            claim = item.claim
+            if claim:
+                claim_elem = ET.SubElement(elem, "claim")
+                claim_elem.set("name", claim.name)
+                claim_elem.set("kind", claim.kind.value)
+                if claim.doc_file:
+                    claim_elem.set("file", str(claim.doc_file))
+                if claim.line_number:
+                    claim_elem.set("line", str(claim.line_number))
+
+            msg_elem = ET.SubElement(elem, "message")
+            msg_elem.text = item.message
+
+            if item.suggestion:
+                sugg_elem = ET.SubElement(elem, "suggestion")
+                sugg_elem.text = item.suggestion
+
+            if item.signals is not None:
+                sig_elem = ET.SubElement(elem, "signals")
+                sig_elem.set("name_similarity", f"{item.signals.name_similarity:.3f}")
+                sig_elem.set("param_overlap", f"{item.signals.param_overlap:.3f}")
+                sig_elem.set("type_match", f"{item.signals.type_match:.3f}")
+
+        ET.indent(root)
+        return ET.tostring(root, encoding="unicode", xml_declaration=False)
+
     # -------------------------------------------------------------------------
     # HTML output
     # -------------------------------------------------------------------------
