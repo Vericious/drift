@@ -204,6 +204,82 @@ class TestProtocolExtraction:
         assert cfg_fact is not None
         assert "configure" in cfg_fact.metadata["methods"]
 
+    def test_protocol_with_associated_types(self):
+        """Protocol with associatedtype is extracted."""
+        ext = SwiftExtractor()
+        facts = ext.extract(FIXTURE)
+
+        container_fact = next(
+            (f for f in facts if f.name == "Container" and f.metadata.get("swift_kind") == "protocol"),
+            None,
+        )
+        assert container_fact is not None
+        assert container_fact.metadata["swift_kind"] == "protocol"
+        # Methods and properties from the protocol body are extracted
+        assert "count" in container_fact.metadata["properties"]
+        assert "add" in container_fact.metadata["methods"]
+        assert "get" in container_fact.metadata["methods"]
+
+
+class TestExtensionExtraction:
+    """Test extension declaration extraction."""
+
+    def test_basic_extension(self):
+        """Extension on User is extracted."""
+        ext = SwiftExtractor()
+        facts = ext.extract(FIXTURE)
+
+        ext_fact = next((f for f in facts if f.metadata.get("swift_kind") == "extension" and f.metadata.get("extended_type") == "User"), None)
+        assert ext_fact is not None
+        assert ext_fact.metadata["lang"] == "swift"
+
+    def test_extension_methods_extracted(self):
+        """Extension method names are in metadata['methods']."""
+        ext = SwiftExtractor()
+        facts = ext.extract(FIXTURE)
+
+        ext_fact = next((f for f in facts if f.metadata.get("swift_kind") == "extension" and f.metadata.get("extended_type") == "User"), None)
+        assert ext_fact is not None
+        assert "fullName" in ext_fact.metadata["methods"]
+
+    def test_extension_properties_extracted(self):
+        """Extension computed properties are extracted."""
+        ext = SwiftExtractor()
+        facts = ext.extract(FIXTURE)
+
+        ext_fact = next((f for f in facts if f.metadata.get("swift_kind") == "extension" and f.metadata.get("extended_type") == "User"), None)
+        assert ext_fact is not None
+        assert "displayName" in ext_fact.metadata["properties"]
+
+    def test_extension_on_view_controller(self):
+        """Extension on ViewController is extracted."""
+        ext = SwiftExtractor()
+        facts = ext.extract(FIXTURE)
+
+        ext_fact = next((f for f in facts if f.metadata.get("swift_kind") == "extension" and f.metadata.get("extended_type") == "ViewController"), None)
+        assert ext_fact is not None
+        assert "clearItems" in ext_fact.metadata["methods"]
+        assert "itemCount" in ext_fact.metadata["properties"]
+
+    def test_extension_stored_in_parameters(self):
+        """Extension added properties are in parameters list."""
+        ext = SwiftExtractor()
+        facts = ext.extract(FIXTURE)
+
+        ext_fact = next((f for f in facts if f.metadata.get("swift_kind") == "extension" and f.metadata.get("extended_type") == "User"), None)
+        assert ext_fact is not None
+        param_names = {p.name for p in ext_fact.parameters}
+        assert "displayName" in param_names
+
+    def test_extension_fact_name_is_extended_type(self):
+        """Extension fact is named after the extended type."""
+        ext = SwiftExtractor()
+        facts = ext.extract(FIXTURE)
+
+        ext_fact = next((f for f in facts if f.metadata.get("swift_kind") == "extension" and f.metadata.get("extended_type") == "ViewController"), None)
+        assert ext_fact is not None
+        assert ext_fact.name == "ViewController"
+
 
 class TestStandaloneFunctionExtraction:
     """Test top-level func declaration extraction."""

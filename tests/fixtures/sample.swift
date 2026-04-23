@@ -127,6 +127,15 @@ protocol Configurable {
     func configure()
 }
 
+// MARK: - Protocol with associated types
+
+protocol Container {
+    associatedtype Item
+    var count: Int { get }
+    mutating func add(_ item: Item)
+    func get(at index: Int) -> Item?
+}
+
 // MARK: - Standalone Functions
 
 func add(_ a: Int, _ b: Int) -> Int {
@@ -139,6 +148,28 @@ func fetchUser(id: Int, completion: (User?) -> Void) {
 
 func processItems(_ items: [String], transform: (String) -> String) -> [String] {
     return items.map(transform)
+}
+
+// MARK: - Extensions
+
+extension User {
+    func fullName() -> String {
+        return "\(name) (ID: \(id))"
+    }
+
+    var displayName: String {
+        return name
+    }
+}
+
+extension ViewController {
+    func clearItems() {
+        items.removeAll()
+    }
+
+    var itemCount: Int {
+        return items.count
+    }
 }
 
 // MARK: - Nested Types

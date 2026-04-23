@@ -39,10 +39,16 @@ _PROTOCOL_RE = re.compile(
     re.MULTILINE,
 )
 
+# Match extension declarations: extension Foo { ... }
+_EXTENSION_RE = re.compile(
+    r"(?:public |internal |open |fileprivate |private )?extension\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*[^{]+)?\s*\{",
+    re.MULTILINE,
+)
+
 # Match func declarations: func foo() { ... } or func foo() -> Type { ... }
 # Handles instance, static, and class methods
 _FUNC_RE = re.compile(
-    r"(?:public |internal |open |fileprivate |private )?(?:static |class |convenience )?func\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>]+>)?\s*\(([^)]*)\)\s*(?:->\s*([^({]+))?",
+    r"(?:public |internal |open |fileprivate |private )?(?:static |class |convenience )?func\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>]+>)?\s*\(([^)]*)\)\s*(?:->\s*([^{(\n]+))?",
     re.MULTILINE,
 )
 
@@ -183,6 +189,7 @@ class SwiftExtractor(Extractor):
         facts.extend(self._extract_classes(source, path))
         facts.extend(self._extract_enums(source, path))
         facts.extend(self._extract_protocols(source, path))
+        facts.extend(self._extract_extensions(source, path))
         facts.extend(self._extract_standalone_functions(source, path))
 
         return facts
@@ -327,6 +334,51 @@ class SwiftExtractor(Extractor):
             )
         return facts
 
+    def _extract_extensions(self, source: str, path: Path) -> list[CodeFact]:
+        """Extract extension declarations."""
+        facts: list[CodeFact] = []
+        for match in _EXTENSION_RE.finditer(source):
+            name = match.group(1)
+            line_number = source[: match.start()].count("\n") + 1
+            start = match.end()
+            end = _get_body_end(source, start)
+            body = source[start:end]
+
+            # Extract any added properties and functions
+            properties = _extract_properties(body)
+            functions = _extract_functions(body)
+
+            # Collect inherited protocols if any
+            inherits = []
+            inherits_match = re.search(r":\s*([^{]+)\s*\{", match.group(0))
+            if inherits_match:
+                for prot in inherits_match.group(1).split(","):
+                    prot = prot.strip()
+                    if prot:
+                        inherits.append(prot)
+
+            fact = CodeFact(
+                name=name,
+                kind=FactKind.CLASS,
+                source_file=path,
+                line_number=line_number,
+                parameters=[
+                    Parameter(name=n, type_annotation=t, kind="property", is_optional=is_opt, is_readonly=is_ro)
+                    for n, t, is_opt, is_ro in properties
+                ],
+                metadata={
+                    "lang": "swift",
+                    "swift_kind": "extension",
+                    "extended_type": name,
+                    "properties": [n for n, _, _, _ in properties],
+                    "methods": [n for n, _, _ in functions],
+                },
+            )
+            if inherits:
+                fact.metadata["conforms_to"] = inherits
+            facts.append(fact)
+        return facts
+
     def _extract_standalone_functions(self, source: str, path: Path) -> list[CodeFact]:
         """Extract top-level func declarations."""
         facts: list[CodeFact] = []
@@ -342,11 +394,12 @@ class SwiftExtractor(Extractor):
             line_number = source[: match.start()].count("\n") + 1
 
             # Check if this func is inside a type body by counting brace depths
-            # A top-level func should have even brace depth (0 or 2 for class members)
+            # A top-level func should have brace_depth == 0 (outside any braces)
+            # Protocols and their bodies have depth >= 1, type bodies have depth >= 2
             prefix = source[: match.start()]
             brace_depth = prefix.count("{") - prefix.count("}")
-            if brace_depth > 1:
-                # Inside a nested type or closure
+            if brace_depth != 0:
+                # Inside a type body, protocol body, or closure
                 continue
 
             params = _parse_parameters(params_str)
