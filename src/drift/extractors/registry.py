@@ -64,7 +64,10 @@ def _discover_extractors() -> None:
         pydantic,  # noqa: F401
         rst_docs,  # noqa: F401
         sqlalchemy,  # noqa: F401
+        swift,  # noqa: F401
+        go,  # noqa: F401
         terraform,  # noqa: F401
+        typescript,  # noqa: F401
         yaml_config,  # noqa: F401
         dockerfile,  # noqa: F401
         makefile,  # noqa: F401
