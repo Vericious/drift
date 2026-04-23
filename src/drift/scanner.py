@@ -77,6 +77,7 @@ class DriftScanner:
         extractors_enabled: list[str] | None = None,
         extractors_disabled: list[str] | None = None,
         ignore_patterns: list[str] | None = None,
+        exclude_extensions: list[str] | None = None,
     ) -> None:
         self.path = path
         self.strict = strict
@@ -94,6 +95,8 @@ class DriftScanner:
         self._extractors_disabled = extractors_disabled or []
         # Config ignore_patterns: fnmatch-style glob patterns from .drift.toml [scan] section
         self._config_ignore_patterns = ignore_patterns or []
+        # CLI --exclude-extensions: list of extensions to skip (e.g. [".pyc", ".test.py"])
+        self._exclude_extensions = [ext.lower() for ext in (exclude_extensions or [])]
         self.md_extractor = MarkdownExtractor()
         self.config_extractor = ConfigFileExtractor()
         self.js_extractor: JSDocExtractor | None = None
@@ -442,6 +445,18 @@ class DriftScanner:
             ]
         else:
             js_files = []
+
+        # Filter out files matching --exclude-extensions (e.g. .pyc, .test.py)
+        # Uses endswith to handle both simple (.pyc) and compound (.test.py) extensions
+        if self._exclude_extensions:
+            def _matches_extension(file_path: Path) -> bool:
+                name_lower = file_path.name.lower()
+                return any(name_lower.endswith(ext.lower()) for ext in self._exclude_extensions)
+
+            py_files = [f for f in py_files if not _matches_extension(f)]
+            md_files = [f for f in md_files if not _matches_extension(f)]
+            config_files = [f for f in config_files if not _matches_extension(f)]
+            js_files = [f for f in js_files if not _matches_extension(f)]
 
         # Filter out ignored files
         py_files = [f for f in py_files if not self._is_ignored(f)]

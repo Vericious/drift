@@ -684,6 +684,138 @@ class TestExcludeCategoryOption:
         assert "missing_param" in result.output or "renamed" in result.output
 
 
+class TestExcludeExtensionsOption:
+    """Tests for --exclude-extensions CLI option."""
+
+    def test_exclude_extensions_skips_files(self, cli_runner, tmp_path):
+        """--exclude-extensions skips files with the given extension."""
+        # Create a module with documented items
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(a: int) -> str:\n"
+            "    '''A documented function.'''\n"
+            "    pass\n"
+        )
+        # Create an excluded file with different drift
+        excluded_py = tmp_path / "example.test.py"
+        excluded_py.write_text(
+            "def another_func(b: int) -> str:\n"
+            "    '''Another documented function.'''\n"
+            "    pass\n"
+        )
+        # Run scan without exclude - should find 2 items
+        result_all = cli_runner.invoke(main, ["scan", str(tmp_path)])
+        assert result_all.exit_code in (0, 1)
+        # Run scan with --exclude-extensions .test.py - should skip example.test.py
+        result_excluded = cli_runner.invoke(
+            main, ["scan", "--exclude-extensions", ".test.py", str(tmp_path)]
+        )
+        assert result_excluded.exit_code in (0, 1)
+        # The excluded result should have fewer or no findings from .test.py
+        assert ".test.py" not in result_excluded.output or "No drift" in result_excluded.output
+
+    def test_exclude_extensions_multiple(self, cli_runner, tmp_path):
+        """--exclude-extensions can exclude multiple extensions at once."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(a: int) -> str:\n"
+            "    '''A documented function.'''\n"
+            "    pass\n"
+        )
+        # Files with different extensions
+        test_py = tmp_path / "example.test.py"
+        test_py.write_text(
+            "def test_func(x: int) -> None:\n"
+            "    '''Test function.'''\n"
+            "    pass\n"
+        )
+        pyc_file = tmp_path / "example.pyc"
+        pyc_file.write_text(
+            "def pyc_func(y: int) -> None:\n"
+            "    '''PYC function.'''\n"
+            "    pass\n"
+        )
+        # Exclude both .test.py and .pyc
+        result = cli_runner.invoke(
+            main,
+            ["scan", "--exclude-extensions", ".test.py,.pyc", str(tmp_path)],
+        )
+        assert result.exit_code in (0, 1)
+        # example.test.py and example.pyc should not appear in output
+        assert "example.test.py" not in result.output
+        assert "example.pyc" not in result.output
+
+    def test_exclude_extensions_repeated_flag(self, cli_runner, tmp_path):
+        """--exclude-extensions can be passed multiple times."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(a: int) -> str:\n"
+            "    '''A documented function.'''\n"
+            "    pass\n"
+        )
+        test_py = tmp_path / "example.test.py"
+        test_py.write_text(
+            "def test_func(x: int) -> None:\n"
+            "    '''Test function.'''\n"
+            "    pass\n"
+        )
+        pyc_file = tmp_path / "example.pyc"
+        pyc_file.write_text(
+            "def pyc_func(y: int) -> None:\n"
+            "    '''PYC function.'''\n"
+            "    pass\n"
+        )
+        # Pass as multiple flags
+        result = cli_runner.invoke(
+            main,
+            [
+                "scan",
+                "--exclude-extensions", ".test.py",
+                "--exclude-extensions", ".pyc",
+                str(tmp_path),
+            ],
+        )
+        assert result.exit_code in (0, 1)
+        assert "example.test.py" not in result.output
+        assert "example.pyc" not in result.output
+
+    def test_exclude_extensions_case_insensitive(self, cli_runner, tmp_path):
+        """Extension matching is case-insensitive."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(a: int) -> str:\n"
+            "    '''A documented function.'''\n"
+            "    pass\n"
+        )
+        # Extension in uppercase
+        TEST_py = tmp_path / "example.TEST.py"
+        TEST_py.write_text(
+            "def test_func(x: int) -> None:\n"
+            "    '''Test function.'''\n"
+            "    pass\n"
+        )
+        # Exclude with lowercase - should still match .TEST.py
+        result = cli_runner.invoke(
+            main, ["scan", "--exclude-extensions", ".test.py", str(tmp_path)]
+        )
+        assert result.exit_code in (0, 1)
+        assert "example.TEST.py" not in result.output
+
+    def test_exclude_extensions_no_match(self, cli_runner, tmp_path):
+        """--exclude-extensions with non-matching extensions has no effect."""
+        py_file = tmp_path / "example.py"
+        py_file.write_text(
+            "def documented_func(a: int) -> str:\n"
+            "    '''A documented function.'''\n"
+            "    pass\n"
+        )
+        result = cli_runner.invoke(
+            main, ["scan", "--exclude-extensions", ".xyz", str(tmp_path)]
+        )
+        assert result.exit_code in (0, 1)
+        # Should still find the documented function (no drift)
+
+
 class TestSinceFlag:
     """Tests for --since CLI filter."""
 

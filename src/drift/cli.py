@@ -199,6 +199,14 @@ def main() -> None:
     "ts_member_missing, ts_member_extra. "
     "Category names are case-insensitive.",
 )
+@click.option(
+    "--exclude-extensions",
+    "exclude_extensions",
+    multiple=True,
+    help="Skip files with these extensions. Accepts comma-separated values "
+    "(e.g. --exclude-extensions .pyc,.test.py) or can be passed multiple times. "
+    "Extensions are case-insensitive. Example: --exclude-extensions .pyc,.log",
+)
 def scan(
     paths: tuple[str, ...],
     output_json: bool,
@@ -228,6 +236,7 @@ def scan(
     watch: bool,
     quiet: bool,
     exclude_categories: tuple[str, ...],
+    exclude_extensions: tuple[str, ...],
 ) -> None:
     """Scan one or more paths for documentation drift."""
     import time
@@ -311,6 +320,7 @@ def scan(
                         diff_ref=diff_ref,
                         since=since,
                         extractors=extractors,
+                        exclude_extensions=exclude_extensions,
                     )
                 time.sleep(2)
             except KeyboardInterrupt:
@@ -410,6 +420,7 @@ def scan(
             extractors_enabled=extractors_enabled,
             extractors_disabled=extractors_disabled,
             ignore_patterns=config.ignore_patterns,
+            exclude_extensions=_expand_extensions(exclude_extensions),
         )
         report = scanner.scan()
         all_reports.append(report)
@@ -1319,6 +1330,23 @@ def _expand_fail_on_to_categories(fail_on: str) -> set[str]:
     return {fail_on}
 
 
+def _expand_extensions(exts: tuple[str, ...]) -> list[str]:
+    """Expand comma-separated extension strings into a flat list.
+
+    '--exclude-extensions .pyc,.test.py' with multiple=True gives
+    ('.pyc,.test.py',) which needs to become ['.pyc', '.test.py'].
+    '--exclude-extensions .pyc --exclude-extensions .test.py' gives
+    ('.pyc', '.test.py') which is already flat.
+    """
+    result: list[str] = []
+    for ext in exts:
+        if "," in ext:
+            result.extend(e.strip() for e in ext.split(",") if e.strip())
+        else:
+            result.append(ext)
+    return result
+
+
 def _should_fail_on_items(items: list[DriftItem], fail_on: str) -> bool:
     """Check if any drift item should trigger non-zero exit based on fail_on.
 
@@ -1504,6 +1532,7 @@ def _run_watch_scan(
     diff_ref: str | None,
     since: str | None,
     extractors: tuple[str, ...],
+    exclude_extensions: tuple[str, ...],
 ) -> None:
     """Run a single scan pass, reusing the core logic from the scan command."""
     import time
@@ -1565,6 +1594,7 @@ def _run_watch_scan(
         changed_files=changed_files,
         extractors_enabled=extractors_enabled,
         extractors_disabled=extractors_disabled,
+        exclude_extensions=_expand_extensions(exclude_extensions),
     )
     report = scanner.scan()
 
