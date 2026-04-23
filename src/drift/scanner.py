@@ -88,8 +88,14 @@ class DriftScanner:
         # and caching would cause issues when serial+parallel are run on same path in tests
         self.no_cache = no_cache or parallel or (jobs is not None and jobs > 1)
         self.clear_cache = clear_cache
+        # Resolve changed_lines keys to absolute paths for consistent lookups
+        # (git returns relative paths like "src/foo.py" but fact.source_file.resolve()
+        # gives absolute paths like "/repo/src/foo.py")
+        if changed_lines is not None:
+            self.changed_lines = {k.resolve(): v for k, v in changed_lines.items()}
+        else:
+            self.changed_lines = None
         self.changed_files = changed_files  # If set, only scan these files
-        self.changed_lines = changed_lines  # If set, filter facts/claims to ±5 context window
         # Per-extractor enable/disable: None/[] = run all; list = only run these
         self._extractors_enabled = extractors_enabled
         self._extractors_disabled = extractors_disabled or []
