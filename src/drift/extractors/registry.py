@@ -59,6 +59,7 @@ def _discover_extractors() -> None:
         fastapi_routes,  # noqa: F401
         flask_routes,  # noqa: F401
         graphql,  # noqa: F401
+        kotlin,  # noqa: F401
         markdown,  # noqa: F401
         openapi,  # noqa: F401
         pydantic,  # noqa: F401
