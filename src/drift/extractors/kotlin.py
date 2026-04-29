@@ -345,8 +345,6 @@ class KotlinExtractor(Extractor):
 
     def _collect_leading_kdoc(self, source: str, decl_start: int) -> str | None:
         """Collect KDoc (/** */) immediately preceding the declaration at decl_start."""
-        # Find the start of the line containing the declaration
-        line_start = source.rfind("\n", 0, decl_start) + 1
         prefix = source[:decl_start]
 
         # Find the last non-whitespace character before line_start

@@ -3,8 +3,6 @@
 Extracts module name, Go version, and dependencies from go.mod files.
 """
 
-import re
-import sys
 from pathlib import Path
 from typing import Any
 

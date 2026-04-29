@@ -3,8 +3,6 @@
 Extracts formatting rules from rustfmt.toml configuration files.
 """
 
-import re
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -44,13 +42,7 @@ class RustfmtConfigExtractor(Extractor):
 
     def _parse(self, content: str) -> dict[str, Any] | None:
         """Parse rustfmt.toml content using tomllib."""
-        if sys.version_info < (3, 11):
-            try:
-                import tomli as tomllib
-            except ImportError:
-                return None
-        else:
-            import tomllib
+        import tomllib
 
         try:
             return tomllib.loads(content)
