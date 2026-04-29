@@ -1,5 +1,6 @@
 """CLI interface for Drift."""
 
+import contextlib
 from pathlib import Path
 
 import click
@@ -456,7 +457,6 @@ def scan(
     report = _merge_reports(all_reports)
 
     # Filter against baseline if --baseline is set
-    baseline_info: str | None = None
     if baseline:
         loaded = load_baseline(Path(paths[0]))
         if loaded is None:
@@ -466,7 +466,7 @@ def scan(
         created_at, baseline_items = loaded
         original_count = len(report.drift_items)
         report.drift_items = filter_new_drift(report.drift_items, baseline_items)
-        baseline_info = f" (filtered: {len(report.drift_items)} new / {original_count} total vs baseline from {created_at[:10]})"
+        f" (filtered: {len(report.drift_items)} new / {original_count} total vs baseline from {created_at[:10]})"
 
     # Validate --update-baseline requires --baseline
     if update_baseline and not baseline:
@@ -515,7 +515,7 @@ def scan(
         exclude_set = {cat.lower() for cat in exclude_categories}
         invalid_cats = [cat for cat in exclude_set if cat not in DriftCategory._value2member_map_]
         if invalid_cats:
-            valid = sorted(set(c.value for c in DriftCategory))
+            valid = sorted({c.value for c in DriftCategory})
             raise click.ClickException(
                 f"Invalid category(s): {', '.join(sorted(invalid_cats))}. "
                 f"Valid categories: {', '.join(valid)}"
@@ -708,9 +708,7 @@ def list_extractors(config_path: str | None) -> None:
         handles = getattr(cls, "_handles", None) or "*"
 
         # Determine status
-        if disabled_list and name in disabled_list:
-            status = "[red]disabled[/red]"
-        elif enabled_list is not None and name not in enabled_list:
+        if disabled_list and name in disabled_list or enabled_list is not None and name not in enabled_list:
             status = "[red]disabled[/red]"
         else:
             status = "[green]enabled[/green]"
@@ -1079,10 +1077,8 @@ def baseline_save(path: str, update: bool) -> None:
     scan_path = Path(path)
 
     # Load config (silently ignore if not found)
-    try:
+    with contextlib.suppress(FileNotFoundError, ValueError):
         load_config()
-    except (FileNotFoundError, ValueError):
-        pass
 
     scanner = DriftScanner(scan_path, strict=False)
     report = scanner.scan()
@@ -1094,118 +1090,7 @@ def baseline_save(path: str, update: bool) -> None:
     else:
         click.echo(f"Created baseline: {baseline_path}")
     click.echo(f"  {len(report.drift_items)} drift item(s) snapshot")
-    click.echo(f"  Run 'drift scan --baseline' to compare against this snapshot.")
-
-
-@baseline_group.command("export")
-@click.argument("path", type=click.Path(exists=True), default=".")
-@click.option(
-    "--format",
-    "-f",
-    "output_format",
-    type=click.Choice(["json", "csv"]),
-    default="json",
-    help="Output format: json (default) or csv.",
-)
-def baseline_export(path: str, output_format: str) -> None:
-    """Export the baseline as formatted JSON or CSV to stdout.
-
-    Reads the baseline from .drift/baseline.json and outputs it
-    in the requested format.
-
-    Examples:
-
-        drift baseline export
-        drift baseline export --format csv
-        drift baseline export /path/to/project --format json
-    """
-    import csv
-    import io
-    import json as _json
-
-    scan_path = Path(path)
-    loaded = load_baseline(scan_path)
-
-    if loaded is None:
-        raise click.ClickException(
-            f"No baseline found at {scan_path / '.drift/baseline.json'}. "
-            "Run 'drift baseline save' first."
-        )
-
-    created_at, items = loaded
-
-    if output_format == "json":
-        data = {
-            "created_at": created_at,
-            "items": items,
-        }
-        click.echo(_json.dumps(data, indent=2))
-    elif output_format == "csv":
-        output = io.StringIO()
-        writer = csv.writer(output)
-        # Header row
-        writer.writerow([
-            "fact_name", "fact_kind", "fact_file", "fact_line",
-            "claim_name", "claim_kind", "claim_file", "claim_line",
-            "severity", "category", "message",
-        ])
-        for item in items:
-            fact = item.get("fact") or {}
-            claim = item.get("claim") or {}
-            writer.writerow([
-                fact.get("name", ""),
-                fact.get("kind", ""),
-                fact.get("source_file", ""),
-                fact.get("line_number", ""),
-                claim.get("name", ""),
-                claim.get("kind", ""),
-                claim.get("doc_file", ""),
-                claim.get("line_number", ""),
-                item.get("severity", ""),
-                item.get("category", ""),
-                item.get("message", ""),
-            ])
-        click.echo(output.getvalue())
-
-
-@baseline_group.command("save")
-@click.argument("path", type=click.Path(exists=True), default=".")
-@click.option(
-    "--update",
-    "-U",
-    is_flag=True,
-    help="Overwrite the existing baseline file.",
-)
-def baseline_save(path: str, update: bool) -> None:
-    """Save the current drift state as a baseline snapshot.
-
-    Creates .drift/baseline.json with the current drift items.
-    Use 'drift scan --baseline' to compare against this snapshot
-    and only report NEW drift items not in the baseline.
-
-    Run again with --update to refresh the baseline.
-    """
-    from drift.config import load_config
-
-    scan_path = Path(path)
-
-    # Load config (silently ignore if not found)
-    try:
-        load_config()
-    except (FileNotFoundError, ValueError):
-        pass
-
-    scanner = DriftScanner(scan_path, strict=False)
-    report = scanner.scan()
-
-    baseline_path = save_baseline(report, scan_path)
-
-    if update:
-        click.echo(f"Updated baseline: {baseline_path}")
-    else:
-        click.echo(f"Created baseline: {baseline_path}")
-    click.echo(f"  {len(report.drift_items)} drift item(s) snapshot")
-    click.echo(f"  Run 'drift scan --baseline' to compare against this snapshot.")
+    click.echo("  Run 'drift scan --baseline' to compare against this snapshot.")
 
 
 @baseline_group.command("export")
@@ -1597,12 +1482,11 @@ def _run_watch_scan(
     fail_on_level = fail_on if fail_on is not None else config.fail_on
 
     changed_files: list[Path] | None = None
-    if diff_ref is not None:
-        if is_git_repo(scan_path):
-            if not ref_exists(diff_ref, scan_path):
-                click.secho(f"WARNING: git ref '{diff_ref}' not found.", fg="yellow", err=True)
-            else:
-                changed_files = get_changed_files(diff_ref, scan_path)
+    if diff_ref is not None and is_git_repo(scan_path):
+        if not ref_exists(diff_ref, scan_path):
+            click.secho(f"WARNING: git ref '{diff_ref}' not found.", fg="yellow", err=True)
+        else:
+            changed_files = get_changed_files(diff_ref, scan_path)
 
     # --since overrides: filter by file modification time
     if since is not None:
@@ -1662,6 +1546,7 @@ def _run_watch_scan(
         output_content = reporter.report_patch(verbose=verbose, elapsed=elapsed)
     else:
         import io
+
         from rich.console import Console
         text_buffer = io.StringIO()
         text_console = Console(file=text_buffer, force_terminal=False)

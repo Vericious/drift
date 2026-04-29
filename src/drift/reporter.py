@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from rich.console import Console
 from rich.text import Text
 
 from drift import __version__
 from drift.models import (
-    ClaimKind,
-    ConfidenceSignals,
     DocClaim,
     DriftItem,
     DriftReport,
@@ -201,7 +200,7 @@ class DriftReporter:
     def report_sarif(self, verbose: bool = False, elapsed: float = 0.0) -> str:
         """Return the drift report as a SARIF v2.1.0 JSON string."""
         report = self.report
-        scanned = str(report.scanned_path) if report.scanned_path else "."
+        str(report.scanned_path) if report.scanned_path else "."
 
         # Build rule index from drift items
         rules: dict[str, dict[str, object]] = {}
@@ -699,13 +698,13 @@ h2 {{ margin-top: 1.5rem; }}
         Returns empty list if file cannot be read.
         """
         try:
-            with open(doc_file, "r", encoding="utf-8") as f:
+            with open(doc_file, encoding="utf-8") as f:
                 lines = f.readlines()
             # Convert 1-indexed to 0-indexed, inclusive
             start = max(0, start_line - 1)
             end = min(len(lines), end_line)
             return lines[start:end]
-        except (OSError, IOError):
+        except OSError:
             return []
 
     def _build_patch_hunk(
@@ -731,9 +730,9 @@ h2 {{ margin-top: 1.5rem; }}
             A unified diff string, or None if the file cannot be read.
         """
         try:
-            with open(doc_file, "r", encoding="utf-8") as f:
+            with open(doc_file, encoding="utf-8") as f:
                 all_lines = f.readlines()
-        except (OSError, IOError):
+        except OSError:
             return None
 
         # Compute hunk range: we want context around the change
@@ -768,8 +767,8 @@ h2 {{ margin-top: 1.5rem; }}
             body_lines.append(f" {all_lines[i].rstrip()}")
 
         # Compute hunk ranges
-        old_count = len([l for l in body_lines if l.startswith(" ")]) + len(old_lines) if old_lines else 0
-        new_count = len([l for l in body_lines if l.startswith(" ")]) + len(new_lines) if new_lines else 0
+        len([l for l in body_lines if l.startswith(" ")]) + len(old_lines) if old_lines else 0
+        len([l for l in body_lines if l.startswith(" ")]) + len(new_lines) if new_lines else 0
         # Actually compute from actual context + removals/additions
         old_range_lines = [l for l in body_lines if l.startswith(" ") or l.startswith("-")]
         new_range_lines = [l for l in body_lines if l.startswith(" ") or l.startswith("+")]
@@ -805,9 +804,9 @@ h2 {{ margin-top: 1.5rem; }}
 
         # Try to read the doc file to find the line
         try:
-            with open(doc_file, "r", encoding="utf-8") as f:
+            with open(doc_file, encoding="utf-8") as f:
                 lines = f.readlines()
-        except (OSError, IOError):
+        except OSError:
             return None
 
         if claim_line < 1 or claim_line > len(lines):
@@ -860,9 +859,9 @@ h2 {{ margin-top: 1.5rem; }}
         claim_line = item.claim.line_number
 
         try:
-            with open(doc_file, "r", encoding="utf-8") as f:
+            with open(doc_file, encoding="utf-8") as f:
                 lines = f.readlines()
-        except (OSError, IOError):
+        except OSError:
             return None
 
         if claim_line < 1 or claim_line > len(lines):
@@ -936,9 +935,9 @@ h2 {{ margin-top: 1.5rem; }}
         claim_line = item.claim.line_number
 
         try:
-            with open(doc_file, "r", encoding="utf-8") as f:
+            with open(doc_file, encoding="utf-8") as f:
                 lines = f.readlines()
-        except (OSError, IOError):
+        except OSError:
             return None
 
         if claim_line < 1 or claim_line > len(lines):
@@ -1004,9 +1003,9 @@ h2 {{ margin-top: 1.5rem; }}
         claim_line = item.claim.line_number
 
         try:
-            with open(doc_file, "r", encoding="utf-8") as f:
+            with open(doc_file, encoding="utf-8") as f:
                 lines = f.readlines()
-        except (OSError, IOError):
+        except OSError:
             return None
 
         if claim_line < 1 or claim_line > len(lines):
@@ -1015,17 +1014,16 @@ h2 {{ margin-top: 1.5rem; }}
         old_line = lines[claim_line - 1].rstrip()
         new_line = old_line
 
-        if item.claim.return_type and item.fact.return_type:
-            if item.claim.return_type != item.fact.return_type:
-                old_ret = f"-> {item.claim.return_type}"
-                new_ret = f"-> {item.fact.return_type}"
-                if old_ret in new_line:
-                    new_line = new_line.replace(old_ret, new_ret)
-                elif item.claim.return_type in new_line:
-                    new_line = new_line.replace(
-                        item.claim.return_type,
-                        item.fact.return_type,
-                    )
+        if item.claim.return_type and item.fact.return_type and item.claim.return_type != item.fact.return_type:
+            old_ret = f"-> {item.claim.return_type}"
+            new_ret = f"-> {item.fact.return_type}"
+            if old_ret in new_line:
+                new_line = new_line.replace(old_ret, new_ret)
+            elif item.claim.return_type in new_line:
+                new_line = new_line.replace(
+                    item.claim.return_type,
+                    item.fact.return_type,
+                )
 
         if old_line == new_line:
             return None
@@ -1064,9 +1062,7 @@ h2 {{ margin-top: 1.5rem; }}
             lines = self._diff_documented_but_missing(item)
         elif item.category == "fuzzy_renamed":
             lines = self._diff_renamed(item)
-        elif item.category == "undocumented":
-            lines = self._diff_undocumented(item)
-        elif item.category == "code_without_docs":
+        elif item.category == "undocumented" or item.category == "code_without_docs":
             lines = self._diff_undocumented(item)
         elif item.category == "parameter_mismatch":
             lines = self._diff_parameter_mismatch(item)
@@ -1100,10 +1096,10 @@ h2 {{ margin-top: 1.5rem; }}
                     lines.append(f"- {doc_line}")
 
         # Show what the code actually has (nothing = missing)
-        lines.append(f"+ (function not found in code)")
-        lines.append(f"+ ")
+        lines.append("+ (function not found in code)")
+        lines.append("+ ")
         lines.append(f"+ # MISSING: {fact_name} is documented but does not exist in code")
-        lines.append(f"+ # Add the implementation or remove from docs")
+        lines.append("+ # Add the implementation or remove from docs")
 
         if item.suggestion:
             lines.append(f"+ # Suggestion: {item.suggestion}")
@@ -1148,13 +1144,13 @@ h2 {{ margin-top: 1.5rem; }}
         lines.append(f"--- {fact_file} (undocumented)")
         lines.append(f"+++ {fact_file} (suggested doc)")
         lines.append(f"@@ -0,0 +1,? @@ [undocumented] {fact_name}")
-        lines.append(f"+ # Documentation to add:")
+        lines.append("+ # Documentation to add:")
         lines.append(f"+ def {fact_sig}:")
         if fact and fact.docstring:
             for doc_line in fact.docstring.split("\n"):
                 lines.append(f"+    {doc_line}")
         else:
-            lines.append(f"+    [describe what this does]")
+            lines.append("+    [describe what this does]")
 
         if item.suggestion:
             lines.append(f"+ # Suggestion: {item.suggestion}")

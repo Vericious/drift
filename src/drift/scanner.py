@@ -1,12 +1,12 @@
 """Scanner — orchestrates the full drift detection pipeline."""
 
-import hashlib
+import contextlib
 import json
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from drift.extractors.config_file import ConfigFileExtractor
 from drift.extractors.markdown import MarkdownExtractor
@@ -14,7 +14,8 @@ from drift.extractors.registry import get_extractors
 from drift.matcher import SignatureMatcher
 from drift.models import CodeFact, DocClaim, DriftReport, ScanMetrics
 
-# JSDocExtractor imported lazily when include_js is True
+if TYPE_CHECKING:
+    from drift.extractor_js import JSDocExtractor
 
 
 def _extract_py_worker(
@@ -172,10 +173,8 @@ class DriftScanner:
         # Check config ignore_patterns first (fnmatch-style glob patterns)
         if self._config_ignore_patterns:
             rel_path = file_path
-            try:
+            with contextlib.suppress(ValueError):
                 rel_path = file_path.relative_to(self.path)
-            except ValueError:
-                pass
             path_str = str(rel_path)
             name_str = file_path.name
 
@@ -195,10 +194,8 @@ class DriftScanner:
         rel_path = file_path
 
         # Try relative to scanned path
-        try:
+        with contextlib.suppress(ValueError):
             rel_path = file_path.relative_to(self.path)
-        except ValueError:
-            pass
 
         path_str = str(rel_path)
         name_str = file_path.name
@@ -222,9 +219,8 @@ class DriftScanner:
                         matched = True
                         break
                 # Also check if the file is directly in the directory
-                if not matched and len(parts) > 1:
-                    if self._match_pattern(parts[-2], dir_name):
-                        matched = True
+                if not matched and len(parts) > 1 and self._match_pattern(parts[-2], dir_name):
+                    matched = True
             # Patterns with ** - PurePath.match() handles these
             elif "**" in pattern:
                 matched = self._match_pattern(path_str, pattern) or self._match_pattern(
@@ -445,12 +441,7 @@ class DriftScanner:
         config_files = [
             f for f in config_files if not any(part in exclude_dirs for part in f.parts)
         ]
-        if self.include_js:
-            js_files = [
-                f for f in js_files if not any(part in exclude_dirs for part in f.parts)
-            ]
-        else:
-            js_files = []
+        js_files = [f for f in js_files if not any(part in exclude_dirs for part in f.parts)] if self.include_js else []
 
         # Filter out files matching --exclude-extensions (e.g. .pyc, .test.py)
         # Uses endswith to handle both simple (.pyc) and compound (.test.py) extensions

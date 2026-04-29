@@ -6,7 +6,6 @@ Handles: FROM, EXPOSE, ENV, LABEL, ENTRYPOINT, CMD, ARG, RUN, COPY, ADD instruct
 
 import re
 from pathlib import Path
-from typing import Any
 
 from drift.extractors.base import Extractor
 from drift.extractors.registry import register
@@ -54,9 +53,7 @@ class DockerfileExtractor(Extractor):
             return True
         if name.endswith(".dockerfile"):
             return True
-        if name.startswith("Dockerfile."):
-            return True
-        return False
+        return bool(name.startswith("Dockerfile."))
 
     def extract(self, path: Path) -> list[CodeFact]:
         """Extract CodeFacts from a Dockerfile."""
@@ -71,7 +68,6 @@ class DockerfileExtractor(Extractor):
         lines = content.splitlines()
         joined_lines: list[tuple[int, str]] = []  # (original_line_num, joined_line)
         i = 0
-        current_line_num = 1
         current_content = ""
 
         while i < len(lines):
@@ -80,13 +76,13 @@ class DockerfileExtractor(Extractor):
                 # Continuation - join with next line
                 current_content += line.rstrip()[:-1] + " "
                 i += 1
-                current_line_num = i + 1
+                i + 1
             else:
                 current_content += line.strip()
                 joined_lines.append((i + 1, current_content.strip()))
                 current_content = ""
                 i += 1
-                current_line_num = i + 1
+                i + 1
 
         stage_index = 0
 
@@ -102,7 +98,7 @@ class DockerfileExtractor(Extractor):
             instr_type, value, extra = instruction
 
             if instr_type == "FROM":
-                fact = self._make_from_fact(value, extra, path, line_num)
+                fact = self._make_from_fact(value, extra, path, line_num, stage_index)
                 facts.append(fact)
                 stage_index += 1
 
@@ -217,9 +213,9 @@ class DockerfileExtractor(Extractor):
             result.append((name, default))
         return result
 
-    def _make_from_fact(self, image: str, extra: dict, source: Path, line: int) -> CodeFact:
+    def _make_from_fact(self, image: str, extra: dict, source: Path, line: int, stage_index: int) -> CodeFact:
         """Make a FROM fact."""
-        stage_name = extra.get("as", f"stage{stage_index}" if 'stage_index' in dir() else image.split(":")[0])
+        stage_name = extra.get("as", f"stage{stage_index}")
         return CodeFact(
             name=f"from.{stage_name}",
             kind=FactKind.CONFIG_KEY,
