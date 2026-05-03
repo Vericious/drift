@@ -96,8 +96,6 @@ class RustExtractor(Extractor):
                 i += 1
                 continue
 
-            matched = False
-
             # Struct
             m = self._match_struct(stripped)
             if m:
@@ -283,32 +281,32 @@ class RustExtractor(Extractor):
     # Matching helpers
     # ------------------------------------------------------------------
 
-    def _match_struct(self, line: str):
+    def _match_struct(self, line: str) -> re.Match[str] | None:
         return re.match(
             r"(?:pub\s+)?struct\s+([A-Za-z_][A-Za-z0-9_]*)",
             line,
         )
 
-    def _match_enum(self, line: str):
+    def _match_enum(self, line: str) -> re.Match[str] | None:
         return re.match(
             r"(?:pub\s+)?enum\s+([A-Za-z_][A-Za-z0-9_]*)",
             line,
         )
 
-    def _match_trait(self, line: str):
+    def _match_trait(self, line: str) -> re.Match[str] | None:
         return re.match(
             r"(?:pub\s+)?trait\s+([A-Za-z_][A-Za-z0-9_]*)",
             line,
         )
 
-    def _match_impl(self, line: str):
+    def _match_impl(self, line: str) -> re.Match[str] | None:
         # impl [Trait for] Type  or  impl Type
         return re.match(
             r"impl\s+(?:<[^>]+>\s+)?(?:([A-Za-z_][A-Za-z0-9_]*)\s+for\s+)?([A-Za-z_][A-Za-z0-9_]*)",
             line,
         )
 
-    def _match_fn(self, line: str):
+    def _match_fn(self, line: str) -> re.Match[str] | None:
         return re.match(
             r"(?:pub\s+)?(?:async\s+)?fn\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
             r"(?:\s*<[^>]+>)?\s*\((?P<params>[^)]*)\)"
@@ -413,7 +411,7 @@ class RustExtractor(Extractor):
     # ------------------------------------------------------------------
 
     def _parse_rust_params(self, params_str: str) -> list[Parameter]:
-        params = []
+        params: list[Parameter] = []
         if not params_str.strip():
             return params
         parts = self._split_params(params_str)
@@ -475,10 +473,7 @@ class RustExtractor(Extractor):
         final_doc = docstring
         if inner_docs:
             meta["inner_docstring"] = inner_docs
-            if final_doc:
-                final_doc = final_doc + "\n" + inner_docs
-            else:
-                final_doc = inner_docs
+            final_doc = final_doc + "\n" + inner_docs if final_doc else inner_docs
         return CodeFact(
             name=name,
             kind=FactKind.FUNCTION,
@@ -505,10 +500,7 @@ class RustExtractor(Extractor):
         final_doc = docstring
         if inner_docs:
             meta["inner_docstring"] = inner_docs
-            if final_doc:
-                final_doc = final_doc + "\n" + inner_docs
-            else:
-                final_doc = inner_docs
+            final_doc = final_doc + "\n" + inner_docs if final_doc else inner_docs
         return CodeFact(
             name=name,
             kind=FactKind.CLASS,
@@ -533,10 +525,7 @@ class RustExtractor(Extractor):
         final_doc = docstring
         if inner_docs:
             meta["inner_docstring"] = inner_docs
-            if final_doc:
-                final_doc = final_doc + "\n" + inner_docs
-            else:
-                final_doc = inner_docs
+            final_doc = final_doc + "\n" + inner_docs if final_doc else inner_docs
         return CodeFact(
             name=name,
             kind=FactKind.CLASS,
@@ -561,10 +550,7 @@ class RustExtractor(Extractor):
         final_doc = docstring
         if inner_docs:
             meta["inner_docstring"] = inner_docs
-            if final_doc:
-                final_doc = final_doc + "\n" + inner_docs
-            else:
-                final_doc = inner_docs
+            final_doc = final_doc + "\n" + inner_docs if final_doc else inner_docs
         return CodeFact(
             name=name,
             kind=FactKind.CLASS,
@@ -589,10 +575,7 @@ class RustExtractor(Extractor):
         final_doc = docstring
         if inner_docs:
             meta["inner_docstring"] = inner_docs
-            if final_doc:
-                final_doc = final_doc + "\n" + inner_docs
-            else:
-                final_doc = inner_docs
+            final_doc = final_doc + "\n" + inner_docs if final_doc else inner_docs
         return CodeFact(
             name=name,
             kind=FactKind.CLASS,
