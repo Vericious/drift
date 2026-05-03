@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from drift.models import CodeFact, DocClaim, DriftItem, DriftReport
+from drift.models import DriftItem, DriftReport
 
 
 BASELINE_FILENAME = Path(".drift") / "baseline.json"

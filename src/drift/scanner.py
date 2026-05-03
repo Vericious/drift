@@ -106,7 +106,7 @@ class DriftScanner:
         self._exclude_extensions = [ext.lower() for ext in (exclude_extensions or [])]
         self.md_extractor = MarkdownExtractor()
         self.config_extractor = ConfigFileExtractor()
-        self.js_extractor: JSDocExtractor | None = None
+        self.js_extractor: "JSDocExtractor | None" = None
         self.matcher = SignatureMatcher()
         self._ignore_patterns: list[tuple[str, bool]] = []
         self._files_skipped: int = 0
