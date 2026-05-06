@@ -76,14 +76,11 @@ class DockerfileExtractor(Extractor):
                 # Continuation - join with next line
                 current_content += line.rstrip()[:-1] + " "
                 i += 1
-                i + 1
             else:
                 current_content += line.strip()
                 joined_lines.append((i + 1, current_content.strip()))
                 current_content = ""
                 i += 1
-                i + 1
-
         stage_index = 0
 
         for line_num, line in joined_lines:
