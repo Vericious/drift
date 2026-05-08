@@ -1,57 +1,128 @@
+"""Sample GraphQL schema fixtures for testing."""
+
+# Schema with unions, interfaces, and scalars
+SAMPLE_UNION_INTERFACE_SCHEMA = b"""
+# Sample GraphQL schema with all type kinds
+
+scalar DateTime
+scalar URL
+scalar JSON
+
 type Query {
-  user(id: ID!): User
-  users(limit: Int, offset: Int): [User!]!
-  currentUser: User
-  posts(search: String): [Post!]!
+    search(query: String!): [SearchResult!]!
+    node(id: ID!): Node
+    user(id: ID!): User
 }
 
 type Mutation {
-  createUser(input: CreateUserInput!): User!
-  deleteUser(id: ID!): Boolean!
-  updatePost(id: ID!, input: UpdatePostInput!): Post!
+    createPost(input: CreatePostInput!): Post
 }
 
-type Subscription {
-  newPost: Post!
-  userUpdated(id: ID!): User!
+# A union type combining multiple object types
+union SearchResult = User | Post | Comment
+
+# An interface with fields
+interface Node {
+    id: ID!
 }
+
+interface Timestamped {
+    createdAt: DateTime!
+    updatedAt: DateTime!
+}
+
+type User implements Node & Timestamped {
+    id: ID!
+    name: String!
+    email: String!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+    posts: [Post!]!
+}
+
+type Post implements Node & Timestamped {
+    id: ID!
+    title: String!
+    body: String!
+    author: User!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+    comments: [Comment!]!
+}
+
+type Comment implements Node {
+    id: ID!
+    body: String!
+    author: User!
+    post: Post!
+}
+
+enum Status {
+    ACTIVE
+    INACTIVE
+    PENDING
+}
+
+enum Role {
+    ADMIN
+    EDITOR
+    VIEWER
+}
+
+input CreatePostInput {
+    title: String!
+    body: String!
+    authorId: ID!
+}
+
+input UpdateUserInput {
+    name: String
+    email: String
+}
+"""
+
+# Minimal schema with just unions
+SAMPLE_MINIMAL_UNION = b"""
+union SearchResult = User | Post
 
 type User {
-  id: ID!
-  name: String!
-  email: String!
-  createdAt: DateTime!
+    id: ID!
+    name: String!
 }
 
 type Post {
-  id: ID!
-  title: String!
-  body: String!
-  author: User!
-  publishedAt: DateTime
-  tags: [String!]!
+    id: ID!
+    title: String!
+}
+"""
+
+# Schema with interface only
+SAMPLE_INTERFACE_ONLY = b"""
+interface Node {
+    id: ID!
 }
 
-input CreateUserInput {
-  name: String!
-  email: String!
-  password: String!
+type User implements Node {
+    id: ID!
+    name: String!
 }
+"""
 
-input UpdatePostInput {
-  title: String
-  body: String
-  tags: [String!]
-}
+# Schema with scalar only
+SAMPLE_SCALAR_ONLY = b"""
+scalar DateTime
+scalar JSON
 
-enum UserRole {
-  ADMIN
-  EDITOR
-  VIEWER
+type Query {
+    now: DateTime!
+    meta: JSON
 }
+"""
 
-enum PostStatus {
-  DRAFT
-  PUBLISHED
-  ARCHIVED
+# Empty schema
+SAMPLE_EMPTY = b"""
+# No types defined
+type Query {
+    ping: String!
 }
+"""
